@@ -51,6 +51,7 @@ export class DictionaryManager {
   private dictionaries: Map<DictionaryType, Dictionary> = new Map();
   private activeDictionary: DictionaryType | null = null;
   private learningProgress: Map<string, LearningProgress> = new Map();
+  private wordCache: Map<string, WordDefinition> = new Map(); // 词汇查询缓存
 
   async loadBuiltInDictionary(type: DictionaryType): Promise<Dictionary> {
     // 如果已经加载过，直接返回
@@ -69,17 +70,46 @@ export class DictionaryManager {
     }
   }
 
-  async lookupWord(word: string): Promise<WordDefinition | null> {
+  async lookupWord(word: string): Promise<WordDefinition> {
+    const normalizedWord = word.toLowerCase();
+    
+    // 检查缓存
+    if (this.wordCache.has(normalizedWord)) {
+      return this.wordCache.get(normalizedWord)!;
+    }
+    
     // 在所有已加载的词库中查找单词
     for (const dictionary of this.dictionaries.values()) {
-      const wordDef = dictionary.words.find(w => w.word.toLowerCase() === word.toLowerCase());
+      const wordDef = dictionary.words.find(w => w.word.toLowerCase() === normalizedWord);
       if (wordDef) {
+        // 缓存结果
+        this.wordCache.set(normalizedWord, wordDef);
         return wordDef;
       }
     }
     
-    // 如果本地词库中没有找到，可以调用在线词典API
-    return await this.lookupWordOnline(word);
+    // 如果本地词库中没有找到，调用在线词典API
+    const onlineResult = await this.lookupWordOnline(word);
+    if (onlineResult) {
+      // 缓存在线查询结果
+      this.wordCache.set(normalizedWord, onlineResult);
+      return onlineResult;
+    }
+    
+    // 如果都没有找到，返回一个默认的词汇定义
+    const defaultDef: WordDefinition = {
+      word,
+      pronunciation: '/unknown/',
+      partOfSpeech: 'unknown',
+      definitions: ['未找到定义'],
+      examples: [],
+      difficulty: 1,
+      frequency: 0
+    };
+    
+    // 缓存默认结果
+    this.wordCache.set(normalizedWord, defaultDef);
+    return defaultDef;
   }
 
   getDictionaryList(): DictionaryInfo[] {
@@ -171,17 +201,7 @@ export class DictionaryManager {
     // 模拟加载词库数据
     // 实际实现中应该从本地文件或远程API加载
     
-    const sampleWords: WordDefinition[] = [
-      {
-        word: 'example',
-        pronunciation: '/ɪɡˈzæmpəl/',
-        partOfSpeech: 'noun',
-        definitions: ['例子', '实例', '榜样'],
-        examples: ['This is an example sentence.'],
-        difficulty: 3,
-        frequency: 85
-      }
-    ];
+    const sampleWords: WordDefinition[] = this.generateSampleWords(type);
 
     return {
       type,
@@ -189,6 +209,101 @@ export class DictionaryManager {
       words: sampleWords,
       totalCount: sampleWords.length
     };
+  }
+
+  private generateSampleWords(type: DictionaryType): WordDefinition[] {
+    // 根据不同词库类型生成示例词汇
+    const baseWords: WordDefinition[] = [
+      {
+        word: 'example',
+        pronunciation: '/ɪɡˈzæmpəl/',
+        partOfSpeech: 'noun',
+        definitions: ['例子', '实例', '榜样'],
+        examples: ['This is an example sentence.', 'Follow his example.'],
+        difficulty: 3,
+        frequency: 85
+      },
+      {
+        word: 'academic',
+        pronunciation: '/ˌækəˈdemɪk/',
+        partOfSpeech: 'adjective',
+        definitions: ['学术的', '理论的', '大学的'],
+        examples: ['Academic research is important.', 'She has academic interests.'],
+        difficulty: 4,
+        frequency: 70
+      },
+      {
+        word: 'analyze',
+        pronunciation: '/ˈænəlaɪz/',
+        partOfSpeech: 'verb',
+        definitions: ['分析', '解析', '研究'],
+        examples: ['We need to analyze the data.', 'Analyze this problem carefully.'],
+        difficulty: 5,
+        frequency: 65
+      },
+      {
+        word: 'comprehensive',
+        pronunciation: '/ˌkɑːmprɪˈhensɪv/',
+        partOfSpeech: 'adjective',
+        definitions: ['全面的', '综合的', '详尽的'],
+        examples: ['A comprehensive study was conducted.', 'This is a comprehensive guide.'],
+        difficulty: 6,
+        frequency: 55
+      },
+      {
+        word: 'significant',
+        pronunciation: '/sɪɡˈnɪfɪkənt/',
+        partOfSpeech: 'adjective',
+        definitions: ['重要的', '显著的', '有意义的'],
+        examples: ['This is a significant discovery.', 'There was a significant change.'],
+        difficulty: 5,
+        frequency: 75
+      }
+    ];
+
+    // 根据词库类型调整难度和词汇数量
+    const difficultyMultiplier = this.getDifficultyMultiplier(type);
+    const wordCount = Math.min(this.getWordCount(type), baseWords.length);
+
+    const words: WordDefinition[] = [];
+    for (let i = 0; i < wordCount; i++) {
+      const baseWord = baseWords[i];
+      if (baseWord) {
+        words.push({
+          word: baseWord.word,
+          pronunciation: baseWord.pronunciation,
+          partOfSpeech: baseWord.partOfSpeech,
+          definitions: baseWord.definitions,
+          examples: baseWord.examples,
+          difficulty: Math.min(10, Math.round(baseWord.difficulty * difficultyMultiplier)),
+          frequency: baseWord.frequency
+        });
+      }
+    }
+
+    return words;
+  }
+
+  private getDifficultyMultiplier(type: DictionaryType): number {
+    const multipliers = {
+      [DictionaryType.CET4]: 0.8,
+      [DictionaryType.CET6]: 1.0,
+      [DictionaryType.IELTS]: 1.2,
+      [DictionaryType.TOEFL]: 1.3,
+      [DictionaryType.GRE]: 1.5
+    };
+    return multipliers[type] || 1.0;
+  }
+
+  private getWordCount(type: DictionaryType): number {
+    const counts = {
+      [DictionaryType.CET4]: 2500,
+      [DictionaryType.CET6]: 3000,
+      [DictionaryType.IELTS]: 3500,
+      [DictionaryType.TOEFL]: 4000,
+      [DictionaryType.GRE]: 3000
+    };
+    return counts[type] || 1000;
   }
 
   private async lookupWordOnline(word: string): Promise<WordDefinition | null> {
@@ -232,5 +347,51 @@ export class DictionaryManager {
     if (!dictionary) return false;
     
     return dictionary.words.some(w => w.word.toLowerCase() === word.toLowerCase());
+  }
+
+  // 清空词汇查询缓存
+  clearWordCache(): void {
+    this.wordCache.clear();
+  }
+
+  // 获取缓存统计信息
+  getCacheStats(): { size: number; dictionaries: number } {
+    return {
+      size: this.wordCache.size,
+      dictionaries: this.dictionaries.size
+    };
+  }
+
+  // 预加载所有词库
+  async preloadAllDictionaries(): Promise<void> {
+    const types = Object.values(DictionaryType);
+    const loadPromises = types.map(type => this.loadBuiltInDictionary(type));
+    
+    try {
+      await Promise.all(loadPromises);
+      console.log('所有词库预加载完成');
+    } catch (error) {
+      console.error('词库预加载失败:', error);
+      throw error;
+    }
+  }
+
+  // 获取当前活跃词库的词汇列表
+  getActiveWords(): WordDefinition[] {
+    if (!this.activeDictionary) {
+      return [];
+    }
+    
+    const dictionary = this.dictionaries.get(this.activeDictionary);
+    return dictionary ? dictionary.words : [];
+  }
+
+  // 检查单词是否在当前活跃词库中
+  isWordInActiveDictionary(word: string): boolean {
+    if (!this.activeDictionary) {
+      return false;
+    }
+    
+    return this.isWordInDictionary(word, this.activeDictionary);
   }
 }
