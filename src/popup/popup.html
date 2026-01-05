@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chrome翻译插件</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- 头部 -->
+    <header class="popup-header">
+      <h1>翻译助手</h1>
+      <div class="header-actions">
+        <button id="settingsBtn" class="icon-btn" title="设置">⚙️</button>
+      </div>
+    </header>
+
+    <!-- 主要内容区域 -->
+    <main class="popup-main">
+      <!-- 翻译状态 -->
+      <section class="translation-status">
+        <div class="status-item">
+          <span class="status-label">翻译模式:</span>
+          <span id="translationStatus" class="status-value">关闭</span>
+          <button id="toggleTranslation" class="toggle-btn">开启</button>
+        </div>
+      </section>
+
+      <!-- 快速翻译 -->
+      <section class="quick-translate">
+        <h3>快速翻译</h3>
+        <div class="translate-input">
+          <textarea id="inputText" placeholder="输入要翻译的文本..."></textarea>
+          <button id="translateBtn" class="primary-btn">翻译</button>
+        </div>
+        <div id="translateResult" class="translate-result" style="display: none;">
+          <div class="result-text"></div>
+        </div>
+      </section>
+
+      <!-- 学习模式 -->
+      <section class="learning-mode">
+        <h3>学习模式</h3>
+        <div class="learning-stats">
+          <div class="stat-item">
+            <span class="stat-number" id="totalWords">0</span>
+            <span class="stat-label">生词总数</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-number" id="todayReviewed">0</span>
+            <span class="stat-label">今日复习</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-number" id="reviewDue">0</span>
+            <span class="stat-label">待复习</span>
+          </div>
+        </div>
+        <div class="learning-actions">
+          <button id="vocabularyBtn" class="secondary-btn">生词本</button>
+          <button id="reviewBtn" class="secondary-btn">开始复习</button>
+        </div>
+      </section>
+
+      <!-- 词库选择 -->
+      <section class="dictionary-selection">
+        <h3>词库设置</h3>
+        <div class="dictionary-list">
+          <label class="dictionary-item">
+            <input type="checkbox" value="gre" checked>
+            <span>GRE词汇</span>
+          </label>
+          <label class="dictionary-item">
+            <input type="checkbox" value="toefl" checked>
+            <span>托福词汇</span>
+          </label>
+          <label class="dictionary-item">
+            <input type="checkbox" value="ielts">
+            <span>雅思词汇</span>
+          </label>
+          <label class="dictionary-item">
+            <input type="checkbox" value="cet4">
+            <span>大学英语四级</span>
+          </label>
+          <label class="dictionary-item">
+            <input type="checkbox" value="cet6">
+            <span>大学英语六级</span>
+          </label>
+        </div>
+      </section>
+    </main>
+
+    <!-- 底部 -->
+    <footer class="popup-footer">
+      <button id="optionsBtn" class="text-btn">更多设置</button>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

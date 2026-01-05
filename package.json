@@ -1,0 +1,49 @@
+{
+  "name": "chrome-translation-extension",
+  "version": "1.0.0",
+  "description": "Chrome浏览器翻译插件，提供智能网页翻译、选词翻译和学习模式功能",
+  "main": "dist/background.js",
+  "scripts": {
+    "build": "webpack --mode=production",
+    "dev": "webpack --mode=development --watch",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src --ext .ts,.js",
+    "lint:fix": "eslint src --ext .ts,.js --fix",
+    "clean": "rimraf dist",
+    "prebuild": "npm run clean"
+  },
+  "keywords": [
+    "chrome-extension",
+    "translation",
+    "learning",
+    "vocabulary",
+    "typescript"
+  ],
+  "author": "Chrome Translation Extension Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/chrome": "^0.0.246",
+    "@types/jest": "^29.5.5",
+    "@types/node": "^20.6.3",
+    "@typescript-eslint/eslint-plugin": "^6.7.2",
+    "@typescript-eslint/parser": "^6.7.2",
+    "copy-webpack-plugin": "^11.0.0",
+    "css-loader": "^6.8.1",
+    "eslint": "^8.49.0",
+    "fast-check": "^3.13.1",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^30.2.0",
+    "mini-css-extract-plugin": "^2.7.6",
+    "rimraf": "^5.0.1",
+    "ts-jest": "^29.1.1",
+    "ts-loader": "^9.4.4",
+    "typescript": "^5.2.2",
+    "webpack": "^5.88.2",
+    "webpack-cli": "^5.1.4"
+  },
+  "dependencies": {
+    "webextension-polyfill": "^0.10.0"
+  }
+}
