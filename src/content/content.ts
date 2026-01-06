@@ -101,7 +101,7 @@ class ContentScript {
   }
 
   private async loadUserSettings(): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       chrome.runtime.sendMessage({ action: 'getSettings' }, (response) => {
         if (response?.success) {
           this.userSettings = response.data;
@@ -495,9 +495,9 @@ class ContentScript {
       if (this.isLearningMode && this.userSettings?.activeDictionaries) {
         // 为新内容应用词汇高亮
         for (const dictType of this.userSettings.activeDictionaries) {
-          const color = this.userSettings.highlightColors[dictType] || '#ffeb3b';
           // 这里需要获取词库词汇列表并高亮，简化处理
           // 实际实现中应该缓存词库数据
+          console.log(`应用词库高亮: ${dictType}`);
         }
       }
     } catch (error) {

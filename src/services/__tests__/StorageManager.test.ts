@@ -239,7 +239,12 @@ describe('StorageManager', () => {
               
               expect(exportedProgress.totalWords).toBe(originalProgress.totalWords);
               expect(exportedProgress.learnedWords).toBe(originalProgress.learnedWords);
-              expect(exportedProgress.masteryRate).toBe(originalProgress.masteryRate);
+              // 处理NaN值的序列化问题
+              if (isNaN(originalProgress.masteryRate)) {
+                expect(exportedProgress.masteryRate).toBeNull();
+              } else {
+                expect(exportedProgress.masteryRate).toBe(originalProgress.masteryRate);
+              }
               
               // 处理Date对象的序列化问题
               if (originalProgress.lastStudyDate instanceof Date) {

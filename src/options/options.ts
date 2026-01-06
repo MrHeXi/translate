@@ -64,7 +64,7 @@ class OptionsController {
     navButtons.forEach(btn => {
       btn.addEventListener('click', (e) => {
         const target = e.target as HTMLButtonElement;
-        const tabId = target.dataset.tab;
+        const tabId = target.dataset['tab'];
         if (tabId) {
           this.switchTab(tabId);
         }
@@ -476,7 +476,6 @@ class OptionsController {
   private async forceSync(): Promise<void> {
     try {
       const syncBtn = document.getElementById('forcSync') as HTMLButtonElement;
-      const originalText = syncBtn.textContent;
       
       syncBtn.textContent = '同步中...';
       syncBtn.disabled = true;
