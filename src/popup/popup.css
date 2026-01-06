@@ -199,6 +199,35 @@ body {
   color: #666;
 }
 
+.learning-progress {
+  margin-bottom: 12px;
+  padding: 8px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+}
+
+.progress-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.progress-item:last-child {
+  margin-bottom: 0;
+}
+
+.progress-label {
+  font-size: 13px;
+  color: #666;
+}
+
+.progress-value {
+  font-size: 13px;
+  font-weight: 500;
+  color: #4285f4;
+}
+
 .learning-actions {
   display: flex;
   gap: 8px;

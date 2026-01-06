@@ -186,6 +186,34 @@ class BackgroundService {
           await this.handleSyncDataRequest(request, sendResponse);
           break;
         
+        case 'resetSettings':
+          await this.handleResetSettingsRequest(request, sendResponse);
+          break;
+        
+        case 'exportUserData':
+          await this.handleExportUserDataRequest(request, sendResponse);
+          break;
+        
+        case 'importUserData':
+          await this.handleImportUserDataRequest(request, sendResponse);
+          break;
+        
+        case 'forceSync':
+          await this.handleForceSyncRequest(request, sendResponse);
+          break;
+        
+        case 'clearVocabulary':
+          await this.handleClearVocabularyRequest(request, sendResponse);
+          break;
+        
+        case 'resetAllSettings':
+          await this.handleResetAllSettingsRequest(request, sendResponse);
+          break;
+        
+        case 'clearAllData':
+          await this.handleClearAllDataRequest(request, sendResponse);
+          break;
+        
         default:
           sendResponse({ success: false, error: `未知的操作类型: ${request.action}` });
       }
@@ -335,6 +363,92 @@ class BackgroundService {
 
   private async handleSyncDataRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
     await this.storageManager.syncData();
+    sendResponse({ success: true });
+  }
+
+  private async handleResetSettingsRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+    // 重置为默认设置
+    const defaultSettings = {
+      defaultTargetLanguage: 'zh-CN',
+      translationProvider: 'google',
+      autoTranslate: false,
+      showFloatingIcon: true,
+      floatingIconPosition: { x: 50, y: 50 },
+      learningModeEnabled: true,
+      activeDictionaries: ['gre', 'toefl'],
+      highlightColors: {
+        gre: '#ff6b6b',
+        toefl: '#4ecdc4',
+        ielts: '#45b7d1',
+        cet4: '#96ceb4',
+        cet6: '#feca57'
+      },
+      dailyGoal: 20,
+      reviewInterval: 'spaced',
+      difficultyAdjustment: 'auto'
+    };
+    
+    await this.storageManager.saveSettings(defaultSettings);
+    sendResponse({ success: true });
+  }
+
+  private async handleExportUserDataRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+    const exportedData = await this.storageManager.exportData();
+    sendResponse({ success: true, data: exportedData });
+  }
+
+  private async handleImportUserDataRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+    await this.storageManager.importData(_request.data);
+    // 重新加载数据
+    await this.learningMode.loadVocabulary();
+    sendResponse({ success: true });
+  }
+
+  private async handleForceSyncRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+    await this.storageManager.syncData();
+    sendResponse({ success: true });
+  }
+
+  private async handleClearVocabularyRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+    // 清空生词本
+    await this.learningMode.clearVocabulary();
+    sendResponse({ success: true });
+  }
+
+  private async handleResetAllSettingsRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+    // 重置所有设置但保留生词本
+    const defaultSettings = {
+      defaultTargetLanguage: 'zh-CN',
+      translationProvider: 'google',
+      autoTranslate: false,
+      showFloatingIcon: true,
+      floatingIconPosition: { x: 50, y: 50 },
+      learningModeEnabled: true,
+      activeDictionaries: ['gre', 'toefl'],
+      highlightColors: {
+        gre: '#ff6b6b',
+        toefl: '#4ecdc4',
+        ielts: '#45b7d1',
+        cet4: '#96ceb4',
+        cet6: '#feca57'
+      },
+      dailyGoal: 20,
+      reviewInterval: 'spaced',
+      difficultyAdjustment: 'auto'
+    };
+    
+    await this.storageManager.saveSettings(defaultSettings);
+    sendResponse({ success: true });
+  }
+
+  private async handleClearAllDataRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+    // 清空所有数据
+    await this.storageManager.clearAllData();
+    await this.learningMode.clearVocabulary();
+    
+    // 重新初始化默认设置
+    await this.handleResetSettingsRequest(_request, () => {});
+    
     sendResponse({ success: true });
   }
 }

@@ -1,5 +1,17 @@
 // Chrome翻译插件弹出窗口脚本
 
+// 学习统计接口定义
+interface LearningStats {
+  totalWordsLearned: number;
+  dailyGoal: number;
+  currentStreak: number;
+  longestStreak: number;
+  reviewAccuracy: number;
+  timeSpentLearning: number;
+  todayReviewedCount: number;
+  reviewDueCount: number;
+}
+
 class PopupController {
   private isTranslationActive: boolean = false;
 
@@ -158,6 +170,9 @@ class PopupController {
 
   private async updateLearningStats(): Promise<void> {
     try {
+      // 显示加载状态
+      this.showLoadingState();
+      
       const response = await this.sendMessage({ action: 'getLearningStats' });
       
       if (response.success) {
@@ -167,13 +182,25 @@ class PopupController {
         const totalWordsElement = document.getElementById('totalWords');
         const todayReviewedElement = document.getElementById('todayReviewed');
         const reviewDueElement = document.getElementById('reviewDue');
+        const currentStreakElement = document.getElementById('currentStreak');
+        const reviewAccuracyElement = document.getElementById('reviewAccuracy');
 
-        if (totalWordsElement) totalWordsElement.textContent = stats.totalWords || '0';
-        if (todayReviewedElement) todayReviewedElement.textContent = stats.todayReviewed || '0';
-        if (reviewDueElement) reviewDueElement.textContent = stats.reviewDue || '0';
+        if (totalWordsElement) totalWordsElement.textContent = stats.totalWordsLearned?.toString() || '0';
+        if (todayReviewedElement) todayReviewedElement.textContent = stats.todayReviewedCount?.toString() || '0';
+        if (reviewDueElement) reviewDueElement.textContent = stats.reviewDueCount?.toString() || '0';
+        if (currentStreakElement) currentStreakElement.textContent = stats.currentStreak?.toString() || '0';
+        if (reviewAccuracyElement) {
+          const accuracy = stats.reviewAccuracy ? Math.round(stats.reviewAccuracy * 100) : 0;
+          reviewAccuracyElement.textContent = `${accuracy}%`;
+        }
+      } else {
+        this.showError('加载学习统计失败');
       }
     } catch (error) {
       console.error('更新学习统计失败:', error);
+      this.showError('加载学习统计失败');
+    } finally {
+      this.hideLoadingState();
     }
   }
 
@@ -190,9 +217,12 @@ class PopupController {
         checkboxes.forEach(checkbox => {
           checkbox.checked = activeDictionaries.includes(checkbox.value);
         });
+      } else {
+        this.showError('加载词库设置失败');
       }
     } catch (error) {
       console.error('加载词库设置失败:', error);
+      this.showError('加载词库设置失败');
     }
   }
 
@@ -201,14 +231,19 @@ class PopupController {
       const checkboxes = document.querySelectorAll('.dictionary-item input[type="checkbox"]:checked') as NodeListOf<HTMLInputElement>;
       const activeDictionaries = Array.from(checkboxes).map(cb => cb.value);
       
-      await this.sendMessage({
+      const response = await this.sendMessage({
         action: 'updateSettings',
         data: {
           activeDictionaries: activeDictionaries
         }
       });
+      
+      if (!response.success) {
+        this.showError('更新词库设置失败');
+      }
     } catch (error) {
       console.error('更新词库设置失败:', error);
+      this.showError('更新词库设置失败');
     }
   }
 
@@ -246,6 +281,49 @@ class PopupController {
         }
       });
     });
+  }
+
+  private showLoadingState(): void {
+    // 可以在这里添加加载动画或禁用按钮
+    const buttons = document.querySelectorAll('button');
+    buttons.forEach(btn => btn.disabled = true);
+  }
+
+  private hideLoadingState(): void {
+    // 恢复按钮状态
+    const buttons = document.querySelectorAll('button');
+    buttons.forEach(btn => btn.disabled = false);
+  }
+
+  private showError(message: string): void {
+    // 简单的错误提示，可以后续改进为更好的UI
+    console.error(message);
+    
+    // 可以在这里添加错误提示UI
+    const errorElement = document.createElement('div');
+    errorElement.className = 'error-message';
+    errorElement.textContent = message;
+    errorElement.style.cssText = `
+      position: fixed;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: #f44336;
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      font-size: 12px;
+      z-index: 1000;
+    `;
+    
+    document.body.appendChild(errorElement);
+    
+    // 3秒后自动移除
+    setTimeout(() => {
+      if (errorElement.parentNode) {
+        errorElement.parentNode.removeChild(errorElement);
+      }
+    }, 3000);
   }
 }
 

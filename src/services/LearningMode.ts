@@ -137,6 +137,25 @@ export class LearningMode {
     }
   }
 
+  async clearVocabulary(): Promise<void> {
+    // 清空所有生词
+    this.vocabulary.clear();
+    
+    // 重置学习统计
+    this.learningStats.totalWordsLearned = 0;
+    this.learningStats.currentStreak = 0;
+    this.learningStats.reviewAccuracy = 0;
+    this.learningStats.timeSpentLearning = 0;
+    this.learningStats.todayReviewedCount = 0;
+    this.learningStats.reviewDueCount = 0;
+    
+    // 重置词库进度
+    this.dictionaryProgress.clear();
+    
+    // 保存更改
+    await this.saveVocabulary();
+  }
+
   async getVocabularyList(dictionaryType?: DictionaryType): Promise<VocabularyItem[]> {
     let vocabularyList = Array.from(this.vocabulary.values());
     
