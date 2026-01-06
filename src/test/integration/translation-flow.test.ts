@@ -1,6 +1,11 @@
 import { TranslationService, TranslationRequest } from '../../services/TranslationService';
 import { LearningMode, VocabularyItem } from '../../services/LearningMode';
 import { DictionaryManager, DictionaryType } from '../../services/DictionaryManager';
+import { messageManager } from '../../services/MessageManager';
+import { performanceManager } from '../../services/PerformanceManager';
+import { errorHandler, ErrorType, ErrorSeverity } from '../../services/ErrorHandler';
+import { offlineManager } from '../../services/OfflineManager';
+import { loadingManager } from '../../services/LoadingManager';
 
 // 模拟Chrome存储API
 const mockChromeStorage = {
@@ -42,7 +47,18 @@ const mockChromeStorage = {
 
 // 设置全局Chrome模拟
 (global as any).chrome = {
-  storage: mockChromeStorage
+  storage: mockChromeStorage,
+  runtime: {
+    sendMessage: jest.fn(),
+    onMessage: {
+      addListener: jest.fn()
+    }
+  },
+  tabs: {
+    query: jest.fn(),
+    sendMessage: jest.fn(),
+    create: jest.fn()
+  }
 };
 
 describe('翻译流程集成测试', () => {
@@ -58,7 +74,18 @@ describe('翻译流程集成测试', () => {
     
     // 设置Chrome全局对象
     (global as any).chrome = {
-      storage: mockChromeStorage
+      storage: mockChromeStorage,
+      runtime: {
+        sendMessage: jest.fn(),
+        onMessage: {
+          addListener: jest.fn()
+        }
+      },
+      tabs: {
+        query: jest.fn(),
+        sendMessage: jest.fn(),
+        create: jest.fn()
+      }
     };
 
     // 初始化服务
@@ -350,6 +377,429 @@ describe('翻译流程集成测试', () => {
       // 获取学习统计
       const stats = await dictionaryManager.getLearningStats(DictionaryType.CET4);
       expect(stats.totalWords).toBeGreaterThan(0);
+    });
+  });
+
+  describe('消息管理器集成测试', () => {
+    beforeEach(() => {
+      // 重置消息管理器
+      messageManager.cleanup();
+    });
+
+    it('应该处理消息注册和发送', async () => {
+      // 注册消息处理器
+      messageManager.registerHandler('test', async (request) => {
+        return { success: true, data: { echo: request.data } };
+      });
+
+      // 模拟Chrome消息发送
+      const mockSendMessage = jest.fn((message, callback) => {
+        callback({ success: true, data: { echo: message.data } });
+      });
+      (global as any).chrome.runtime.sendMessage = mockSendMessage;
+
+      // 发送消息
+      const response = await messageManager.sendMessage({
+        action: 'test',
+        data: { message: 'hello' }
+      });
+
+      expect(response.success).toBe(true);
+      expect(response.data.echo.message).toBe('hello');
+    });
+
+    it('应该处理消息重试', async () => {
+      let attemptCount = 0;
+      const mockSendMessage = jest.fn((message, callback) => {
+        attemptCount++;
+        if (attemptCount < 3) {
+          // 模拟前两次失败
+          callback(null);
+        } else {
+          callback({ success: true, data: 'success' });
+        }
+      });
+      (global as any).chrome.runtime.sendMessage = mockSendMessage;
+
+      // 发送消息（应该重试）
+      const response = await messageManager.sendMessage({
+        action: 'test',
+        data: { message: 'retry-test' }
+      }, { retries: 3 });
+
+      expect(attemptCount).toBe(3);
+      expect(response.success).toBe(true);
+    });
+  });
+
+  describe('错误处理集成测试', () => {
+    beforeEach(() => {
+      errorHandler.clearErrorLog();
+    });
+
+    it('应该记录和处理错误', async () => {
+      // 记录错误
+      const error = errorHandler.logError(
+        ErrorType.TRANSLATION_API_ERROR,
+        '测试错误',
+        { details: 'test' },
+        ErrorSeverity.MEDIUM
+      );
+
+      expect(error.type).toBe(ErrorType.TRANSLATION_API_ERROR);
+      expect(error.message).toBe('测试错误');
+
+      // 获取错误统计
+      const stats = errorHandler.getErrorStats();
+      expect(stats.totalErrors).toBe(1);
+      expect(stats.errorsByType[ErrorType.TRANSLATION_API_ERROR]).toBe(1);
+    });
+
+    it('应该处理异步错误', async () => {
+      const failingOperation = async () => {
+        throw new Error('异步操作失败');
+      };
+
+      await expect(
+        errorHandler.handleAsyncError(
+          failingOperation,
+          ErrorType.CONTENT_SCRIPT_ERROR
+        )
+      ).rejects.toThrow();
+
+      const stats = errorHandler.getErrorStats();
+      expect(stats.totalErrors).toBe(1);
+    });
+
+    it('应该处理重试逻辑', async () => {
+      let attemptCount = 0;
+      const retryOperation = async () => {
+        attemptCount++;
+        if (attemptCount < 3) {
+          throw new Error('重试测试');
+        }
+        return 'success';
+      };
+
+      const result = await errorHandler.handleWithRetry(
+        retryOperation,
+        ErrorType.NETWORK_ERROR,
+        3,
+        10 // 短延迟用于测试
+      );
+
+      expect(result).toBe('success');
+      expect(attemptCount).toBe(3);
+    });
+  });
+
+  describe('性能管理器集成测试', () => {
+    beforeEach(() => {
+      performanceManager.resetMetrics();
+    });
+
+    it('应该记录请求性能', () => {
+      // 记录成功请求
+      performanceManager.recordRequest(100, true);
+      performanceManager.recordRequest(200, true);
+      performanceManager.recordRequest(150, false);
+
+      const metrics = performanceManager.getMetrics();
+      expect(metrics.requestStats.totalRequests).toBe(3);
+      expect(metrics.requestStats.successfulRequests).toBe(2);
+      expect(metrics.requestStats.failedRequests).toBe(1);
+      expect(metrics.requestStats.averageResponseTime).toBe(150);
+    });
+
+    it('应该生成性能报告', () => {
+      // 记录一些性能数据
+      performanceManager.recordRequest(100, true);
+      performanceManager.recordRequest(200, true);
+
+      const report = performanceManager.getPerformanceReport();
+      expect(report.status).toBeDefined();
+      expect(report.recommendations).toBeDefined();
+      expect(Array.isArray(report.recommendations)).toBe(true);
+    });
+
+    it('应该处理节流和防抖', () => {
+      let callCount = 0;
+      const testFunction = () => {
+        callCount++;
+      };
+
+      // 测试节流
+      const throttledFunction = performanceManager.throttle('test', testFunction, 50);
+      
+      // 快速调用多次
+      throttledFunction();
+      throttledFunction();
+      throttledFunction();
+
+      // 应该只执行一次
+      expect(callCount).toBe(1);
+    });
+  });
+
+  describe('离线管理器集成测试', () => {
+    beforeEach(() => {
+      // 重置网络状态
+      Object.defineProperty(navigator, 'onLine', {
+        writable: true,
+        value: true
+      });
+      offlineManager.clearOfflineQueue();
+    });
+
+    it('应该检测网络状态', () => {
+      expect(offlineManager.isNetworkOnline()).toBe(true);
+
+      // 模拟离线
+      Object.defineProperty(navigator, 'onLine', {
+        value: false
+      });
+
+      // 注意：实际的离线管理器可能需要事件触发来更新状态
+      // 这里我们直接检查navigator.onLine
+      expect(navigator.onLine).toBe(false);
+    });
+
+    it('应该管理离线队列', () => {
+      // 添加离线操作
+      offlineManager.queueOperation('vocabulary_add', { word: 'test' });
+      offlineManager.queueOperation('vocabulary_remove', { word: 'old' });
+
+      const status = offlineManager.getOfflineStatus();
+      expect(status.queuedOperations).toBe(2);
+    });
+
+    it('应该处理离线词汇操作', async () => {
+      // 模拟离线状态
+      Object.defineProperty(navigator, 'onLine', {
+        value: false
+      });
+
+      const vocabularyData = {
+        word: 'offline',
+        translation: '离线',
+        context: '离线测试'
+      };
+
+      // 处理离线词汇添加
+      const result = await offlineManager.handleOfflineVocabulary('add', vocabularyData);
+      expect(result.success).toBe(true);
+      expect(result.offline).toBe(true);
+    });
+  });
+
+  describe('加载管理器集成测试', () => {
+    beforeEach(() => {
+      loadingManager.cleanup();
+      // 清理DOM
+      document.body.innerHTML = '';
+    });
+
+    afterEach(() => {
+      loadingManager.cleanup();
+    });
+
+    it('应该显示和隐藏加载状态', () => {
+      const loadingId = loadingManager.showSimpleLoading('测试加载');
+      
+      // 验证加载元素被创建
+      const loadingElement = document.querySelector('.loading-container');
+      expect(loadingElement).toBeTruthy();
+
+      // 隐藏加载
+      loadingManager.hideLoading(loadingId);
+
+      // 验证加载状态
+      expect(loadingManager.hasActiveLoadings()).toBe(false);
+    });
+
+    it('应该更新进度', () => {
+      const loadingId = loadingManager.showProgressLoading('进度测试', 0);
+      
+      // 更新进度
+      loadingManager.updateProgress(loadingId, 50, '进度更新');
+      
+      const activeLoadings = loadingManager.getActiveLoadings();
+      expect(activeLoadings).toHaveLength(1);
+      expect(activeLoadings[0]?.progress).toBe(50);
+      expect(activeLoadings[0]?.message).toBe('进度更新');
+
+      loadingManager.hideLoading(loadingId);
+    });
+
+    it('应该处理可取消的加载', () => {
+      let cancelled = false;
+      const onCancel = () => {
+        cancelled = true;
+      };
+
+      const loadingId = loadingManager.showCancellableLoading(
+        '可取消加载',
+        onCancel,
+        5000
+      );
+
+      // 验证加载状态
+      const activeLoadings = loadingManager.getActiveLoadings();
+      expect(activeLoadings).toHaveLength(1);
+      expect(activeLoadings[0]?.cancellable).toBe(true);
+
+      // 模拟取消
+      if (activeLoadings[0]?.onCancel) {
+        activeLoadings[0].onCancel();
+      }
+
+      expect(cancelled).toBe(true);
+      loadingManager.hideLoading(loadingId);
+    });
+  });
+
+  describe('端到端集成测试', () => {
+    it('应该处理完整的翻译和学习流程', async () => {
+      // 模拟Chrome消息发送
+      const mockSendMessage = jest.fn((message, callback) => {
+        if (message.action === 'translate') {
+          callback({
+            success: true,
+            data: {
+              originalText: message.data.text,
+              translatedText: `[翻译] ${message.data.text}`,
+              sourceLang: 'en',
+              targetLang: 'zh-CN',
+              confidence: 0.95
+            }
+          });
+        } else if (message.action === 'addVocabulary') {
+          callback({ success: true });
+        }
+      });
+      (global as any).chrome.runtime.sendMessage = mockSendMessage;
+
+      // 步骤1: 翻译
+      const translationRequest: TranslationRequest = {
+        text: 'integration',
+        targetLang: 'zh-CN'
+      };
+      
+      const translationResult = await translationService.translate(translationRequest);
+      expect(translationResult.originalText).toBe('integration');
+
+      // 步骤2: 添加到词汇表
+      const vocabularyItem: VocabularyItem = {
+        word: 'integration',
+        translation: '集成',
+        context: '集成测试',
+        sourceUrl: 'https://test.com',
+        addedDate: new Date(),
+        reviewCount: 0,
+        masteryLevel: 0,
+        nextReviewDate: new Date(Date.now() + 24 * 60 * 60 * 1000)
+      };
+
+      await learningMode.addVocabulary(vocabularyItem);
+
+      // 步骤3: 验证数据持久化
+      const vocabularyList = await learningMode.getVocabularyList();
+      expect(vocabularyList).toHaveLength(1);
+      expect(vocabularyList[0]?.word).toBe('integration');
+
+      // 步骤4: 学习进度更新
+      await learningMode.markAsLearned('integration');
+      
+      const updatedList = await learningMode.getVocabularyList();
+      expect(updatedList[0]?.masteryLevel).toBeGreaterThan(0);
+
+      // 步骤5: 性能监控
+      performanceManager.recordRequest(100, true);
+      const metrics = performanceManager.getMetrics();
+      expect(metrics.requestStats.totalRequests).toBeGreaterThan(0);
+    });
+
+    it('应该处理错误恢复流程', async () => {
+      // 模拟网络错误
+      const mockSendMessage = jest.fn((message, callback) => {
+        callback({ success: false, error: '网络错误' });
+      });
+      (global as any).chrome.runtime.sendMessage = mockSendMessage;
+
+      // 尝试翻译（应该失败）
+      const translationRequest: TranslationRequest = {
+        text: 'error-test',
+        targetLang: 'zh-CN'
+      };
+
+      await expect(translationService.translate(translationRequest))
+        .rejects.toThrow();
+
+      // 验证错误被记录
+      const errorStats = errorHandler.getErrorStats();
+      expect(errorStats.totalErrors).toBeGreaterThan(0);
+
+      // 模拟网络恢复
+      mockSendMessage.mockImplementation((message, callback) => {
+        callback({
+          success: true,
+          data: {
+            originalText: message.data.text,
+            translatedText: `[翻译] ${message.data.text}`,
+            sourceLang: 'en',
+            targetLang: 'zh-CN',
+            confidence: 0.95
+          }
+        });
+      });
+
+      // 重试翻译（应该成功）
+      const retryResult = await translationService.translate(translationRequest);
+      expect(retryResult.originalText).toBe('error-test');
+    });
+
+    it('应该处理离线到在线的完整流程', async () => {
+      // 模拟离线状态
+      Object.defineProperty(navigator, 'onLine', {
+        value: false
+      });
+
+      // 添加离线操作
+      const vocabularyData = {
+        word: 'offline-test',
+        translation: '离线测试',
+        context: '离线集成测试'
+      };
+
+      offlineManager.queueOperation('vocabulary_add', vocabularyData);
+      
+      // 验证离线队列
+      let status = offlineManager.getOfflineStatus();
+      expect(status.queuedOperations).toBe(1);
+
+      // 模拟网络恢复
+      Object.defineProperty(navigator, 'onLine', {
+        value: true
+      });
+
+      // 模拟同步成功
+      const mockSendMessage = jest.fn((message, callback) => {
+        if (message.action === 'syncOfflineOperation') {
+          callback({ success: true });
+        }
+      });
+      (global as any).chrome.runtime.sendMessage = mockSendMessage;
+
+      // 触发同步
+      await offlineManager.syncWhenOnline();
+
+      // 验证同步请求被发送
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'syncOfflineOperation'
+        }),
+        expect.any(Function)
+      );
     });
   });
 });

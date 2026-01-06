@@ -4,6 +4,11 @@
 import { FloatingIcon } from './components/FloatingIcon';
 import { TranslationOverlay } from './components/TranslationOverlay';
 import { SelectionHandler } from './components/SelectionHandler';
+import { messageManager } from '../services/MessageManager';
+import { performanceManager } from '../services/PerformanceManager';
+import { errorHandler, ErrorType, ErrorSeverity } from '../services/ErrorHandler';
+import { offlineManager } from '../services/OfflineManager';
+import { loadingManager } from '../services/LoadingManager';
 
 // 翻译结果接口
 interface TranslationResult {
@@ -60,6 +65,12 @@ class ContentScript {
 
   private async setupComponents(): Promise<void> {
     try {
+      // 启动性能监控（内容脚本环境）
+      performanceManager.startMonitoring();
+      
+      // 注册消息处理器
+      this.registerMessageHandlers();
+      
       // 加载用户设置
       await this.loadUserSettings();
       
@@ -112,6 +123,43 @@ class ContentScript {
           resolve();
         }
       });
+    });
+  }
+
+  private registerMessageHandlers(): void {
+    // 注册内容脚本的消息处理器
+    messageManager.registerHandlers({
+      'ping': async () => ({ success: true, data: { status: 'content-script-ready' } }),
+      'toggleTranslation': async () => {
+        await this.toggleTranslation();
+        return { success: true, data: { isActive: this.isTranslationMode } };
+      },
+      'toggleLearningMode': async () => {
+        await this.toggleLearningMode();
+        return { success: true, data: { isActive: this.isLearningMode } };
+      },
+      'updateSettings': async (request) => {
+        this.userSettings = { ...this.userSettings, ...request.data };
+        await this.applySettingsChanges();
+        return { success: true };
+      },
+      'highlightWord': async (request) => {
+        this.highlightWordInPage(request.data.word, request.data.color);
+        return { success: true };
+      },
+      'getPageInfo': async () => {
+        const pageInfo = this.getPageInfo();
+        return { success: true, data: pageInfo };
+      },
+      'getTranslationStatus': async () => {
+        return { 
+          success: true, 
+          data: { 
+            isActive: this.isTranslationMode,
+            isLearningMode: this.isLearningMode 
+          } 
+        };
+      }
     });
   }
 
@@ -343,16 +391,37 @@ class ContentScript {
   private async handleTextSelection(text: string, position: { x: number; y: number }): Promise<void> {
     if (!text.trim()) return;
 
+    // 显示加载状态
+    const loadingId = loadingManager.showSimpleLoading('翻译中...', 10000);
+
     try {
       // 检查缓存
       let translation = this.translationCache.get(text);
       
       if (!translation) {
-        // 请求翻译
-        const result = await this.requestTranslation(text);
-        translation = result.translatedText;
-        this.translationCache.set(text, translation);
+        // 检查网络状态
+        if (!offlineManager.isNetworkOnline()) {
+          // 尝试离线翻译
+          const offlineResult = await offlineManager.handleOfflineTranslation(
+            text, 
+            this.userSettings?.defaultTargetLanguage || 'zh-CN'
+          );
+          
+          if (offlineResult.success) {
+            translation = offlineResult.data.translatedText;
+          } else {
+            throw new Error('离线模式下无法翻译新内容');
+          }
+        } else {
+          // 在线翻译
+          const result = await this.requestTranslation(text);
+          translation = result.translatedText;
+          this.translationCache.set(text, translation);
+        }
       }
+
+      // 隐藏加载状态
+      loadingManager.hideLoading(loadingId);
 
       // 显示翻译工具提示
       this.translationOverlay.showTooltip(text, translation, position);
@@ -362,27 +431,83 @@ class ContentScript {
         this.translationOverlay.showAddToVocabularyOption(text, translation);
       }
     } catch (error) {
-      console.error('处理文本选择失败:', error);
-      this.translationOverlay.showError('翻译失败，请稍后重试');
+      // 隐藏加载状态
+      loadingManager.hideLoading(loadingId);
+      
+      // 记录错误
+      errorHandler.logError(
+        ErrorType.TRANSLATION_API_ERROR,
+        '选词翻译失败',
+        error,
+        ErrorSeverity.MEDIUM,
+        { component: 'content-script', action: 'text-selection' }
+      );
+      
+      // 显示用户友好的错误信息
+      const userMessage = errorHandler.getUserFriendlyMessage({
+        type: ErrorType.TRANSLATION_API_ERROR,
+        severity: ErrorSeverity.MEDIUM,
+        message: error instanceof Error ? error.message : '翻译失败',
+        timestamp: new Date()
+      });
+      
+      this.translationOverlay.showError(userMessage);
     }
   }
 
   private async translatePage(): Promise<void> {
+    // 显示页面翻译加载状态
+    const loadingId = loadingManager.showProgressLoading('正在翻译页面...', 0);
+    
     try {
       // 获取页面所有文本节点
       const textNodes = this.getTextNodes(document.body);
       
+      // 更新进度
+      loadingManager.updateProgress(loadingId, 10, '正在分析页面内容...');
+      
       // 批量翻译文本（分批处理以避免API限制）
       const batchSize = 10;
+      const totalBatches = Math.ceil(textNodes.length / batchSize);
+      
       for (let i = 0; i < textNodes.length; i += batchSize) {
         const batch = textNodes.slice(i, i + batchSize);
+        const currentBatch = Math.floor(i / batchSize) + 1;
+        
+        // 更新进度
+        const progress = 10 + (currentBatch / totalBatches) * 80;
+        loadingManager.updateProgress(loadingId, progress, `正在翻译第 ${currentBatch}/${totalBatches} 批内容...`);
+        
         await this.translateTextNodeBatch(batch);
         
         // 添加小延迟以避免过于频繁的API调用
         await new Promise(resolve => setTimeout(resolve, 100));
       }
+      
+      // 完成
+      loadingManager.updateProgress(loadingId, 100, '翻译完成');
+      setTimeout(() => loadingManager.hideLoading(loadingId), 1000);
+      
     } catch (error) {
-      console.error('页面翻译失败:', error);
+      loadingManager.hideLoading(loadingId);
+      
+      errorHandler.logError(
+        ErrorType.TRANSLATION_API_ERROR,
+        '页面翻译失败',
+        error,
+        ErrorSeverity.HIGH,
+        { component: 'content-script', action: 'translate-page' }
+      );
+      
+      // 显示错误通知
+      const userMessage = errorHandler.getUserFriendlyMessage({
+        type: ErrorType.TRANSLATION_API_ERROR,
+        severity: ErrorSeverity.HIGH,
+        message: error instanceof Error ? error.message : '页面翻译失败',
+        timestamp: new Date()
+      });
+      
+      this.translationOverlay.showError(userMessage);
     }
   }
 
@@ -445,21 +570,29 @@ class ContentScript {
   }
 
   private async requestTranslation(text: string): Promise<TranslationResult> {
-    return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({
+    const startTime = Date.now();
+    try {
+      const response = await messageManager.sendToBackground({
         action: 'translate',
         data: {
           text: text,
           targetLang: this.userSettings?.defaultTargetLanguage || 'zh-CN'
         }
-      }, (response) => {
-        if (response?.success) {
-          resolve(response.data);
-        } else {
-          reject(new Error(response?.error || '翻译请求失败'));
-        }
       });
-    });
+
+      const responseTime = Date.now() - startTime;
+      performanceManager.recordRequest(responseTime, response.success);
+
+      if (response.success) {
+        return response.data;
+      } else {
+        throw new Error(response.error || '翻译请求失败');
+      }
+    } catch (error) {
+      const responseTime = Date.now() - startTime;
+      performanceManager.recordRequest(responseTime, false);
+      throw error;
+    }
   }
 
   private observePageChanges(): void {

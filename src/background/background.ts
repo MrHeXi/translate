@@ -5,8 +5,12 @@ import { TranslationService } from '../services/TranslationService';
 import { DictionaryManager, DictionaryType } from '../services/DictionaryManager';
 import { LearningMode } from '../services/LearningMode';
 import { StorageManager } from '../services/StorageManager';
+import { messageManager, MessageRequest, MessageResponse } from '../services/MessageManager';
+import { performanceManager } from '../services/PerformanceManager';
+import { errorHandler, ErrorType, ErrorSeverity } from '../services/ErrorHandler';
+import { offlineManager } from '../services/OfflineManager';
 
-// 消息类型定义
+// 消息类型定义（保留兼容性）
 interface MessageRequest {
   action: string;
   data?: any;
@@ -37,20 +41,37 @@ class BackgroundService {
 
   private async initialize(): Promise<void> {
     try {
+      // 启动性能监控
+      performanceManager.startMonitoring();
+      
+      // 设置错误处理
+      this.setupErrorHandling();
+      
       // 初始化服务
       await this.loadUserData();
       await this.preloadDictionaries();
       
-      // 设置消息处理器
-      this.initializeMessageHandlers();
+      // 注册消息处理器
+      this.registerMessageHandlers();
       
       // 设置扩展安装和更新处理
       this.initializeExtensionHandlers();
       
+      // 设置性能优化
+      this.setupPerformanceOptimization();
+      
+      // 设置离线模式支持
+      this.setupOfflineSupport();
+      
       this.isInitialized = true;
       console.log('后台服务初始化完成');
     } catch (error) {
-      console.error('后台服务初始化失败:', error);
+      errorHandler.logError(
+        ErrorType.INITIALIZATION_ERROR,
+        '后台服务初始化失败',
+        error,
+        ErrorSeverity.CRITICAL
+      );
     }
   }
 
@@ -77,8 +98,69 @@ class BackgroundService {
     }
   }
 
-  private initializeMessageHandlers(): void {
-    // 监听来自content script和popup的消息
+  private registerMessageHandlers(): void {
+    // 注册所有消息处理器到统一管理器
+    messageManager.registerHandlers({
+      // 翻译相关
+      'translate': this.handleTranslateRequest.bind(this),
+      'detectLanguage': this.handleDetectLanguageRequest.bind(this),
+      
+      // 词汇管理
+      'addVocabulary': this.handleAddVocabularyRequest.bind(this),
+      'removeVocabulary': this.handleRemoveVocabularyRequest.bind(this),
+      'getVocabularyList': this.handleGetVocabularyListRequest.bind(this),
+      'markAsLearned': this.handleMarkAsLearnedRequest.bind(this),
+      
+      // 词典管理
+      'loadDictionary': this.handleLoadDictionaryRequest.bind(this),
+      'lookupWord': this.handleLookupWordRequest.bind(this),
+      
+      // 设置管理
+      'getSettings': this.handleGetSettingsRequest.bind(this),
+      'updateSettings': this.handleUpdateSettingsRequest.bind(this),
+      
+      // 学习统计
+      'getLearningStats': this.handleGetLearningStatsRequest.bind(this),
+      'getDictionaryProgress': this.handleGetDictionaryProgressRequest.bind(this),
+      
+      // 复习会话
+      'startReviewSession': this.handleStartReviewSessionRequest.bind(this),
+      'endReviewSession': this.handleEndReviewSessionRequest.bind(this),
+      'recordReviewResult': this.handleRecordReviewResultRequest.bind(this),
+      
+      // 数据管理
+      'exportData': this.handleExportDataRequest.bind(this),
+      'importData': this.handleImportDataRequest.bind(this),
+      'syncData': this.handleSyncDataRequest.bind(this),
+      
+      // 系统操作
+      'resetSettings': this.handleResetSettingsRequest.bind(this),
+      'exportUserData': this.handleExportUserDataRequest.bind(this),
+      'importUserData': this.handleImportUserDataRequest.bind(this),
+      'forceSync': this.handleForceSyncRequest.bind(this),
+      'clearVocabulary': this.handleClearVocabularyRequest.bind(this),
+      'resetAllSettings': this.handleResetAllSettingsRequest.bind(this),
+      'clearAllData': this.handleClearAllDataRequest.bind(this),
+      
+      // 性能和系统
+      'ping': this.handlePingRequest.bind(this),
+      'getPerformanceMetrics': this.handleGetPerformanceMetricsRequest.bind(this),
+      'optimizeCache': this.handleOptimizeCacheRequest.bind(this),
+      'cleanupExpiredCache': this.handleCleanupExpiredCacheRequest.bind(this),
+      'performanceEvent': this.handlePerformanceEventRequest.bind(this),
+      
+      // UI操作
+      'openSettings': this.handleOpenSettingsRequest.bind(this),
+      'openVocabulary': this.handleOpenVocabularyRequest.bind(this),
+      'openReview': this.handleOpenReviewRequest.bind(this),
+      
+      // 错误处理和离线支持
+      'reportError': this.handleReportErrorRequest.bind(this),
+      'syncOfflineOperation': this.handleSyncOfflineOperationRequest.bind(this),
+      'networkStatusChanged': this.handleNetworkStatusChangedRequest.bind(this)
+    });
+
+    // 保持原有的消息监听器以确保兼容性
     chrome.runtime.onMessage.addListener((request: MessageRequest, sender, sendResponse) => {
       this.handleMessage(request, sender, sendResponse);
       return true; // 保持消息通道开放以支持异步响应
@@ -267,106 +349,254 @@ class BackgroundService {
     // 可以在这里进行启动时的清理或初始化工作
   }
 
+  private setupPerformanceOptimization(): void {
+    // 配置性能管理器
+    performanceManager.updateConfig({
+      maxMemoryUsage: 150, // 150MB
+      maxCacheSize: 2000,  // 2000个缓存项
+      maxCacheAge: 48 * 60 * 60 * 1000, // 48小时
+      requestTimeout: 15000, // 15秒
+      batchSize: 20,
+      throttleDelay: 200
+    });
+
+    // 定期清理过期缓存
+    setInterval(() => {
+      this.cleanupExpiredCaches();
+    }, 60 * 60 * 1000); // 每小时清理一次
+
+    // 监听内存警告
+    chrome.runtime.onMessage.addListener((request) => {
+      if (request.action === 'performanceEvent' && request.data.type === 'memory-warning') {
+        this.handleMemoryWarning(request.data.data);
+      }
+    });
+  }
+
+  private setupErrorHandling(): void {
+    // 注册错误处理回调
+    errorHandler.onError(ErrorType.TRANSLATION_API_ERROR, (error) => {
+      console.warn('翻译API错误:', error);
+      // 可以在这里切换到备用翻译服务
+    });
+
+    errorHandler.onError(ErrorType.STORAGE_ERROR, (error) => {
+      console.warn('存储错误:', error);
+      // 可以在这里尝试清理存储空间
+    });
+
+    errorHandler.onError(ErrorType.NETWORK_ERROR, (error) => {
+      console.warn('网络错误:', error);
+      // 启用离线模式
+      if (!offlineManager.isNetworkOnline()) {
+        offlineManager.showOfflineNotification();
+      }
+    });
+
+    // 设置全局错误恢复策略
+    errorHandler.registerRecoveryStrategy(ErrorType.TRANSLATION_API_ERROR, {
+      canRecover: true,
+      retryable: true,
+      maxRetries: 3,
+      userMessage: '翻译服务暂时不可用，正在重试...',
+      recoveryAction: async () => {
+        // 清理翻译缓存，强制重新请求
+        this.translationService.clearCache();
+      }
+    });
+  }
+
+  private setupOfflineSupport(): void {
+    // 监听网络状态变化
+    chrome.runtime.onMessage.addListener((request) => {
+      if (request.action === 'networkStatusChanged') {
+        const { isOnline } = request.data;
+        console.log(`网络状态变化: ${isOnline ? '在线' : '离线'}`);
+        
+        if (isOnline) {
+          // 网络恢复时同步离线数据
+          offlineManager.syncWhenOnline();
+        }
+      }
+    });
+  }
+
+  private async cleanupExpiredCaches(): Promise<void> {
+    try {
+      // 清理翻译服务缓存
+      this.translationService.cleanExpiredCache();
+      
+      // 清理词典管理器缓存
+      this.dictionaryManager.clearWordCache();
+      
+      console.log('定期缓存清理完成');
+    } catch (error) {
+      console.error('缓存清理失败:', error);
+    }
+  }
+
+  private handleMemoryWarning(data: any): void {
+    console.warn('内存使用警告:', data);
+    
+    // 执行紧急内存清理
+    this.cleanupExpiredCaches();
+    
+    // 通知用户（如果需要）
+    if (data.usage > 95) {
+      chrome.notifications?.create({
+        type: 'basic',
+        iconUrl: 'icons/icon48.png',
+        title: '翻译插件内存警告',
+        message: '内存使用率过高，已自动清理缓存'
+      });
+    }
+  }
+
   // 具体的消息处理方法
-  private async handleTranslateRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
-    const result = await this.translationService.translate(_request.data);
-    sendResponse({ success: true, data: result });
+  private async handleTranslateRequest(request: MessageRequest): Promise<MessageResponse> {
+    const startTime = Date.now();
+    try {
+      // 检查网络状态
+      if (!offlineManager.isNetworkOnline()) {
+        // 尝试离线翻译
+        const offlineResult = await offlineManager.handleOfflineTranslation(
+          request.data.text, 
+          request.data.targetLang
+        );
+        
+        if (offlineResult.success) {
+          const responseTime = Date.now() - startTime;
+          performanceManager.recordRequest(responseTime, true);
+          return offlineResult;
+        } else {
+          // 离线翻译失败，返回错误
+          throw new Error(offlineResult.error);
+        }
+      }
+
+      // 在线翻译，使用错误处理包装
+      const result = await errorHandler.handleWithRetry(
+        () => this.translationService.translate(request.data),
+        ErrorType.TRANSLATION_API_ERROR,
+        3, // 最多重试3次
+        1000, // 1秒延迟
+        { component: 'background', action: 'translate' }
+      );
+
+      const responseTime = Date.now() - startTime;
+      performanceManager.recordRequest(responseTime, true);
+      return { success: true, data: result };
+    } catch (error) {
+      const responseTime = Date.now() - startTime;
+      performanceManager.recordRequest(responseTime, false);
+      
+      // 记录错误
+      errorHandler.logError(
+        ErrorType.TRANSLATION_API_ERROR,
+        '翻译请求失败',
+        error,
+        ErrorSeverity.MEDIUM,
+        { component: 'background', action: 'translate' }
+      );
+      
+      throw error;
+    }
   }
 
-  private async handleDetectLanguageRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
-    const result = await this.translationService.detectLanguage(_request.data.text);
-    sendResponse({ success: true, data: result });
+  private async handleDetectLanguageRequest(request: MessageRequest): Promise<MessageResponse> {
+    const result = await this.translationService.detectLanguage(request.data.text);
+    return { success: true, data: result };
   }
 
-  private async handleAddVocabularyRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
-    await this.learningMode.addVocabulary(_request.data);
-    sendResponse({ success: true });
+  private async handleAddVocabularyRequest(request: MessageRequest): Promise<MessageResponse> {
+    await this.learningMode.addVocabulary(request.data);
+    return { success: true };
   }
 
-  private async handleRemoveVocabularyRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
-    await this.learningMode.removeVocabulary(_request.data.word);
-    sendResponse({ success: true });
+  private async handleRemoveVocabularyRequest(request: MessageRequest): Promise<MessageResponse> {
+    await this.learningMode.removeVocabulary(request.data.word);
+    return { success: true };
   }
 
-  private async handleGetVocabularyListRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
-    const vocabularyList = await this.learningMode.getVocabularyList(_request.data?.dictionaryType);
-    sendResponse({ success: true, data: vocabularyList });
+  private async handleGetVocabularyListRequest(request: MessageRequest): Promise<MessageResponse> {
+    const vocabularyList = await this.learningMode.getVocabularyList(request.data?.dictionaryType);
+    return { success: true, data: vocabularyList };
   }
 
-  private async handleMarkAsLearnedRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
-    await this.learningMode.markAsLearned(_request.data.word);
-    sendResponse({ success: true });
+  private async handleMarkAsLearnedRequest(request: MessageRequest): Promise<MessageResponse> {
+    await this.learningMode.markAsLearned(request.data.word);
+    return { success: true };
   }
 
-  private async handleLoadDictionaryRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
-    const dictionary = await this.dictionaryManager.loadBuiltInDictionary(_request.data.type);
-    sendResponse({ success: true, data: dictionary });
+  private async handleLoadDictionaryRequest(request: MessageRequest): Promise<MessageResponse> {
+    const dictionary = await this.dictionaryManager.loadBuiltInDictionary(request.data.type);
+    return { success: true, data: dictionary };
   }
 
-  private async handleLookupWordRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
-    const wordDefinition = await this.dictionaryManager.lookupWord(_request.data.word);
-    sendResponse({ success: true, data: wordDefinition });
+  private async handleLookupWordRequest(request: MessageRequest): Promise<MessageResponse> {
+    const wordDefinition = await this.dictionaryManager.lookupWord(request.data.word);
+    return { success: true, data: wordDefinition };
   }
 
-  private async handleGetSettingsRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+  private async handleGetSettingsRequest(request: MessageRequest): Promise<MessageResponse> {
     const settings = await this.storageManager.getSettings();
-    sendResponse({ success: true, data: settings });
+    return { success: true, data: settings };
   }
 
-  private async handleUpdateSettingsRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
-    await this.storageManager.saveSettings(_request.data);
-    sendResponse({ success: true });
+  private async handleUpdateSettingsRequest(request: MessageRequest): Promise<MessageResponse> {
+    await this.storageManager.saveSettings(request.data);
+    return { success: true };
   }
 
-  private async handleGetLearningStatsRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+  private async handleGetLearningStatsRequest(request: MessageRequest): Promise<MessageResponse> {
     const stats = await this.learningMode.getLearningStats();
-    sendResponse({ success: true, data: stats });
+    return { success: true, data: stats };
   }
 
-  private async handleGetDictionaryProgressRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
-    const progress = _request.data?.dictionaryType 
-      ? await this.learningMode.getDictionaryProgress(_request.data.dictionaryType)
+  private async handleGetDictionaryProgressRequest(request: MessageRequest): Promise<MessageResponse> {
+    const progress = request.data?.dictionaryType 
+      ? await this.learningMode.getDictionaryProgress(request.data.dictionaryType)
       : await this.learningMode.getAllDictionaryProgress();
-    sendResponse({ success: true, data: progress });
+    return { success: true, data: progress };
   }
 
-  private async handleStartReviewSessionRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+  private async handleStartReviewSessionRequest(request: MessageRequest): Promise<MessageResponse> {
     const sessionId = await this.learningMode.startReviewSession();
-    sendResponse({ success: true, data: { sessionId } });
+    return { success: true, data: { sessionId } };
   }
 
-  private async handleEndReviewSessionRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+  private async handleEndReviewSessionRequest(request: MessageRequest): Promise<MessageResponse> {
     const session = await this.learningMode.endReviewSession();
-    sendResponse({ success: true, data: session });
+    return { success: true, data: session };
   }
 
-  private async handleRecordReviewResultRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+  private async handleRecordReviewResultRequest(request: MessageRequest): Promise<MessageResponse> {
     await this.learningMode.recordReviewResult(
-      _request.data.word, 
-      _request.data.isCorrect, 
-      _request.data.responseTime
+      request.data.word, 
+      request.data.isCorrect, 
+      request.data.responseTime
     );
-    sendResponse({ success: true });
+    return { success: true };
   }
 
-  private async handleExportDataRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+  private async handleExportDataRequest(request: MessageRequest): Promise<MessageResponse> {
     const exportedData = await this.storageManager.exportData();
-    sendResponse({ success: true, data: exportedData });
+    return { success: true, data: exportedData };
   }
 
-  private async handleImportDataRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
-    await this.storageManager.importData(_request.data.jsonData);
+  private async handleImportDataRequest(request: MessageRequest): Promise<MessageResponse> {
+    await this.storageManager.importData(request.data.jsonData);
     // 重新加载数据
     await this.learningMode.loadVocabulary();
-    sendResponse({ success: true });
+    return { success: true };
   }
 
-  private async handleSyncDataRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+  private async handleSyncDataRequest(request: MessageRequest): Promise<MessageResponse> {
     await this.storageManager.syncData();
-    sendResponse({ success: true });
+    return { success: true };
   }
 
-  private async handleResetSettingsRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+  private async handleResetSettingsRequest(request: MessageRequest): Promise<MessageResponse> {
     // 重置为默认设置
     const defaultSettings = {
       defaultTargetLanguage: 'zh-CN',
@@ -389,33 +619,33 @@ class BackgroundService {
     };
     
     await this.storageManager.saveSettings(defaultSettings);
-    sendResponse({ success: true });
+    return { success: true };
   }
 
-  private async handleExportUserDataRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+  private async handleExportUserDataRequest(request: MessageRequest): Promise<MessageResponse> {
     const exportedData = await this.storageManager.exportData();
-    sendResponse({ success: true, data: exportedData });
+    return { success: true, data: exportedData };
   }
 
-  private async handleImportUserDataRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
-    await this.storageManager.importData(_request.data);
+  private async handleImportUserDataRequest(request: MessageRequest): Promise<MessageResponse> {
+    await this.storageManager.importData(request.data);
     // 重新加载数据
     await this.learningMode.loadVocabulary();
-    sendResponse({ success: true });
+    return { success: true };
   }
 
-  private async handleForceSyncRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+  private async handleForceSyncRequest(request: MessageRequest): Promise<MessageResponse> {
     await this.storageManager.syncData();
-    sendResponse({ success: true });
+    return { success: true };
   }
 
-  private async handleClearVocabularyRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+  private async handleClearVocabularyRequest(request: MessageRequest): Promise<MessageResponse> {
     // 清空生词本
     await this.learningMode.clearVocabulary();
-    sendResponse({ success: true });
+    return { success: true };
   }
 
-  private async handleResetAllSettingsRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+  private async handleResetAllSettingsRequest(request: MessageRequest): Promise<MessageResponse> {
     // 重置所有设置但保留生词本
     const defaultSettings = {
       defaultTargetLanguage: 'zh-CN',
@@ -438,18 +668,143 @@ class BackgroundService {
     };
     
     await this.storageManager.saveSettings(defaultSettings);
-    sendResponse({ success: true });
+    return { success: true };
   }
 
-  private async handleClearAllDataRequest(_request: MessageRequest, sendResponse: (response: MessageResponse) => void): Promise<void> {
+  private async handleClearAllDataRequest(request: MessageRequest): Promise<MessageResponse> {
     // 清空所有数据
     await this.storageManager.clearAllData();
     await this.learningMode.clearVocabulary();
     
     // 重新初始化默认设置
-    await this.handleResetSettingsRequest(_request, () => {});
+    await this.handleResetSettingsRequest(request);
     
-    sendResponse({ success: true });
+    return { success: true };
+  }
+
+  // 新增的性能和系统相关处理方法
+  private async handlePingRequest(request: MessageRequest): Promise<MessageResponse> {
+    return { success: true, data: { timestamp: Date.now(), status: 'ok' } };
+  }
+
+  private async handleGetPerformanceMetricsRequest(request: MessageRequest): Promise<MessageResponse> {
+    const metrics = performanceManager.getMetrics();
+    const report = performanceManager.getPerformanceReport();
+    return { success: true, data: { metrics, report } };
+  }
+
+  private async handleOptimizeCacheRequest(request: MessageRequest): Promise<MessageResponse> {
+    const maxSize = request.data?.maxSize || 1000;
+    
+    // 优化翻译缓存
+    if (this.translationService.getCacheSize() > maxSize) {
+      this.translationService.cleanExpiredCache();
+    }
+    
+    // 优化词典缓存
+    this.dictionaryManager.clearWordCache();
+    
+    return { success: true, data: { optimized: true } };
+  }
+
+  private async handleCleanupExpiredCacheRequest(request: MessageRequest): Promise<MessageResponse> {
+    await this.cleanupExpiredCaches();
+    return { success: true };
+  }
+
+  private async handlePerformanceEventRequest(request: MessageRequest): Promise<MessageResponse> {
+    const { type, data } = request.data;
+    console.log(`性能事件: ${type}`, data);
+    
+    // 根据事件类型执行相应操作
+    switch (type) {
+      case 'memory-warning':
+        this.handleMemoryWarning(data);
+        break;
+      case 'cache-overflow':
+        await this.handleOptimizeCacheRequest(request);
+        break;
+    }
+    
+    return { success: true };
+  }
+
+  // UI操作处理方法
+  private async handleOpenSettingsRequest(request: MessageRequest): Promise<MessageResponse> {
+    chrome.runtime.openOptionsPage();
+    return { success: true };
+  }
+
+  private async handleOpenVocabularyRequest(request: MessageRequest): Promise<MessageResponse> {
+    chrome.tabs.create({
+      url: chrome.runtime.getURL('src/options/vocabulary.html')
+    });
+    return { success: true };
+  }
+
+  private async handleOpenReviewRequest(request: MessageRequest): Promise<MessageResponse> {
+    chrome.tabs.create({
+      url: chrome.runtime.getURL('src/options/review.html')
+    });
+    return { success: true };
+  }
+
+  // 错误处理和离线支持相关处理方法
+  private async handleReportErrorRequest(request: MessageRequest): Promise<MessageResponse> {
+    try {
+      const error = request.data;
+      console.error('收到错误报告:', error);
+      
+      // 这里可以将错误发送到错误收集服务
+      // 例如发送到分析服务或日志系统
+      
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: '错误报告处理失败' };
+    }
+  }
+
+  private async handleSyncOfflineOperationRequest(request: MessageRequest): Promise<MessageResponse> {
+    try {
+      const operation = request.data;
+      
+      // 根据操作类型执行相应的同步
+      switch (operation.action) {
+        case 'vocabulary_add':
+          await this.learningMode.addVocabulary(operation.data);
+          break;
+        case 'vocabulary_remove':
+          await this.learningMode.removeVocabulary(operation.data.word);
+          break;
+        case 'vocabulary_update':
+          await this.learningMode.addVocabulary(operation.data);
+          break;
+        default:
+          console.warn(`未知的离线操作类型: ${operation.action}`);
+      }
+      
+      return { success: true };
+    } catch (error) {
+      errorHandler.logError(
+        ErrorType.STORAGE_ERROR,
+        '离线操作同步失败',
+        error,
+        ErrorSeverity.MEDIUM
+      );
+      return { success: false, error: '同步失败' };
+    }
+  }
+
+  private async handleNetworkStatusChangedRequest(request: MessageRequest): Promise<MessageResponse> {
+    const { isOnline } = request.data;
+    console.log(`网络状态变化: ${isOnline ? '在线' : '离线'}`);
+    
+    if (isOnline) {
+      // 网络恢复时同步离线数据
+      await offlineManager.syncWhenOnline();
+    }
+    
+    return { success: true };
   }
 }
 
