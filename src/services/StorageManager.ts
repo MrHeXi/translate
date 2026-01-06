@@ -184,10 +184,10 @@ export class StorageManager {
   }
 
   // 监听存储变化
-  onStorageChanged(callback: (changes: { [key: string]: chrome.storage.StorageChange }) => void): void {
-    chrome.storage.onChanged.addListener((changes, areaName) => {
+  onStorageChanged(callback: (_changes: { [key: string]: chrome.storage.StorageChange }) => void): void {
+    chrome.storage.onChanged.addListener((_changes, areaName) => {
       if (areaName === 'sync' || areaName === 'local') {
-        callback(changes);
+        callback(_changes);
       }
     });
   }

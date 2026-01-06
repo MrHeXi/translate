@@ -1,66 +1,50 @@
-// Jest测试环境设置
+// Jest setup file
+import 'jest-environment-jsdom';
 
-// 模拟Chrome扩展API
+// Mock performance API for Node.js environment
+if (typeof performance === 'undefined') {
+  global.performance = {
+    now: () => Date.now(),
+    mark: () => {},
+    measure: () => {},
+    getEntriesByName: () => [],
+    getEntriesByType: () => [],
+    clearMarks: () => {},
+    clearMeasures: () => {}
+  } as any;
+}
+
+// Mock Chrome APIs
 const mockChrome = {
-  runtime: {
-    sendMessage: jest.fn(),
-    onMessage: {
-      addListener: jest.fn()
-    },
-    getURL: jest.fn((path: string) => `chrome-extension://test/${path}`)
-  },
   storage: {
     local: {
       get: jest.fn(),
       set: jest.fn(),
-      clear: jest.fn(),
-      getBytesInUse: jest.fn()
+      remove: jest.fn(),
+      clear: jest.fn()
     },
     sync: {
       get: jest.fn(),
       set: jest.fn(),
-      clear: jest.fn(),
-      getBytesInUse: jest.fn()
-    },
-    onChanged: {
-      addListener: jest.fn()
+      remove: jest.fn(),
+      clear: jest.fn()
+    }
+  },
+  runtime: {
+    sendMessage: jest.fn(),
+    onMessage: {
+      addListener: jest.fn(),
+      removeListener: jest.fn()
     }
   },
   tabs: {
     query: jest.fn(),
-    sendMessage: jest.fn(),
-    create: jest.fn()
+    sendMessage: jest.fn()
   }
 };
 
-// 将mock对象设置为全局变量
+// Make chrome available globally
 (global as any).chrome = mockChrome;
 
-// 模拟DOM环境
-Object.defineProperty(window, 'getSelection', {
-  writable: true,
-  value: jest.fn(() => ({
-    toString: () => '',
-    rangeCount: 0,
-    getRangeAt: jest.fn()
-  }))
-});
-
-// 模拟MutationObserver
-(global as any).MutationObserver = class MutationObserver {
-  constructor(_callback: MutationCallback) {}
-  observe() {}
-  disconnect() {}
-  takeRecords() { return []; }
-};
-
-// 模拟TreeWalker
-Object.defineProperty(document, 'createTreeWalker', {
-  writable: true,
-  value: jest.fn(() => ({
-    nextNode: jest.fn(() => null)
-  }))
-});
-
-// 设置测试超时时间
-jest.setTimeout(10000);
+// Mock fetch for translation services
+global.fetch = jest.fn();

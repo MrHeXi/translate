@@ -5,14 +5,19 @@
   "main": "dist/background.js",
   "scripts": {
     "build": "webpack --mode=production",
+    "build:dev": "webpack --mode=development",
     "dev": "webpack --mode=development --watch",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "lint": "eslint src --ext .ts,.js",
     "lint:fix": "eslint src --ext .ts,.js --fix",
+    "type-check": "tsc --noEmit",
+    "quality": "npm run lint && npm run type-check && npm run test",
     "clean": "rimraf dist",
-    "prebuild": "npm run clean"
+    "prebuild": "npm run clean",
+    "package": "npm run build && cd dist && powershell Compress-Archive -Path * -DestinationPath ../chrome-translation-extension.zip -Force",
+    "release": "npm run quality && npm run package"
   },
   "keywords": [
     "chrome-extension",

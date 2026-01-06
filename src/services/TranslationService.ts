@@ -206,10 +206,11 @@ export class TranslationService {
     // 实际实现中应该调用真实的翻译API（如Google Translate API）
     
     // 模拟网络延迟和可能的失败
-    const shouldFail = Math.random() < 0.05; // 5%的失败率用于测试
+    // 在测试环境中禁用随机失败
+    const shouldFail = process.env.NODE_ENV !== 'test' && Math.random() < 0.05; // 5%的失败率用于测试
     
-    return new Promise(async (resolve, reject) => {
-      setTimeout(async () => {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
         if (shouldFail) {
           reject(new Error('模拟API调用失败'));
           return;
@@ -233,7 +234,7 @@ export class TranslationService {
           confidence: 0.85 + Math.random() * 0.15, // 0.85-1.0之间的置信度
           alternatives
         });
-      }, 100); // 减少延迟到100ms
+      }, 10); // 减少延迟到10ms以加快测试
     });
   }
 

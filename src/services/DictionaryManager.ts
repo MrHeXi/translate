@@ -1,5 +1,6 @@
 // 词典管理器
 
+/* eslint-disable no-unused-vars */
 export enum DictionaryType {
   GRE = 'gre',
   TOEFL = 'toefl',
@@ -7,6 +8,7 @@ export enum DictionaryType {
   CET4 = 'cet4',
   CET6 = 'cet6'
 }
+/* eslint-enable no-unused-vars */
 
 export interface WordDefinition {
   word: string;

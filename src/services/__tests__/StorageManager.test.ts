@@ -232,11 +232,20 @@ describe('StorageManager', () => {
             expect(exportedUserData.learningStats.timeSpentLearning).toBe(originalData.learningStats.timeSpentLearning);
 
             // 验证词库进度数据完整性
-            expect(exportedUserData.dictionaryProgress).toEqual(originalData.dictionaryProgress);
-            
             Object.keys(originalData.dictionaryProgress).forEach(dictType => {
               const originalProgress = originalData.dictionaryProgress[dictType];
               const exportedProgress = exportedUserData.dictionaryProgress[dictType];
+              
+              expect(exportedProgress.totalWords).toBe(originalProgress.totalWords);
+              expect(exportedProgress.learnedWords).toBe(originalProgress.learnedWords);
+              expect(exportedProgress.masteryRate).toBe(originalProgress.masteryRate);
+              
+              // 处理Date对象的序列化问题
+              if (originalProgress.lastStudyDate instanceof Date) {
+                expect(new Date(exportedProgress.lastStudyDate)).toEqual(originalProgress.lastStudyDate);
+              } else {
+                expect(exportedProgress.lastStudyDate).toEqual(originalProgress.lastStudyDate);
+              }
               
               expect(exportedProgress.totalWords).toBe(originalProgress.totalWords);
               expect(exportedProgress.learnedWords).toBe(originalProgress.learnedWords);
