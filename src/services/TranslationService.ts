@@ -207,7 +207,7 @@ export class TranslationService {
     
     // 模拟网络延迟和可能的失败
     // 在测试环境中禁用随机失败
-    const shouldFail = process.env.NODE_ENV !== 'test' && Math.random() < 0.05; // 5%的失败率用于测试
+    const shouldFail = process.env['NODE_ENV'] !== 'test' && Math.random() < 0.05; // 5%的失败率用于测试
     
     return new Promise((resolve, reject) => {
       setTimeout(() => {

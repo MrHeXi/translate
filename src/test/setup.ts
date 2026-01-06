@@ -1,50 +1,33 @@
-// Jest setup file
-import 'jest-environment-jsdom';
-
-// Mock performance API for Node.js environment
-if (typeof performance === 'undefined') {
-  global.performance = {
-    now: () => Date.now(),
-    mark: () => {},
-    measure: () => {},
-    getEntriesByName: () => [],
-    getEntriesByType: () => [],
-    clearMarks: () => {},
-    clearMeasures: () => {}
-  } as any;
-}
-
+// Test setup file
 // Mock Chrome APIs
-const mockChrome = {
+global.chrome = {
   storage: {
     local: {
-      get: jest.fn(),
-      set: jest.fn(),
-      remove: jest.fn(),
-      clear: jest.fn()
+      get: jest.fn().mockImplementation((key) => {
+        return Promise.resolve({ [key]: null })
+      }),
+      set: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+      clear: jest.fn().mockResolvedValue(undefined)
     },
     sync: {
-      get: jest.fn(),
-      set: jest.fn(),
-      remove: jest.fn(),
-      clear: jest.fn()
+      get: jest.fn().mockImplementation((key) => {
+        return Promise.resolve({ [key]: null })
+      }),
+      set: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+      clear: jest.fn().mockResolvedValue(undefined)
     }
   },
   runtime: {
-    sendMessage: jest.fn(),
+    sendMessage: jest.fn().mockResolvedValue({}),
     onMessage: {
       addListener: jest.fn(),
       removeListener: jest.fn()
     }
   },
   tabs: {
-    query: jest.fn(),
-    sendMessage: jest.fn()
+    query: jest.fn().mockResolvedValue([]),
+    sendMessage: jest.fn().mockResolvedValue({})
   }
-};
-
-// Make chrome available globally
-(global as any).chrome = mockChrome;
-
-// Mock fetch for translation services
-global.fetch = jest.fn();
+} as any

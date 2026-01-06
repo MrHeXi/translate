@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>复习模式 - Chrome翻译插件</title>
+  <link rel="stylesheet" href="review.css">
+</head>
+<body>
+  <div class="review-container">
+    <!-- 头部 -->
+    <header class="review-header">
+      <div class="header-left">
+        <button id="backBtn" class="back-btn">← 返回</button>
+        <h1>复习模式</h1>
+      </div>
+      <div class="header-right">
+        <div class="progress-info">
+          <span id="progressText">0 / 0</span>
+          <div class="progress-bar">
+            <div id="progressFill" class="progress-fill"></div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- 复习设置面板 -->
+    <div id="reviewSetup" class="review-setup">
+      <div class="setup-content">
+        <h2>开始复习</h2>
+        <div class="setup-options">
+          <div class="option-group">
+            <h3>复习类型</h3>
+            <div class="radio-group">
+              <label>
+                <input type="radio" name="reviewType" value="due" checked>
+                <span>到期复习（<span id="dueCount">0</span>个词汇）</span>
+              </label>
+              <label>
+                <input type="radio" name="reviewType" value="random">
+                <span>随机复习</span>
+              </label>
+              <label>
+                <input type="radio" name="reviewType" value="difficult">
+                <span>困难词汇</span>
+              </label>
+              <label>
+                <input type="radio" name="reviewType" value="new">
+                <span>新词汇</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="option-group">
+            <h3>复习数量</h3>
+            <div class="number-input">
+              <input type="number" id="reviewCount" min="5" max="50" value="20">
+              <span>个词汇</span>
+            </div>
+          </div>
+
+          <div class="option-group">
+            <h3>复习模式</h3>
+            <div class="radio-group">
+              <label>
+                <input type="radio" name="reviewMode" value="recognition" checked>
+                <span>识别模式（看英文选中文）</span>
+              </label>
+              <label>
+                <input type="radio" name="reviewMode" value="recall">
+                <span>回忆模式（看中文想英文）</span>
+              </label>
+              <label>
+                <input type="radio" name="reviewMode" value="mixed">
+                <span>混合模式</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="setup-actions">
+          <button id="startReview" class="primary-btn">开始复习</button>
+          <button id="cancelReview" class="secondary-btn">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 复习界面 -->
+    <main id="reviewMain" class="review-main" style="display: none;">
+      <!-- 复习卡片 -->
+      <div class="review-card">
+        <div class="card-header">
+          <div class="card-type" id="cardType">识别模式</div>
+          <div class="card-number">
+            <span id="currentNumber">1</span> / <span id="totalNumber">20</span>
+          </div>
+        </div>
+
+        <div class="card-content">
+          <div class="question-section">
+            <div class="question-text" id="questionText">单词</div>
+            <div class="question-context" id="questionContext" style="display: none;">
+              语境：<span id="contextText"></span>
+            </div>
+          </div>
+
+          <div class="answer-section" id="answerSection">
+            <div class="answer-options" id="answerOptions">
+              <!-- 选择题选项将通过JavaScript生成 -->
+            </div>
+            
+            <div class="answer-input" id="answerInput" style="display: none;">
+              <input type="text" id="userAnswer" placeholder="请输入答案...">
+              <button id="checkAnswer" class="primary-btn">检查答案</button>
+            </div>
+          </div>
+
+          <div class="result-section" id="resultSection" style="display: none;">
+            <div class="result-indicator" id="resultIndicator">
+              <span class="result-icon" id="resultIcon">✓</span>
+              <span class="result-text" id="resultText">正确！</span>
+            </div>
+            <div class="correct-answer" id="correctAnswer">
+              正确答案：<span id="correctAnswerText"></span>
+            </div>
+            <div class="word-details" id="wordDetails">
+              <div class="detail-item">
+                <strong>释义：</strong><span id="detailTranslation"></span>
+              </div>
+              <div class="detail-item" id="detailContextItem" style="display: none;">
+                <strong>语境：</strong><span id="detailContext"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-actions">
+          <button id="showAnswer" class="secondary-btn" style="display: none;">显示答案</button>
+          <button id="nextCard" class="primary-btn" style="display: none;">下一个</button>
+          <div class="difficulty-buttons" id="difficultyButtons" style="display: none;">
+            <button class="difficulty-btn easy" data-difficulty="easy">简单</button>
+            <button class="difficulty-btn medium" data-difficulty="medium">一般</button>
+            <button class="difficulty-btn hard" data-difficulty="hard">困难</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 复习控制栏 -->
+      <div class="review-controls">
+        <button id="pauseReview" class="control-btn">⏸️ 暂停</button>
+        <button id="skipCard" class="control-btn">⏭️ 跳过</button>
+        <button id="endReview" class="control-btn danger">🛑 结束复习</button>
+      </div>
+    </main>
+
+    <!-- 复习结果页面 -->
+    <div id="reviewResults" class="review-results" style="display: none;">
+      <div class="results-content">
+        <h2>复习完成！</h2>
+        
+        <div class="results-stats">
+          <div class="stat-card">
+            <div class="stat-number" id="totalReviewed">0</div>
+            <div class="stat-label">复习词汇</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number" id="correctCount">0</div>
+            <div class="stat-label">答对数量</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number" id="accuracyRate">0%</div>
+            <div class="stat-label">正确率</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number" id="reviewTime">0</div>
+            <div class="stat-label">用时（分钟）</div>
+          </div>
+        </div>
+
+        <div class="results-breakdown">
+          <h3>复习详情</h3>
+          <div class="breakdown-tabs">
+            <button class="tab-btn active" data-tab="correct">答对词汇</button>
+            <button class="tab-btn" data-tab="incorrect">答错词汇</button>
+            <button class="tab-btn" data-tab="skipped">跳过词汇</button>
+          </div>
+          
+          <div class="breakdown-content">
+            <div id="correctWords" class="word-list active">
+              <!-- 答对的词汇列表 -->
+            </div>
+            <div id="incorrectWords" class="word-list">
+              <!-- 答错的词汇列表 -->
+            </div>
+            <div id="skippedWords" class="word-list">
+              <!-- 跳过的词汇列表 -->
+            </div>
+          </div>
+        </div>
+
+        <div class="results-actions">
+          <button id="reviewIncorrect" class="secondary-btn">复习错题</button>
+          <button id="backToVocabulary" class="secondary-btn">返回生词本</button>
+          <button id="startNewReview" class="primary-btn">再次复习</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="review.js"></script>
+</body>
+</html>

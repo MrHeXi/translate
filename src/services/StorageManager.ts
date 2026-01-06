@@ -105,11 +105,14 @@ export class StorageManager {
     try {
       const userData = await this.loadUserData();
       
+      // 深度复制并序列化日期对象
+      const serializedData = this.serializeDates(userData);
+      
       // 创建导出数据对象
       const exportData = {
         version: '1.0',
         exportDate: new Date().toISOString(),
-        data: userData
+        data: serializedData
       };
 
       return JSON.stringify(exportData, null, 2);
@@ -117,6 +120,33 @@ export class StorageManager {
       console.error('导出数据失败:', error);
       throw new Error('无法导出数据');
     }
+  }
+
+  // 递归序列化日期对象为ISO字符串
+  private serializeDates(obj: any): any {
+    if (obj === null || obj === undefined) {
+      return obj;
+    }
+    
+    if (obj instanceof Date) {
+      return obj.toISOString();
+    }
+    
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.serializeDates(item));
+    }
+    
+    if (typeof obj === 'object') {
+      const serialized: any = {};
+      for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+          serialized[key] = this.serializeDates(obj[key]);
+        }
+      }
+      return serialized;
+    }
+    
+    return obj;
   }
 
   async importData(jsonData: string): Promise<void> {
@@ -128,18 +158,56 @@ export class StorageManager {
         throw new Error('无效的数据格式');
       }
 
+      // 反序列化日期字符串为Date对象
+      const deserializedData = this.deserializeDates(importData.data);
+
       // 备份当前数据
       const currentData = await this.loadUserData();
       await chrome.storage.local.set({ backup: currentData });
 
       // 导入新数据
-      await this.saveUserData(importData.data);
+      await this.saveUserData(deserializedData);
       
       console.log('数据导入成功');
     } catch (error) {
       console.error('导入数据失败:', error);
       throw new Error('无法导入数据：' + (error instanceof Error ? error.message : '未知错误'));
     }
+  }
+
+  // 递归反序列化ISO字符串为Date对象
+  private deserializeDates(obj: any): any {
+    if (obj === null || obj === undefined) {
+      return obj;
+    }
+    
+    // 检查是否为ISO日期字符串
+    if (typeof obj === 'string' && this.isISODateString(obj)) {
+      return new Date(obj);
+    }
+    
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.deserializeDates(item));
+    }
+    
+    if (typeof obj === 'object') {
+      const deserialized: any = {};
+      for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+          deserialized[key] = this.deserializeDates(obj[key]);
+        }
+      }
+      return deserialized;
+    }
+    
+    return obj;
+  }
+
+  // 检查字符串是否为ISO日期格式
+  private isISODateString(str: string): boolean {
+    // 匹配ISO 8601日期格式：YYYY-MM-DDTHH:mm:ss.sssZ 或 YYYY-MM-DDTHH:mm:ssZ
+    const isoDateRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?$/;
+    return isoDateRegex.test(str) && !isNaN(Date.parse(str));
   }
 
   async clearAllData(): Promise<void> {

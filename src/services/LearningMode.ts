@@ -290,7 +290,7 @@ export class LearningMode {
 
   // 新增方法：开始复习会话
   async startReviewSession(): Promise<string> {
-    const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
     
     this.currentReviewSession = {
       sessionId,
@@ -381,6 +381,9 @@ export class LearningMode {
 
   private async updateDictionaryProgress(dictionaryType: DictionaryType): Promise<void> {
     try {
+      // 先尝试加载词库，如果没有加载的话
+      await this.dictionaryManager.loadBuiltInDictionary(dictionaryType);
+      
       // 获取词库统计信息
       const dictionaryStats = await this.dictionaryManager.getLearningStats(dictionaryType);
       

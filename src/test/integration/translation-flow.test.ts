@@ -223,7 +223,7 @@ describe('翻译流程集成测试', () => {
       const startTime = Date.now();
       
       // 添加多个词汇
-      const promises = [];
+      const promises: Promise<void>[] = [];
       for (let i = 0; i < 50; i++) {
         const vocabularyItem: VocabularyItem = {
           word: `word${i}`,

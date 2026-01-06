@@ -9,7 +9,9 @@ module.exports = (env, argv) => {
     entry: {
       background: './src/background/background.ts',
       content: './src/content/content.ts',
-      popup: './src/popup/popup.ts'
+      popup: './src/popup/popup.ts',
+      options: './src/options/options.ts',
+      vocabulary: './src/options/vocabulary.ts'
     },
     
     output: {
@@ -57,6 +59,22 @@ module.exports = (env, argv) => {
           {
             from: 'src/popup/popup.css',
             to: 'popup.css'
+          },
+          {
+            from: 'src/options/options.html',
+            to: 'options.html'
+          },
+          {
+            from: 'src/options/options.css',
+            to: 'options.css'
+          },
+          {
+            from: 'src/options/vocabulary.html',
+            to: 'vocabulary.html'
+          },
+          {
+            from: 'src/options/vocabulary.css',
+            to: 'vocabulary.css'
           },
           {
             from: 'src/content/content.css',
