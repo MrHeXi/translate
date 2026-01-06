@@ -2,30 +2,66 @@
 
 import { jest } from '@jest/globals';
 
+// 定义类型接口
+interface MockElement {
+  addEventListener: jest.MockedFunction<any>;
+  textContent: string;
+  value: string;
+  disabled: boolean;
+  classList: {
+    add: jest.MockedFunction<any>;
+    remove: jest.MockedFunction<any>;
+  };
+  style: {
+    display: string;
+    cssText: string;
+  };
+  querySelector: jest.MockedFunction<any>;
+  className: string;
+  parentNode: any;
+}
+
+interface MockTab {
+  id: number;
+}
+
+interface MockChrome {
+  runtime: {
+    sendMessage: jest.MockedFunction<any>;
+    lastError: { message: string } | null;
+    openOptionsPage: jest.MockedFunction<any>;
+  };
+  tabs: {
+    query: jest.MockedFunction<any>;
+    sendMessage: jest.MockedFunction<any>;
+    create: jest.MockedFunction<any>;
+  };
+}
+
 describe('弹出窗口UI组件测试', () => {
   // 模拟Chrome API
-  const mockChrome = {
+  const mockChrome: MockChrome = {
     runtime: {
-      sendMessage: jest.fn(),
+      sendMessage: jest.fn() as jest.MockedFunction<any>,
       lastError: null,
-      openOptionsPage: jest.fn()
+      openOptionsPage: jest.fn() as jest.MockedFunction<any>
     },
     tabs: {
-      query: jest.fn(),
-      sendMessage: jest.fn(),
-      create: jest.fn()
+      query: jest.fn() as jest.MockedFunction<any>,
+      sendMessage: jest.fn() as jest.MockedFunction<any>,
+      create: jest.fn() as jest.MockedFunction<any>
     }
   };
 
   // 模拟DOM环境
   const mockDocument = {
-    getElementById: jest.fn(),
-    querySelectorAll: jest.fn(),
-    querySelector: jest.fn(),
-    createElement: jest.fn(),
-    addEventListener: jest.fn(),
+    getElementById: jest.fn() as jest.MockedFunction<(id: string) => MockElement | null>,
+    querySelectorAll: jest.fn() as jest.MockedFunction<(selector: string) => MockElement[]>,
+    querySelector: jest.fn() as jest.MockedFunction<(selector: string) => MockElement | null>,
+    createElement: jest.fn() as jest.MockedFunction<(tagName: string) => MockElement>,
+    addEventListener: jest.fn() as jest.MockedFunction<any>,
     body: {
-      appendChild: jest.fn()
+      appendChild: jest.fn() as jest.MockedFunction<any>
     }
   };
 
@@ -38,26 +74,51 @@ describe('弹出窗口UI组件测试', () => {
     jest.clearAllMocks();
     
     // 模拟DOM元素返回
-    mockDocument.getElementById.mockReturnValue({
-      addEventListener: jest.fn(),
+    const mockElement: MockElement = {
+      addEventListener: jest.fn() as jest.MockedFunction<any>,
       textContent: '',
       value: '',
       disabled: false,
-      classList: { add: jest.fn(), remove: jest.fn() },
-      style: { display: 'none' },
-      querySelector: jest.fn().mockReturnValue({ textContent: '' })
-    });
+      classList: { 
+        add: jest.fn() as jest.MockedFunction<any>, 
+        remove: jest.fn() as jest.MockedFunction<any> 
+      },
+      style: { display: 'none', cssText: '' },
+      querySelector: jest.fn().mockReturnValue({ textContent: '' }) as jest.MockedFunction<any>,
+      className: '',
+      parentNode: null
+    };
 
-    mockDocument.querySelectorAll.mockReturnValue([
-      { addEventListener: jest.fn(), value: 'gre', checked: true, disabled: false },
-      { addEventListener: jest.fn(), value: 'toefl', checked: false, disabled: false }
-    ]);
+    mockDocument.getElementById.mockReturnValue(mockElement);
+
+    const mockCheckboxes: MockElement[] = [
+      { 
+        ...mockElement, 
+        value: 'gre', 
+        checked: true 
+      } as MockElement & { checked: boolean },
+      { 
+        ...mockElement, 
+        value: 'toefl', 
+        checked: false 
+      } as MockElement & { checked: boolean }
+    ];
+
+    mockDocument.querySelectorAll.mockReturnValue(mockCheckboxes);
 
     mockDocument.createElement.mockReturnValue({
       className: '',
       textContent: '',
-      style: { cssText: '' },
-      parentNode: null
+      style: { cssText: '', display: 'none' },
+      parentNode: null,
+      addEventListener: jest.fn() as jest.MockedFunction<any>,
+      value: '',
+      disabled: false,
+      classList: { 
+        add: jest.fn() as jest.MockedFunction<any>, 
+        remove: jest.fn() as jest.MockedFunction<any> 
+      },
+      querySelector: jest.fn() as jest.MockedFunction<any>
     });
   });
 
@@ -119,7 +180,8 @@ describe('弹出窗口UI组件测试', () => {
     });
 
     test('应该能够查询当前标签页', async () => {
-      mockChrome.tabs.query.mockResolvedValue([{ id: 1 }]);
+      const mockTabs: MockTab[] = [{ id: 1 }];
+      mockChrome.tabs.query.mockResolvedValue(mockTabs);
 
       const tabs = await mockChrome.tabs.query({ active: true, currentWindow: true });
       expect(tabs).toHaveLength(1);
@@ -190,7 +252,8 @@ describe('弹出窗口UI组件测试', () => {
     });
 
     test('应该能够切换翻译模式', async () => {
-      mockChrome.tabs.query.mockResolvedValue([{ id: 1 }]);
+      const mockTabs: MockTab[] = [{ id: 1 }];
+      mockChrome.tabs.query.mockResolvedValue(mockTabs);
       mockChrome.tabs.sendMessage.mockImplementation((_tabId: any, _message: any, callback: any) => {
         callback({ success: true, isActive: true });
       });
@@ -200,7 +263,11 @@ describe('弹出窗口UI组件测试', () => {
 
       // 模拟发送切换消息
       const response = await new Promise((resolve) => {
-        mockChrome.tabs.sendMessage(tabs[0].id, { action: 'toggleTranslation' }, resolve);
+        if (tabs.length > 0) {
+          mockChrome.tabs.sendMessage(tabs[0].id!, { action: 'toggleTranslation' }, (response: any) => {
+            resolve(response);
+          });
+        }
       });
 
       expect(response).toEqual({ success: true, isActive: true });
@@ -357,6 +424,9 @@ describe('弹出窗口UI组件测试', () => {
       } catch (error: any) {
         expect(error.message).toBe('API错误');
       }
+      
+      // 重置 lastError
+      mockChrome.runtime.lastError = null;
     });
 
     test('应该能够处理网络错误', async () => {
@@ -389,11 +459,11 @@ describe('弹出窗口UI组件测试', () => {
       const buttons = mockDocument.querySelectorAll('button');
       
       // 模拟禁用所有按钮
-      buttons.forEach((btn: any) => {
+      buttons.forEach((btn: MockElement) => {
         btn.disabled = true;
       });
 
-      buttons.forEach((btn: any) => {
+      buttons.forEach((btn: MockElement) => {
         expect(btn.disabled).toBe(true);
       });
     });
@@ -402,26 +472,26 @@ describe('弹出窗口UI组件测试', () => {
       const element = mockDocument.getElementById('totalWords');
       
       // 模拟更新文本内容的函数
-      const updateTextContent = (el: any, text: string) => {
+      const updateTextContent = (el: MockElement | null, text: string) => {
         if (el) {
           el.textContent = text;
         }
       };
 
       updateTextContent(element, '150');
-      expect(element.textContent).toBe('150');
+      expect(element?.textContent).toBe('150');
     });
 
     test('应该能够切换CSS类', () => {
       const element = mockDocument.getElementById('toggleTranslation');
       
       // 模拟添加CSS类
-      element.classList.add('active');
-      expect(element.classList.add).toHaveBeenCalledWith('active');
+      element?.classList.add('active');
+      expect(element?.classList.add).toHaveBeenCalledWith('active');
 
       // 模拟移除CSS类
-      element.classList.remove('active');
-      expect(element.classList.remove).toHaveBeenCalledWith('active');
+      element?.classList.remove('active');
+      expect(element?.classList.remove).toHaveBeenCalledWith('active');
     });
   });
 });

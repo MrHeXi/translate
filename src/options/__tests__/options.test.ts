@@ -2,15 +2,50 @@
 
 import { jest } from '@jest/globals';
 
-// 模拟Chrome API
-const mockChrome = {
+// 定义类型接口
+interface MockElement {
+  addEventListener: jest.MockedFunction<any>;
+  textContent: string;
+  value: string;
+  disabled: boolean;
+  classList: {
+    add: jest.MockedFunction<any>;
+    remove: jest.MockedFunction<any>;
+  };
+  style: {
+    display: string;
+    cssText: string;
+  };
+  querySelector: jest.MockedFunction<any>;
+  className: string;
+  parentNode: any;
+  remove: jest.MockedFunction<any>;
+  dataset: { [key: string]: string };
+  href?: string;
+  download?: string;
+  click?: jest.MockedFunction<any>;
+}
+
+interface MockChrome {
   runtime: {
-    sendMessage: jest.fn(),
+    sendMessage: jest.MockedFunction<any>;
+    lastError: chrome.runtime.LastError | null;
+    openOptionsPage: jest.MockedFunction<any>;
+  };
+  tabs: {
+    create: jest.MockedFunction<any>;
+  };
+}
+
+// 模拟Chrome API
+const mockChrome: MockChrome = {
+  runtime: {
+    sendMessage: jest.fn() as jest.MockedFunction<any>,
     lastError: null as chrome.runtime.LastError | null,
-    openOptionsPage: jest.fn()
+    openOptionsPage: jest.fn() as jest.MockedFunction<any>
   },
   tabs: {
-    create: jest.fn()
+    create: jest.fn() as jest.MockedFunction<any>
   }
 };
 
@@ -19,24 +54,24 @@ const mockChrome = {
 
 // 模拟DOM环境
 const mockDocument = {
-  getElementById: jest.fn(),
-  querySelectorAll: jest.fn(),
-  querySelector: jest.fn(),
-  createElement: jest.fn(),
-  addEventListener: jest.fn(),
+  getElementById: jest.fn() as jest.MockedFunction<(id: string) => MockElement | null>,
+  querySelectorAll: jest.fn() as jest.MockedFunction<(selector: string) => MockElement[]>,
+  querySelector: jest.fn() as jest.MockedFunction<(selector: string) => MockElement | null>,
+  createElement: jest.fn() as jest.MockedFunction<(tagName: string) => MockElement>,
+  addEventListener: jest.fn() as jest.MockedFunction<any>,
   body: {
-    appendChild: jest.fn()
+    appendChild: jest.fn() as jest.MockedFunction<any>
   }
 };
 
 const mockWindow = {
   innerWidth: 1920,
   innerHeight: 1080,
-  confirm: jest.fn(),
+  confirm: jest.fn() as jest.MockedFunction<any>,
   URL: {
-    createObjectURL: jest.fn().mockReturnValue('blob:mock-url')
+    createObjectURL: jest.fn().mockReturnValue('blob:mock-url') as jest.MockedFunction<any>
   },
-  Blob: jest.fn()
+  Blob: jest.fn() as jest.MockedFunction<any>
 };
 
 (global as any).document = mockDocument;
@@ -52,46 +87,389 @@ describe('OptionsController', () => {
     // 重置所有模拟
     jest.clearAllMocks();
     
+    // 设置默认的Chrome API响应
+    mockChrome.runtime.sendMessage.mockImplementation((_message: any, callback: any) => {
+      // 提供默认响应以避免运行时错误
+      callback({ 
+        success: true, 
+        data: {
+          totalWordsLearned: 0,
+          currentStreak: 0,
+          reviewAccuracy: 0,
+          timeSpentLearning: 0
+        }
+      });
+    });
+    
     // 模拟DOM元素
-    const mockElements: { [key: string]: any } = {
+    const mockElements: { [key: string]: MockElement } = {
       // 常规设置元素
-      targetLanguage: { addEventListener: jest.fn(), value: 'zh-CN' },
-      translationProvider: { addEventListener: jest.fn(), value: 'google' },
-      autoTranslate: { addEventListener: jest.fn(), checked: false },
-      showFloatingIcon: { addEventListener: jest.fn(), checked: true },
-      iconPosition: { addEventListener: jest.fn(), value: 'top-right' },
+      targetLanguage: { 
+        addEventListener: jest.fn() as jest.MockedFunction<any>, 
+        value: 'zh-CN',
+        textContent: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
+      translationProvider: { 
+        addEventListener: jest.fn() as jest.MockedFunction<any>, 
+        value: 'google',
+        textContent: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
+      autoTranslate: { 
+        addEventListener: jest.fn() as jest.MockedFunction<any>, 
+        checked: false,
+        value: '',
+        textContent: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      } as MockElement & { checked: boolean },
+      showFloatingIcon: { 
+        addEventListener: jest.fn() as jest.MockedFunction<any>, 
+        checked: true,
+        value: '',
+        textContent: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      } as MockElement & { checked: boolean },
+      iconPosition: { 
+        addEventListener: jest.fn() as jest.MockedFunction<any>, 
+        value: 'top-right',
+        textContent: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
       
       // 学习设置元素
-      dailyGoal: { addEventListener: jest.fn(), value: '20' },
-      learningModeEnabled: { addEventListener: jest.fn(), checked: true },
-      reviewInterval: { addEventListener: jest.fn(), value: 'spaced' },
-      difficultyAdjustment: { addEventListener: jest.fn(), value: 'auto' },
+      dailyGoal: { 
+        addEventListener: jest.fn() as jest.MockedFunction<any>, 
+        value: '20',
+        textContent: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
+      learningModeEnabled: { 
+        addEventListener: jest.fn() as jest.MockedFunction<any>, 
+        checked: true,
+        value: '',
+        textContent: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      } as MockElement & { checked: boolean },
+      reviewInterval: { 
+        addEventListener: jest.fn() as jest.MockedFunction<any>, 
+        value: 'spaced',
+        textContent: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
+      difficultyAdjustment: { 
+        addEventListener: jest.fn() as jest.MockedFunction<any>, 
+        value: 'auto',
+        textContent: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
       
       // 统计显示元素
-      totalVocabulary: { textContent: '0' },
-      currentStreak: { textContent: '0' },
-      reviewAccuracy: { textContent: '0%' },
-      timeSpent: { textContent: '0' },
+      totalVocabulary: { 
+        textContent: '0',
+        addEventListener: jest.fn() as jest.MockedFunction<any>,
+        value: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
+      currentStreak: { 
+        textContent: '0',
+        addEventListener: jest.fn() as jest.MockedFunction<any>,
+        value: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
+      reviewAccuracy: { 
+        textContent: '0%',
+        addEventListener: jest.fn() as jest.MockedFunction<any>,
+        value: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
+      timeSpent: { 
+        textContent: '0',
+        addEventListener: jest.fn() as jest.MockedFunction<any>,
+        value: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
       
       // 词库进度元素
-      greTotal: { textContent: '0' },
-      greLearned: { textContent: '0' },
-      toeflTotal: { textContent: '0' },
-      toeflLearned: { textContent: '0' },
+      greTotal: { 
+        textContent: '0',
+        addEventListener: jest.fn() as jest.MockedFunction<any>,
+        value: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
+      greLearned: { 
+        textContent: '0',
+        addEventListener: jest.fn() as jest.MockedFunction<any>,
+        value: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
+      toeflTotal: { 
+        textContent: '0',
+        addEventListener: jest.fn() as jest.MockedFunction<any>,
+        value: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
+      toeflLearned: { 
+        textContent: '0',
+        addEventListener: jest.fn() as jest.MockedFunction<any>,
+        value: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
       
       // 按钮元素
-      saveSettings: { addEventListener: jest.fn() },
-      resetToDefault: { addEventListener: jest.fn() },
-      exportData: { addEventListener: jest.fn() },
-      importData: { addEventListener: jest.fn() },
-      importFile: { addEventListener: jest.fn(), click: jest.fn(), files: null },
-      forcSync: { addEventListener: jest.fn(), textContent: '强制同步', disabled: false },
-      clearVocabulary: { addEventListener: jest.fn() },
-      resetSettings: { addEventListener: jest.fn() },
-      clearAllData: { addEventListener: jest.fn() },
+      saveSettings: { 
+        addEventListener: jest.fn() as jest.MockedFunction<any>,
+        textContent: '',
+        value: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
+      resetToDefault: { 
+        addEventListener: jest.fn() as jest.MockedFunction<any>,
+        textContent: '',
+        value: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
+      exportData: { 
+        addEventListener: jest.fn() as jest.MockedFunction<any>,
+        textContent: '',
+        value: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
+      importData: { 
+        addEventListener: jest.fn() as jest.MockedFunction<any>,
+        textContent: '',
+        value: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
+      importFile: { 
+        addEventListener: jest.fn() as jest.MockedFunction<any>, 
+        click: jest.fn() as jest.MockedFunction<any>, 
+        files: null,
+        textContent: '',
+        value: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      } as MockElement & { click: jest.MockedFunction<any>; files: any },
+      forcSync: { 
+        addEventListener: jest.fn() as jest.MockedFunction<any>, 
+        textContent: '强制同步', 
+        disabled: false,
+        value: '',
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
+      clearVocabulary: { 
+        addEventListener: jest.fn() as jest.MockedFunction<any>,
+        textContent: '',
+        value: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
+      resetSettings: { 
+        addEventListener: jest.fn() as jest.MockedFunction<any>,
+        textContent: '',
+        value: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
+      clearAllData: { 
+        addEventListener: jest.fn() as jest.MockedFunction<any>,
+        textContent: '',
+        value: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
       
       // 同步状态元素
-      syncStatus: { textContent: '同步状态：未知' }
+      syncStatus: { 
+        textContent: '同步状态：未知',
+        addEventListener: jest.fn() as jest.MockedFunction<any>,
+        value: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      }
     };
 
     mockDocument.getElementById.mockImplementation((id: string) => {
@@ -101,13 +479,61 @@ describe('OptionsController', () => {
     mockDocument.querySelectorAll.mockImplementation((selector: string) => {
       if (selector === '.nav-btn') {
         return [
-          { addEventListener: jest.fn(), dataset: { tab: 'general' }, classList: { add: jest.fn(), remove: jest.fn() } },
-          { addEventListener: jest.fn(), dataset: { tab: 'dictionary' }, classList: { add: jest.fn(), remove: jest.fn() } }
+          { 
+            addEventListener: jest.fn() as jest.MockedFunction<any>, 
+            dataset: { tab: 'general' }, 
+            classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+            textContent: '',
+            value: '',
+            disabled: false,
+            style: { display: 'block', cssText: '' },
+            querySelector: jest.fn() as jest.MockedFunction<any>,
+            className: '',
+            parentNode: null,
+            remove: jest.fn() as jest.MockedFunction<any>
+          },
+          { 
+            addEventListener: jest.fn() as jest.MockedFunction<any>, 
+            dataset: { tab: 'dictionary' }, 
+            classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+            textContent: '',
+            value: '',
+            disabled: false,
+            style: { display: 'block', cssText: '' },
+            querySelector: jest.fn() as jest.MockedFunction<any>,
+            className: '',
+            parentNode: null,
+            remove: jest.fn() as jest.MockedFunction<any>
+          }
         ];
       } else if (selector === '.tab-content') {
         return [
-          { classList: { add: jest.fn(), remove: jest.fn() } },
-          { classList: { add: jest.fn(), remove: jest.fn() } }
+          { 
+            classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+            addEventListener: jest.fn() as jest.MockedFunction<any>,
+            textContent: '',
+            value: '',
+            disabled: false,
+            style: { display: 'block', cssText: '' },
+            querySelector: jest.fn() as jest.MockedFunction<any>,
+            className: '',
+            parentNode: null,
+            remove: jest.fn() as jest.MockedFunction<any>,
+            dataset: {}
+          },
+          { 
+            classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+            addEventListener: jest.fn() as jest.MockedFunction<any>,
+            textContent: '',
+            value: '',
+            disabled: false,
+            style: { display: 'block', cssText: '' },
+            querySelector: jest.fn() as jest.MockedFunction<any>,
+            className: '',
+            parentNode: null,
+            remove: jest.fn() as jest.MockedFunction<any>,
+            dataset: {}
+          }
         ];
       }
       return [];
@@ -115,7 +541,19 @@ describe('OptionsController', () => {
 
     mockDocument.querySelector.mockImplementation((selector: string) => {
       if (selector.includes('data-tab')) {
-        return { classList: { add: jest.fn(), remove: jest.fn() } };
+        return { 
+          classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+          addEventListener: jest.fn() as jest.MockedFunction<any>,
+          textContent: '',
+          value: '',
+          disabled: false,
+          style: { display: 'block', cssText: '' },
+          querySelector: jest.fn() as jest.MockedFunction<any>,
+          className: '',
+          parentNode: null,
+          remove: jest.fn() as jest.MockedFunction<any>,
+          dataset: {}
+        };
       } else if (selector === '.message') {
         return null;
       }
@@ -125,10 +563,18 @@ describe('OptionsController', () => {
     mockDocument.createElement.mockReturnValue({
       className: '',
       textContent: '',
+      style: { cssText: '', display: 'block' },
+      parentNode: null,
+      addEventListener: jest.fn() as jest.MockedFunction<any>,
+      value: '',
+      disabled: false,
+      classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+      querySelector: jest.fn() as jest.MockedFunction<any>,
+      remove: jest.fn() as jest.MockedFunction<any>,
+      dataset: {},
       href: '',
       download: '',
-      click: jest.fn(),
-      remove: jest.fn()
+      click: jest.fn() as jest.MockedFunction<any>
     });
 
     // 创建模拟的OptionsController类
@@ -185,6 +631,14 @@ describe('OptionsController', () => {
         const response = await this.sendMessage({ action: 'getLearningStats' });
         if (response.success) {
           this.stats = response.data;
+        } else {
+          // 设置默认统计数据以避免运行时错误
+          this.stats = {
+            totalWordsLearned: 0,
+            currentStreak: 0,
+            reviewAccuracy: 0,
+            timeSpentLearning: 0
+          };
         }
       }
       
@@ -210,10 +664,18 @@ describe('OptionsController', () => {
         const reviewAccuracy = mockDocument.getElementById('reviewAccuracy');
         const timeSpent = mockDocument.getElementById('timeSpent');
 
-        if (totalVocabulary) totalVocabulary.textContent = this.stats.totalWordsLearned.toString();
-        if (currentStreak) currentStreak.textContent = this.stats.currentStreak.toString();
-        if (reviewAccuracy) reviewAccuracy.textContent = `${Math.round(this.stats.reviewAccuracy * 100)}%`;
-        if (timeSpent) timeSpent.textContent = Math.round(this.stats.timeSpentLearning / 60).toString();
+        if (totalVocabulary && this.stats.totalWordsLearned !== undefined) {
+          totalVocabulary.textContent = this.stats.totalWordsLearned.toString();
+        }
+        if (currentStreak && this.stats.currentStreak !== undefined) {
+          currentStreak.textContent = this.stats.currentStreak.toString();
+        }
+        if (reviewAccuracy && this.stats.reviewAccuracy !== undefined) {
+          reviewAccuracy.textContent = `${Math.round(this.stats.reviewAccuracy * 100)}%`;
+        }
+        if (timeSpent && this.stats.timeSpentLearning !== undefined) {
+          timeSpent.textContent = Math.round(this.stats.timeSpentLearning / 60).toString();
+        }
       }
       
       public updateDictionaryProgress() {
@@ -569,8 +1031,10 @@ describe('OptionsController', () => {
 
     test('应该能够导入数据', async () => {
       const mockFile = {
-        text: jest.fn().mockResolvedValue('{"test": "data"}')
+        text: jest.fn() as jest.MockedFunction<() => Promise<string>>
       };
+      mockFile.text.mockResolvedValue('{"test": "data"}');
+      
       const mockEvent = {
         target: {
           files: [mockFile]
@@ -587,8 +1051,10 @@ describe('OptionsController', () => {
 
     test('应该处理导入数据格式错误', async () => {
       const mockFile = {
-        text: jest.fn().mockResolvedValue('invalid json')
+        text: jest.fn() as jest.MockedFunction<() => Promise<string>>
       };
+      mockFile.text.mockResolvedValue('invalid json');
+      
       const mockEvent = {
         target: {
           files: [mockFile]
