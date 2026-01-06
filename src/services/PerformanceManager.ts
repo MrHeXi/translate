@@ -221,8 +221,9 @@ export class PerformanceManager {
     this.cleanupExpiredCache();
     
     // 触发垃圾回收（如果可能）
-    if (window.gc) {
-      window.gc();
+    // 在Service Worker环境中，window对象不存在
+    if (typeof window !== 'undefined' && (window as any).gc) {
+      (window as any).gc();
     }
     
     // 发送内存警告事件
@@ -245,13 +246,16 @@ export class PerformanceManager {
     console.log('执行组件优化...');
     
     // 清理不可见的翻译覆盖层
-    const overlays = document.querySelectorAll('.translation-overlay');
-    overlays.forEach(overlay => {
-      const rect = overlay.getBoundingClientRect();
-      if (rect.top > window.innerHeight || rect.bottom < 0) {
-        overlay.remove();
-      }
-    });
+    // 只在有DOM环境时执行
+    if (typeof document !== 'undefined' && typeof window !== 'undefined') {
+      const overlays = document.querySelectorAll('.translation-overlay');
+      overlays.forEach(overlay => {
+        const rect = overlay.getBoundingClientRect();
+        if (rect.top > window.innerHeight || rect.bottom < 0) {
+          overlay.remove();
+        }
+      });
+    }
   }
 
   private cleanupExpiredCache(): void {

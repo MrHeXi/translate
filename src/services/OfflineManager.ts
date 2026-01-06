@@ -194,17 +194,20 @@ export class OfflineManager {
 
   // 设置网络监听器
   private setupNetworkListeners(): void {
-    window.addEventListener('online', () => {
-      console.log('网络已连接');
-      this.isOnline = true;
-      this.onNetworkStatusChange(true);
-    });
+    // 只在有window对象的环境中设置事件监听器（非Service Worker环境）
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => {
+        console.log('网络已连接');
+        this.isOnline = true;
+        this.onNetworkStatusChange(true);
+      });
 
-    window.addEventListener('offline', () => {
-      console.log('网络已断开');
-      this.isOnline = false;
-      this.onNetworkStatusChange(false);
-    });
+      window.addEventListener('offline', () => {
+        console.log('网络已断开');
+        this.isOnline = false;
+        this.onNetworkStatusChange(false);
+      });
+    }
 
     // 定期检查网络状态
     setInterval(() => {

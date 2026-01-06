@@ -1,11 +1,17 @@
-// Chrome扩展后台脚本
+// Chrome扩展后台脚本 - Service Worker
 // 负责插件的核心逻辑和服务协调
+
+// Service Worker 环境检查和兼容性设置
+if (typeof (self as any).importScripts === 'function') {
+  // 在Service Worker环境中
+  console.log('Chrome翻译插件 Service Worker 已启动');
+}
 
 import { TranslationService } from '../services/TranslationService';
 import { DictionaryManager, DictionaryType } from '../services/DictionaryManager';
 import { LearningMode } from '../services/LearningMode';
 import { StorageManager } from '../services/StorageManager';
-import { messageManager, MessageRequest, MessageResponse } from '../services/MessageManager';
+import { messageManager, MessageRequest as MsgRequest, MessageResponse as MsgResponse } from '../services/MessageManager';
 import { performanceManager } from '../services/PerformanceManager';
 import { errorHandler, ErrorType, ErrorSeverity } from '../services/ErrorHandler';
 import { offlineManager } from '../services/OfflineManager';

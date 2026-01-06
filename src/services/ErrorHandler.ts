@@ -72,7 +72,7 @@ export class ErrorHandler {
       message,
       details,
       timestamp: new Date(),
-      url: window.location?.href,
+      url: typeof window !== 'undefined' ? window.location?.href : 'service-worker',
       userAgent: navigator.userAgent,
       stackTrace: new Error().stack,
       context
@@ -296,28 +296,30 @@ export class ErrorHandler {
   }
 
   private setupGlobalErrorHandlers(): void {
-    // 捕获未处理的Promise拒绝
-    window.addEventListener('unhandledrejection', (event) => {
-      this.logError(
-        ErrorType.CONTENT_SCRIPT_ERROR,
-        '未处理的Promise拒绝',
-        { reason: event.reason },
-        ErrorSeverity.HIGH,
-        { component: 'global', action: 'unhandledrejection' }
-      );
-    });
+    // 只在有window对象的环境中设置全局错误处理器（非Service Worker环境）
+    if (typeof window !== 'undefined') {
+      // 捕获未处理的Promise拒绝
+      window.addEventListener('unhandledrejection', (event) => {
+        this.logError(
+          ErrorType.CONTENT_SCRIPT_ERROR,
+          '未处理的Promise拒绝',
+          { reason: event.reason },
+          ErrorSeverity.HIGH,
+          { component: 'global', action: 'unhandledrejection' }
+        );
+      });
 
-    // 捕获全局JavaScript错误
-    window.addEventListener('error', (event) => {
-      this.logError(
-        ErrorType.CONTENT_SCRIPT_ERROR,
-        event.message,
-        {
-          filename: event.filename,
-          lineno: event.lineno,
-          colno: event.colno,
-          error: event.error
-        },
+      // 捕获全局JavaScript错误
+      window.addEventListener('error', (event) => {
+        this.logError(
+          ErrorType.CONTENT_SCRIPT_ERROR,
+          event.message,
+          {
+            filename: event.filename,
+            lineno: event.lineno,
+            colno: event.colno,
+            error: event.error
+          },
         ErrorSeverity.HIGH,
         { component: 'global', action: 'javascript_error' }
       );
