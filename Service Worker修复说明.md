@@ -6,6 +6,7 @@ Chrome扩展在加载时出现以下错误：
 - Uncaught ReferenceError: window is not defined
 - ReferenceError: document is not defined
 - 翻译服务模拟失败率过高
+- 翻译请求频率限制过严
 
 ## 问题原因
 Chrome扩展的Manifest V3使用Service Worker作为后台脚本，但Service Worker环境中没有`window`、`document`等DOM对象。代码中多处使用了这些对象，导致Service Worker无法正常启动。
@@ -25,11 +26,13 @@ Chrome扩展的Manifest V3使用Service Worker作为后台脚本，但Service Wo
 ### 3. ErrorHandler.ts
 - ✅ 修复了`window.location`的访问
 - ✅ 修复了全局错误处理器的设置
-- ✅ 在Service Worker环境中使用替代方案
+- ✅ 修复了`showUserMessage`方法中的`document`使用
+- ✅ 在Service Worker环境中使用控制台输出替代DOM通知
 
 ### 4. TranslationService.ts
 - ✅ 降低了模拟API的失败率（从5%降到1%）
 - ✅ 只在开发环境中启用模拟失败
+- ✅ 放宽了请求频率限制（从60次/分钟提升到120次/分钟）
 
 ### 5. webpack.config.js
 - ✅ 添加了`globalObject: 'self'`配置
@@ -47,11 +50,13 @@ Chrome扩展的Manifest V3使用Service Worker作为后台脚本，但Service Wo
 ✅ 设置和选项页面正常  
 ✅ 性能监控在不同环境中正常工作
 ✅ 错误处理机制完善
+✅ 用户通知在不同环境中正常工作
+✅ 翻译请求频率限制合理
 
 ## 环境兼容性
-- **Service Worker环境**: 后台脚本，无DOM对象，使用默认值和Chrome API
-- **Content Script环境**: 网页内容脚本，有完整DOM，正常功能
-- **Popup/Options环境**: 扩展页面，有完整DOM，正常功能
+- **Service Worker环境**: 后台脚本，无DOM对象，使用默认值和Chrome API，控制台输出
+- **Content Script环境**: 网页内容脚本，有完整DOM，正常功能，DOM通知
+- **Popup/Options环境**: 扩展页面，有完整DOM，正常功能，DOM通知
 
 ## 使用说明
 1. 重新构建项目：`npm run build:dev`
@@ -65,6 +70,8 @@ Chrome扩展的Manifest V3使用Service Worker作为后台脚本，但Service Wo
 - 错误处理在不同环境中有不同的实现方式
 - 性能监控在Service Worker环境中使用默认值
 - 翻译服务的模拟失败率已大幅降低
+- 用户通知在Service Worker中使用控制台输出
+- 翻译请求频率限制已放宽
 
 ## 测试建议
 1. ✅ 检查扩展程序页面的Service Worker状态
@@ -73,13 +80,17 @@ Chrome扩展的Manifest V3使用Service Worker作为后台脚本，但Service Wo
 4. ✅ 检查浏览器控制台是否有错误信息
 5. ✅ 验证性能监控功能
 6. ✅ 测试错误重试机制
+7. ✅ 验证用户通知功能
+8. ✅ 测试翻译频率限制
 
 ## 已解决的错误
 - ❌ `window is not defined` → ✅ 已修复
 - ❌ `document is not defined` → ✅ 已修复  
 - ❌ Service Worker registration failed → ✅ 已修复
 - ❌ 翻译服务失败率过高 → ✅ 已优化
+- ❌ 翻译请求频率限制过严 → ✅ 已放宽
+- ❌ 错误通知DOM操作失败 → ✅ 已修复
 
 ---
 修复完成时间：2026年1月6日  
-版本：1.0.2 (完整Service Worker兼容版)
+版本：1.0.3 (完整Service Worker兼容版 - 最终版)

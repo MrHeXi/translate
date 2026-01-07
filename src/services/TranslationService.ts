@@ -33,7 +33,7 @@ export class TranslationService {
   private cache: Map<string, TranslationCacheItem> = new Map();
   private requestLimiter: RequestLimiter;
   private readonly CACHE_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24小时缓存过期
-  private readonly MAX_REQUESTS_PER_MINUTE = 60; // 每分钟最大请求数
+  private readonly MAX_REQUESTS_PER_MINUTE = 120; // 每分钟最大请求数（放宽限制）
   // private readonly API_KEY = 'your-api-key'; // 实际使用时需要配置
 
   constructor() {

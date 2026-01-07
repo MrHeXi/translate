@@ -324,6 +324,7 @@ export class ErrorHandler {
         { component: 'global', action: 'javascript_error' }
       );
     });
+    }
   }
 
   private triggerErrorCallbacks(error: ExtensionError): void {
@@ -386,6 +387,13 @@ export class ErrorHandler {
   }
 
   private showUserMessage(message: string, type: 'info' | 'warning' | 'error' = 'info'): void {
+    // 只在有DOM环境时显示用户通知（非Service Worker环境）
+    if (typeof document === 'undefined') {
+      // Service Worker环境中只记录到控制台
+      console.log(`[${type.toUpperCase()}] ${message}`);
+      return;
+    }
+
     // 创建用户通知
     const notification = document.createElement('div');
     notification.className = `error-notification ${type}`;
