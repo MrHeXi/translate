@@ -206,8 +206,8 @@ export class TranslationService {
     // 实际实现中应该调用真实的翻译API（如Google Translate API）
     
     // 模拟网络延迟和可能的失败
-    // 在测试环境中禁用随机失败
-    const shouldFail = process.env['NODE_ENV'] !== 'test' && Math.random() < 0.05; // 5%的失败率用于测试
+    // 在生产环境中禁用随机失败，降低开发环境失败率
+    const shouldFail = process.env['NODE_ENV'] === 'development' && Math.random() < 0.01; // 降低到1%的失败率
     
     return new Promise((resolve, reject) => {
       setTimeout(() => {

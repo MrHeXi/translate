@@ -162,14 +162,24 @@ export class PerformanceManager {
 
   private updateComponentMetrics(): void {
     // 统计页面中的组件数量
-    const overlays = document.querySelectorAll('.translation-overlay').length;
-    const icons = document.querySelectorAll('#translation-floating-icon').length;
-    
-    this.metrics.componentStats = {
-      activeComponents: overlays + icons,
-      translationOverlays: overlays,
-      floatingIcons: icons
-    };
+    // 只在有DOM环境时执行（非Service Worker环境）
+    if (typeof document !== 'undefined') {
+      const overlays = document.querySelectorAll('.translation-overlay').length;
+      const icons = document.querySelectorAll('#translation-floating-icon').length;
+      
+      this.metrics.componentStats = {
+        activeComponents: overlays + icons,
+        translationOverlays: overlays,
+        floatingIcons: icons
+      };
+    } else {
+      // Service Worker环境中的默认值
+      this.metrics.componentStats = {
+        activeComponents: 0,
+        translationOverlays: 0,
+        floatingIcons: 0
+      };
+    }
   }
 
   private updateRequestMetrics(): void {
