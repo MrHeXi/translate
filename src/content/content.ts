@@ -392,11 +392,11 @@ class ContentScript {
     if (!text.trim()) return;
 
     // 显示加载状态
-    const loadingId = loadingManager.showSimpleLoading('翻译中...', 10000);
+    const loadingId: string = loadingManager.showSimpleLoading('翻译中...', 10000);
 
     try {
       // 检查缓存
-      let translation = this.translationCache.get(text);
+      let translation: string | undefined = this.translationCache.get(text);
       
       if (!translation) {
         // 检查网络状态
@@ -418,6 +418,11 @@ class ContentScript {
           translation = result.translatedText;
           this.translationCache.set(text, translation);
         }
+      }
+
+      // 确保 translation 不为空
+      if (!translation) {
+        throw new Error('翻译结果为空');
       }
 
       // 隐藏加载状态

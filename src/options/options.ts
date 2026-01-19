@@ -103,6 +103,13 @@ class OptionsController {
     const clearAllBtn = document.getElementById('clearAllData');
     clearAllBtn?.addEventListener('click', () => this.clearAllData());
 
+    // 生词本和复习页面导航
+    const viewVocabularyBtn = document.getElementById('viewVocabulary');
+    viewVocabularyBtn?.addEventListener('click', () => this.openVocabularyPage());
+
+    const startReviewBtn = document.getElementById('startReview');
+    startReviewBtn?.addEventListener('click', () => this.openReviewPage());
+
     // 设置项变化监听
     this.bindSettingChangeListeners();
   }
@@ -585,6 +592,18 @@ class OptionsController {
     setTimeout(() => {
       messageDiv.remove();
     }, 3000);
+  }
+
+  private openVocabularyPage(): void {
+    chrome.tabs.create({
+      url: chrome.runtime.getURL('vocabulary.html')
+    });
+  }
+
+  private openReviewPage(): void {
+    chrome.tabs.create({
+      url: chrome.runtime.getURL('review.html')
+    });
   }
 
   private sendMessage(message: any): Promise<any> {

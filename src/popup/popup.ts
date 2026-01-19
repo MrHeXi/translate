@@ -250,14 +250,14 @@ class PopupController {
   private openVocabulary(): void {
     // 打开生词本页面
     chrome.tabs.create({
-      url: chrome.runtime.getURL('src/options/vocabulary.html')
+      url: chrome.runtime.getURL('vocabulary.html')
     });
   }
 
   private startReview(): void {
     // 打开复习页面
     chrome.tabs.create({
-      url: chrome.runtime.getURL('src/options/review.html')
+      url: chrome.runtime.getURL('review.html')
     });
   }
 

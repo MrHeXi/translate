@@ -189,7 +189,7 @@ describe('弹出窗口UI组件测试', () => {
     });
 
     test('应该能够创建新标签页', () => {
-      const url = 'chrome-extension://test/src/options/vocabulary.html';
+      const url = 'chrome-extension://test/vocabulary.html';
       mockChrome.tabs.create({ url });
       
       expect(mockChrome.tabs.create).toHaveBeenCalledWith({ url });
@@ -380,7 +380,7 @@ describe('弹出窗口UI组件测试', () => {
 
   describe('页面导航功能', () => {
     test('应该能够打开生词本页面', () => {
-      const vocabularyUrl = 'chrome-extension://test/src/options/vocabulary.html';
+      const vocabularyUrl = 'chrome-extension://test/vocabulary.html';
       mockChrome.tabs.create({ url: vocabularyUrl });
       
       expect(mockChrome.tabs.create).toHaveBeenCalledWith({
@@ -389,7 +389,7 @@ describe('弹出窗口UI组件测试', () => {
     });
 
     test('应该能够打开复习页面', () => {
-      const reviewUrl = 'chrome-extension://test/src/options/review.html';
+      const reviewUrl = 'chrome-extension://test/review.html';
       mockChrome.tabs.create({ url: reviewUrl });
       
       expect(mockChrome.tabs.create).toHaveBeenCalledWith({

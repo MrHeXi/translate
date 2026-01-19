@@ -202,40 +202,84 @@ export class TranslationService {
   }
 
   private async callTranslationAPI(request: TranslationRequest): Promise<TranslationResult> {
-    // 模拟API调用
-    // 实际实现中应该调用真实的翻译API（如Google Translate API）
-    
-    // 模拟网络延迟和可能的失败
-    // 在生产环境中禁用随机失败，降低开发环境失败率
-    const shouldFail = process.env['NODE_ENV'] === 'development' && Math.random() < 0.01; // 降低到1%的失败率
-    
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        if (shouldFail) {
-          reject(new Error('模拟API调用失败'));
-          return;
-        }
+    // 尝试使用真实的翻译API
+    try {
+      // 首先尝试使用 MyMemory API（免费，无需 API Key）
+      return await this.callMyMemoryAPI(request);
+    } catch (error) {
+      console.warn('MyMemory API 调用失败，尝试备用服务:', error);
+      
+      try {
+        // 备用方案：使用 Google Translate 免费接口
+        return await this.callGoogleTranslateAPI(request);
+      } catch (fallbackError) {
+        console.error('所有翻译服务都失败:', fallbackError);
+        throw new Error('翻译服务暂时不可用，正在尝试备用服务...');
+      }
+    }
+  }
 
-        // 检测源语言
-        const detectedLang = request.sourceLang || this.detectLanguageSync(request.text);
-        
-        // 生成多个翻译选项
-        const alternatives = [
-          `[备选翻译1] ${request.text}`,
-          `[备选翻译2] ${request.text}`,
-          `[备选翻译3] ${request.text}`
-        ];
-        
-        resolve({
-          originalText: request.text,
-          translatedText: `[翻译] ${request.text}`, // 模拟翻译结果
-          sourceLang: detectedLang,
-          targetLang: request.targetLang,
-          confidence: 0.85 + Math.random() * 0.15, // 0.85-1.0之间的置信度
-          alternatives
-        });
-      }, 10); // 减少延迟到10ms以加快测试
-    });
+  // MyMemory 翻译 API（免费，无需 API Key）
+  private async callMyMemoryAPI(request: TranslationRequest): Promise<TranslationResult> {
+    const sourceLang = request.sourceLang || await this.detectLanguage(request.text);
+    const langPair = `${sourceLang}|${request.targetLang}`;
+    
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(request.text)}&langpair=${langPair}`;
+    
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      throw new Error(`MyMemory API 请求失败: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.responseStatus !== 200) {
+      throw new Error(`MyMemory API 返回错误: ${data.responseStatus}`);
+    }
+    
+    return {
+      originalText: request.text,
+      translatedText: data.responseData.translatedText,
+      sourceLang: sourceLang,
+      targetLang: request.targetLang,
+      confidence: parseFloat(data.responseData.match) || 0.8,
+      alternatives: data.matches?.slice(0, 3).map((m: any) => m.translation) || []
+    };
+  }
+
+  // Google Translate 免费接口（备用方案）
+  private async callGoogleTranslateAPI(request: TranslationRequest): Promise<TranslationResult> {
+    const sourceLang = request.sourceLang || 'auto';
+    const targetLang = request.targetLang;
+    
+    // 使用 Google Translate 的免费接口
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(request.text)}`;
+    
+    const response = await fetch(url);
+    
+    if (!response.ok) {
+      throw new Error(`Google Translate API 请求失败: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // Google Translate 返回的数据格式：[[["翻译文本","原文本",null,null,3]],null,"en"]
+    if (!data || !data[0] || !data[0][0]) {
+      throw new Error('Google Translate API 返回数据格式错误');
+    }
+    
+    const translatedText = data[0].map((item: any) => item[0]).join('');
+    const detectedLang = data[2] || sourceLang;
+    
+    return {
+      originalText: request.text,
+      translatedText: translatedText,
+      sourceLang: detectedLang,
+      targetLang: targetLang,
+      confidence: 0.9,
+      alternatives: []
+    };
   }
 
   private detectLanguageSync(text: string): string {

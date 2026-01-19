@@ -133,7 +133,7 @@ class ReviewController {
     const backToVocabulary = document.getElementById('backToVocabulary');
     backToVocabulary?.addEventListener('click', () => {
       chrome.tabs.create({
-        url: chrome.runtime.getURL('src/options/vocabulary.html')
+        url: chrome.runtime.getURL('vocabulary.html')
       });
     });
 

@@ -369,7 +369,7 @@ class VocabularyController {
     if (!currentWord) return;
 
     // 跳转到复习页面，并传递特定单词
-    const reviewUrl = chrome.runtime.getURL('src/options/review.html');
+    const reviewUrl = chrome.runtime.getURL('review.html');
     const url = new URL(reviewUrl);
     url.searchParams.set('word', currentWord.word);
     
@@ -446,7 +446,7 @@ class VocabularyController {
   private startReview(): void {
     // 跳转到复习页面
     chrome.tabs.create({
-      url: chrome.runtime.getURL('src/options/review.html')
+      url: chrome.runtime.getURL('review.html')
     });
   }
 

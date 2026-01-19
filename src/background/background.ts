@@ -201,110 +201,114 @@ class BackgroundService {
     }
 
     try {
+      let response: MessageResponse;
+      
       switch (request.action) {
         case 'translate':
-          await this.handleTranslateRequest(request, sendResponse);
+          response = await this.handleTranslateRequest(request);
           break;
         
         case 'detectLanguage':
-          await this.handleDetectLanguageRequest(request, sendResponse);
+          response = await this.handleDetectLanguageRequest(request);
           break;
         
         case 'addVocabulary':
-          await this.handleAddVocabularyRequest(request, sendResponse);
+          response = await this.handleAddVocabularyRequest(request);
           break;
         
         case 'removeVocabulary':
-          await this.handleRemoveVocabularyRequest(request, sendResponse);
+          response = await this.handleRemoveVocabularyRequest(request);
           break;
         
         case 'getVocabularyList':
-          await this.handleGetVocabularyListRequest(request, sendResponse);
+          response = await this.handleGetVocabularyListRequest(request);
           break;
         
         case 'markAsLearned':
-          await this.handleMarkAsLearnedRequest(request, sendResponse);
+          response = await this.handleMarkAsLearnedRequest(request);
           break;
         
         case 'loadDictionary':
-          await this.handleLoadDictionaryRequest(request, sendResponse);
+          response = await this.handleLoadDictionaryRequest(request);
           break;
         
         case 'lookupWord':
-          await this.handleLookupWordRequest(request, sendResponse);
+          response = await this.handleLookupWordRequest(request);
           break;
         
         case 'getSettings':
-          await this.handleGetSettingsRequest(request, sendResponse);
+          response = await this.handleGetSettingsRequest(request);
           break;
         
         case 'updateSettings':
-          await this.handleUpdateSettingsRequest(request, sendResponse);
+          response = await this.handleUpdateSettingsRequest(request);
           break;
         
         case 'getLearningStats':
-          await this.handleGetLearningStatsRequest(request, sendResponse);
+          response = await this.handleGetLearningStatsRequest(request);
           break;
         
         case 'getDictionaryProgress':
-          await this.handleGetDictionaryProgressRequest(request, sendResponse);
+          response = await this.handleGetDictionaryProgressRequest(request);
           break;
         
         case 'startReviewSession':
-          await this.handleStartReviewSessionRequest(request, sendResponse);
+          response = await this.handleStartReviewSessionRequest(request);
           break;
         
         case 'endReviewSession':
-          await this.handleEndReviewSessionRequest(request, sendResponse);
+          response = await this.handleEndReviewSessionRequest(request);
           break;
         
         case 'recordReviewResult':
-          await this.handleRecordReviewResultRequest(request, sendResponse);
+          response = await this.handleRecordReviewResultRequest(request);
           break;
         
         case 'exportData':
-          await this.handleExportDataRequest(request, sendResponse);
+          response = await this.handleExportDataRequest(request);
           break;
         
         case 'importData':
-          await this.handleImportDataRequest(request, sendResponse);
+          response = await this.handleImportDataRequest(request);
           break;
         
         case 'syncData':
-          await this.handleSyncDataRequest(request, sendResponse);
+          response = await this.handleSyncDataRequest(request);
           break;
         
         case 'resetSettings':
-          await this.handleResetSettingsRequest(request, sendResponse);
+          response = await this.handleResetSettingsRequest(request);
           break;
         
         case 'exportUserData':
-          await this.handleExportUserDataRequest(request, sendResponse);
+          response = await this.handleExportUserDataRequest(request);
           break;
         
         case 'importUserData':
-          await this.handleImportUserDataRequest(request, sendResponse);
+          response = await this.handleImportUserDataRequest(request);
           break;
         
         case 'forceSync':
-          await this.handleForceSyncRequest(request, sendResponse);
+          response = await this.handleForceSyncRequest(request);
           break;
         
         case 'clearVocabulary':
-          await this.handleClearVocabularyRequest(request, sendResponse);
+          response = await this.handleClearVocabularyRequest(request);
           break;
         
         case 'resetAllSettings':
-          await this.handleResetAllSettingsRequest(request, sendResponse);
+          response = await this.handleResetAllSettingsRequest(request);
           break;
         
         case 'clearAllData':
-          await this.handleClearAllDataRequest(request, sendResponse);
+          response = await this.handleClearAllDataRequest(request);
           break;
         
         default:
-          sendResponse({ success: false, error: `未知的操作类型: ${request.action}` });
+          response = { success: false, error: `未知的操作类型: ${request.action}` };
       }
+      
+      sendResponse(response);
     } catch (error) {
       console.error(`处理消息失败 [${request.action}]:`, error);
       sendResponse({ 
@@ -743,14 +747,14 @@ class BackgroundService {
 
   private async handleOpenVocabularyRequest(request: MessageRequest): Promise<MessageResponse> {
     chrome.tabs.create({
-      url: chrome.runtime.getURL('src/options/vocabulary.html')
+      url: chrome.runtime.getURL('vocabulary.html')
     });
     return { success: true };
   }
 
   private async handleOpenReviewRequest(request: MessageRequest): Promise<MessageResponse> {
     chrome.tabs.create({
-      url: chrome.runtime.getURL('src/options/review.html')
+      url: chrome.runtime.getURL('review.html')
     });
     return { success: true };
   }
