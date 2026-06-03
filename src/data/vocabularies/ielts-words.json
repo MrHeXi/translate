@@ -1,0 +1,92 @@
+[
+  {
+    "word": "abundant",
+    "pronunciation": "/əˈbʌndənt/",
+    "partOfSpeech": "adjective",
+    "definitions": ["丰富的", "充足的", "大量的"],
+    "examples": ["The region has abundant natural resources.", "There was abundant evidence."],
+    "difficulty": 5,
+    "frequency": 70
+  },
+  {
+    "word": "accelerate",
+    "pronunciation": "/əkˈseləreɪt/",
+    "partOfSpeech": "verb",
+    "definitions": ["加速", "促进", "加快"],
+    "examples": ["The car began to accelerate.", "We need to accelerate the process."],
+    "difficulty": 6,
+    "frequency": 65
+  },
+  {
+    "word": "accessible",
+    "pronunciation": "/əkˈsesəbl/",
+    "partOfSpeech": "adjective",
+    "definitions": ["可接近的", "易懂的", "可获得的"],
+    "examples": ["The building is accessible to wheelchairs.", "The information is easily accessible."],
+    "difficulty": 5,
+    "frequency": 75
+  },
+  {
+    "word": "accompany",
+    "pronunciation": "/əˈkʌmpəni/",
+    "partOfSpeech": "verb",
+    "definitions": ["陪伴", "伴随", "附带"],
+    "examples": ["She accompanied him to the party.", "The report was accompanied by charts."],
+    "difficulty": 4,
+    "frequency": 80
+  },
+  {
+    "word": "accumulate",
+    "pronunciation": "/əˈkjuːmjəleɪt/",
+    "partOfSpeech": "verb",
+    "definitions": ["积累", "聚集", "堆积"],
+    "examples": ["Snow began to accumulate on the ground.", "He accumulated wealth over the years."],
+    "difficulty": 6,
+    "frequency": 60
+  },
+  {
+    "word": "acknowledge",
+    "pronunciation": "/əkˈnɑːlɪdʒ/",
+    "partOfSpeech": "verb",
+    "definitions": ["承认", "确认", "感谢"],
+    "examples": ["He acknowledged his mistake.", "Please acknowledge receipt of this letter."],
+    "difficulty": 5,
+    "frequency": 85
+  },
+  {
+    "word": "adapt",
+    "pronunciation": "/əˈdæpt/",
+    "partOfSpeech": "verb",
+    "definitions": ["适应", "改编", "调整"],
+    "examples": ["Animals adapt to their environment.", "The book was adapted for television."],
+    "difficulty": 4,
+    "frequency": 90
+  },
+  {
+    "word": "adequate",
+    "pronunciation": "/ˈædɪkwət/",
+    "partOfSpeech": "adjective",
+    "definitions": ["足够的", "适当的", "胜任的"],
+    "examples": ["The salary is adequate for basic needs.", "She has adequate experience."],
+    "difficulty": 5,
+    "frequency": 75
+  },
+  {
+    "word": "administration",
+    "pronunciation": "/ədˌmɪnɪˈstreɪʃn/",
+    "partOfSpeech": "noun",
+    "definitions": ["管理", "行政", "政府"],
+    "examples": ["The administration of the company changed.", "Hospital administration is complex."],
+    "difficulty": 6,
+    "frequency": 70
+  },
+  {
+    "word": "advocate",
+    "pronunciation": "/ˈædvəkeɪt/",
+    "partOfSpeech": "verb",
+    "definitions": ["提倡", "拥护", "支持"],
+    "examples": ["She advocates for children's rights.", "The lawyer advocated for his client."],
+    "difficulty": 6,
+    "frequency": 65
+  }
+]

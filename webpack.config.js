@@ -95,6 +95,11 @@ module.exports = (env, argv) => {
             from: 'icons',
             to: 'icons',
             noErrorOnMissing: true
+          },
+          {
+            from: 'src/data/vocabularies',
+            to: 'data/vocabularies',
+            noErrorOnMissing: true
           }
         ]
       })

@@ -25,6 +25,14 @@
     <!-- 工具栏 -->
     <div class="toolbar">
       <div class="toolbar-left">
+        <select id="dictionarySelect">
+          <option value="">选择内置词库</option>
+          <option value="gre">GRE词汇</option>
+          <option value="toefl">托福词汇</option>
+          <option value="ielts">雅思词汇</option>
+          <option value="cet4">大学英语四级</option>
+          <option value="cet6">大学英语六级</option>
+        </select>
         <select id="sortBy">
           <option value="addedDate">按添加时间</option>
           <option value="word">按字母顺序</option>
@@ -41,6 +49,7 @@
       </div>
       <div class="toolbar-right">
         <span class="word-count">共 <span id="totalCount">0</span> 个生词</span>
+        <button id="loadDictionaryBtn" class="secondary-btn" style="display: none;">加载词库</button>
         <button id="exportBtn" class="secondary-btn">导出</button>
         <button id="reviewBtn" class="primary-btn">开始复习</button>
       </div>

@@ -1,0 +1,92 @@
+[
+  {
+    "word": "abandon",
+    "pronunciation": "/əˈbændən/",
+    "partOfSpeech": "verb",
+    "definitions": ["放弃", "抛弃", "遗弃"],
+    "examples": ["They had to abandon their car in the snow.", "Don't abandon your dreams."],
+    "difficulty": 5,
+    "frequency": 70
+  },
+  {
+    "word": "abbreviation",
+    "pronunciation": "/əˌbriːviˈeɪʃn/",
+    "partOfSpeech": "noun",
+    "definitions": ["缩写", "缩略", "简称"],
+    "examples": ["NASA is an abbreviation for National Aeronautics and Space Administration.", "Use abbreviations to save space."],
+    "difficulty": 6,
+    "frequency": 50
+  },
+  {
+    "word": "abide",
+    "pronunciation": "/əˈbaɪd/",
+    "partOfSpeech": "verb",
+    "definitions": ["遵守", "忍受", "坚持"],
+    "examples": ["You must abide by the rules.", "I can't abide his rudeness."],
+    "difficulty": 6,
+    "frequency": 45
+  },
+  {
+    "word": "abolish",
+    "pronunciation": "/əˈbɑːlɪʃ/",
+    "partOfSpeech": "verb",
+    "definitions": ["废除", "取消", "废止"],
+    "examples": ["The government decided to abolish the tax.", "Slavery was abolished in 1865."],
+    "difficulty": 6,
+    "frequency": 55
+  },
+  {
+    "word": "absorb",
+    "pronunciation": "/əbˈzɔːrb/",
+    "partOfSpeech": "verb",
+    "definitions": ["吸收", "吸取", "专心于"],
+    "examples": ["Plants absorb water through their roots.", "She was absorbed in her book."],
+    "difficulty": 5,
+    "frequency": 75
+  },
+  {
+    "word": "abstract",
+    "pronunciation": "/ˈæbstrækt/",
+    "partOfSpeech": "adjective",
+    "definitions": ["抽象的", "理论的", "概念的"],
+    "examples": ["Abstract art is difficult to understand.", "This is an abstract concept."],
+    "difficulty": 6,
+    "frequency": 60
+  },
+  {
+    "word": "abundant",
+    "pronunciation": "/əˈbʌndənt/",
+    "partOfSpeech": "adjective",
+    "definitions": ["丰富的", "充足的", "大量的"],
+    "examples": ["The region has abundant natural resources.", "There was abundant evidence."],
+    "difficulty": 5,
+    "frequency": 65
+  },
+  {
+    "word": "accelerate",
+    "pronunciation": "/əkˈseləreɪt/",
+    "partOfSpeech": "verb",
+    "definitions": ["加速", "促进", "加快"],
+    "examples": ["The car began to accelerate.", "We need to accelerate the process."],
+    "difficulty": 6,
+    "frequency": 60
+  },
+  {
+    "word": "accommodate",
+    "pronunciation": "/əˈkɑːmədeɪt/",
+    "partOfSpeech": "verb",
+    "definitions": ["容纳", "适应", "提供住宿"],
+    "examples": ["The hotel can accommodate 200 guests.", "We need to accommodate different needs."],
+    "difficulty": 6,
+    "frequency": 65
+  },
+  {
+    "word": "accompany",
+    "pronunciation": "/əˈkʌmpəni/",
+    "partOfSpeech": "verb",
+    "definitions": ["陪伴", "伴随", "附带"],
+    "examples": ["She accompanied him to the party.", "The report was accompanied by charts."],
+    "difficulty": 5,
+    "frequency": 70
+  }
+]

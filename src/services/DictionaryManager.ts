@@ -200,17 +200,34 @@ export class DictionaryManager {
   }
 
   private async fetchDictionaryData(type: DictionaryType): Promise<Dictionary> {
-    // 模拟加载词库数据
-    // 实际实现中应该从本地文件或远程API加载
-    
-    const sampleWords: WordDefinition[] = this.generateSampleWords(type);
-
-    return {
-      type,
-      name: this.getDictionaryName(type),
-      words: sampleWords,
-      totalCount: sampleWords.length
-    };
+    try {
+      // 从本地JSON文件加载词库数据
+      const fileName = this.getDictionaryFileName(type);
+      const response = await fetch(chrome.runtime.getURL(`data/vocabularies/${fileName}`));
+      
+      if (!response.ok) {
+        throw new Error(`无法加载词库文件: ${fileName}`);
+      }
+      
+      const words: WordDefinition[] = await response.json();
+      
+      return {
+        type,
+        name: this.getDictionaryName(type),
+        words,
+        totalCount: words.length
+      };
+    } catch (error) {
+      console.error(`加载词库数据失败: ${type}`, error);
+      // 如果加载失败，返回示例数据作为备用
+      const sampleWords: WordDefinition[] = this.generateSampleWords(type);
+      return {
+        type,
+        name: this.getDictionaryName(type),
+        words: sampleWords,
+        totalCount: sampleWords.length
+      };
+    }
   }
 
   private generateSampleWords(type: DictionaryType): WordDefinition[] {
@@ -332,6 +349,17 @@ export class DictionaryManager {
       [DictionaryType.CET6]: '大学英语六级'
     };
     return names[type];
+  }
+
+  private getDictionaryFileName(type: DictionaryType): string {
+    const fileNames = {
+      [DictionaryType.GRE]: 'gre-words.json',
+      [DictionaryType.TOEFL]: 'toefl-words.json',
+      [DictionaryType.IELTS]: 'ielts-words.json',
+      [DictionaryType.CET4]: 'cet4-words.json',
+      [DictionaryType.CET6]: 'cet6-words.json'
+    };
+    return fileNames[type];
   }
 
   private getLearnedWordsCount(dictionaryType: DictionaryType): number {

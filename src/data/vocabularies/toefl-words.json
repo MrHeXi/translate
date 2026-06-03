@@ -1,0 +1,92 @@
+[
+  {
+    "word": "academic",
+    "pronunciation": "/ˌækəˈdemɪk/",
+    "partOfSpeech": "adjective",
+    "definitions": ["学术的", "理论的", "大学的"],
+    "examples": ["Academic research is important.", "She has academic interests."],
+    "difficulty": 5,
+    "frequency": 85
+  },
+  {
+    "word": "accommodate",
+    "pronunciation": "/əˈkɑːmədeɪt/",
+    "partOfSpeech": "verb",
+    "definitions": ["容纳", "适应", "提供住宿"],
+    "examples": ["The hotel can accommodate 200 guests.", "We need to accommodate different needs."],
+    "difficulty": 6,
+    "frequency": 70
+  },
+  {
+    "word": "accurate",
+    "pronunciation": "/ˈækjərət/",
+    "partOfSpeech": "adjective",
+    "definitions": ["准确的", "精确的", "正确的"],
+    "examples": ["Please provide accurate information.", "His prediction was accurate."],
+    "difficulty": 4,
+    "frequency": 90
+  },
+  {
+    "word": "achieve",
+    "pronunciation": "/əˈtʃiːv/",
+    "partOfSpeech": "verb",
+    "definitions": ["实现", "达到", "完成"],
+    "examples": ["She achieved her goal.", "We need to achieve better results."],
+    "difficulty": 4,
+    "frequency": 95
+  },
+  {
+    "word": "acquire",
+    "pronunciation": "/əˈkwaɪər/",
+    "partOfSpeech": "verb",
+    "definitions": ["获得", "取得", "学会"],
+    "examples": ["He acquired new skills.", "The company acquired a competitor."],
+    "difficulty": 5,
+    "frequency": 80
+  },
+  {
+    "word": "adequate",
+    "pronunciation": "/ˈædɪkwət/",
+    "partOfSpeech": "adjective",
+    "definitions": ["足够的", "适当的", "胜任的"],
+    "examples": ["The food was adequate but not excellent.", "She has adequate qualifications."],
+    "difficulty": 5,
+    "frequency": 75
+  },
+  {
+    "word": "adjacent",
+    "pronunciation": "/əˈdʒeɪsənt/",
+    "partOfSpeech": "adjective",
+    "definitions": ["邻近的", "毗邻的", "相邻的"],
+    "examples": ["The two buildings are adjacent.", "They live in adjacent apartments."],
+    "difficulty": 6,
+    "frequency": 65
+  },
+  {
+    "word": "advocate",
+    "pronunciation": "/ˈædvəkeɪt/",
+    "partOfSpeech": "verb",
+    "definitions": ["提倡", "拥护", "支持"],
+    "examples": ["She advocates for environmental protection.", "He advocates peaceful solutions."],
+    "difficulty": 6,
+    "frequency": 70
+  },
+  {
+    "word": "alternative",
+    "pronunciation": "/ɔːlˈtɜːrnətɪv/",
+    "partOfSpeech": "noun",
+    "definitions": ["替代方案", "选择", "备选"],
+    "examples": ["We need an alternative plan.", "There are several alternatives available."],
+    "difficulty": 5,
+    "frequency": 85
+  },
+  {
+    "word": "analyze",
+    "pronunciation": "/ˈænəlaɪz/",
+    "partOfSpeech": "verb",
+    "definitions": ["分析", "解析", "研究"],
+    "examples": ["We need to analyze the data.", "Analyze this problem carefully."],
+    "difficulty": 5,
+    "frequency": 80
+  }
+]

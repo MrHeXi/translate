@@ -53,7 +53,8 @@
     {
       "resources": [
         "src/content/components/*",
-        "src/content/content.css"
+        "src/content/content.css",
+        "data/vocabularies/*"
       ],
       "matches": ["<all_urls>"]
     }

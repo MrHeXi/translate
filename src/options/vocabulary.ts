@@ -1,5 +1,7 @@
 // 生词本页面脚本
 
+import { DictionaryManager, DictionaryType, WordDefinition } from '../services/DictionaryManager';
+
 interface VocabularyItem {
   word: string;
   translation: string;
@@ -13,14 +15,19 @@ interface VocabularyItem {
 
 class VocabularyController {
   private vocabulary: VocabularyItem[] = [];
-  private filteredVocabulary: VocabularyItem[] = [];
+  private filteredVocabulary: (VocabularyItem | WordDefinition)[] = [];
+  private builtInWords: WordDefinition[] = [];
   private currentPage: number = 1;
   private itemsPerPage: number = 12;
   private currentSort: string = 'addedDate';
   private currentFilter: string = 'all';
   private searchQuery: string = '';
+  private selectedDictionary: DictionaryType | null = null;
+  private dictionaryManager: DictionaryManager;
+  private isShowingBuiltIn: boolean = false;
 
   constructor() {
+    this.dictionaryManager = new DictionaryManager();
     this.initialize();
   }
 
@@ -40,6 +47,29 @@ class VocabularyController {
     const backBtn = document.getElementById('backBtn');
     backBtn?.addEventListener('click', () => {
       window.history.back();
+    });
+
+    // 词库选择
+    const dictionarySelect = document.getElementById('dictionarySelect') as HTMLSelectElement;
+    dictionarySelect?.addEventListener('change', (e) => {
+      const selectedValue = (e.target as HTMLSelectElement).value;
+      if (selectedValue) {
+        this.selectedDictionary = selectedValue as DictionaryType;
+        this.loadBuiltInDictionary();
+      } else {
+        this.selectedDictionary = null;
+        this.isShowingBuiltIn = false;
+        this.builtInWords = [];
+        this.applyFiltersAndSort();
+      }
+    });
+
+    // 加载词库按钮
+    const loadDictionaryBtn = document.getElementById('loadDictionaryBtn');
+    loadDictionaryBtn?.addEventListener('click', () => {
+      if (this.selectedDictionary) {
+        this.loadBuiltInDictionary();
+      }
     });
 
     // 搜索功能
@@ -104,6 +134,47 @@ class VocabularyController {
     });
   }
 
+  private async loadBuiltInDictionary(): Promise<void> {
+    if (!this.selectedDictionary) return;
+
+    try {
+      const loadingState = document.getElementById('loadingState');
+      if (loadingState) loadingState.style.display = 'block';
+
+      // 显示加载词库按钮
+      const loadDictionaryBtn = document.getElementById('loadDictionaryBtn');
+      if (loadDictionaryBtn) {
+        loadDictionaryBtn.style.display = 'inline-block';
+        (loadDictionaryBtn as HTMLButtonElement).disabled = true;
+        loadDictionaryBtn.textContent = '加载中...';
+      }
+
+      const dictionary = await this.dictionaryManager.loadBuiltInDictionary(this.selectedDictionary);
+      this.builtInWords = dictionary.words;
+      this.isShowingBuiltIn = true;
+      
+      this.applyFiltersAndSort();
+      this.showSuccess(`成功加载${dictionary.name}，共${dictionary.totalCount}个词汇`);
+
+      // 隐藏加载按钮
+      if (loadDictionaryBtn) {
+        loadDictionaryBtn.style.display = 'none';
+      }
+    } catch (error) {
+      console.error('加载内置词库失败:', error);
+      this.showError('加载内置词库失败: ' + (error as Error).message);
+      
+      // 重置加载按钮
+      const loadDictionaryBtn = document.getElementById('loadDictionaryBtn');
+      if (loadDictionaryBtn) {
+        (loadDictionaryBtn as HTMLButtonElement).disabled = false;
+        loadDictionaryBtn.textContent = '加载词库';
+      }
+    } finally {
+      const loadingState = document.getElementById('loadingState');
+      if (loadingState) loadingState.style.display = 'none';
+    }
+  }
   private async loadVocabulary(): Promise<void> {
     try {
       const loadingState = document.getElementById('loadingState');
@@ -133,49 +204,91 @@ class VocabularyController {
   }
 
   private applyFiltersAndSort(): void {
-    let filtered = [...this.vocabulary];
+    let filtered: (VocabularyItem | WordDefinition)[] = [];
+
+    if (this.isShowingBuiltIn) {
+      // 显示内置词库
+      filtered = [...this.builtInWords];
+    } else {
+      // 显示用户生词本
+      filtered = [...this.vocabulary];
+    }
 
     // 应用搜索过滤
     if (this.searchQuery) {
       const query = this.searchQuery.toLowerCase();
-      filtered = filtered.filter(item => 
-        item.word.toLowerCase().includes(query) ||
-        item.translation.toLowerCase().includes(query) ||
-        item.context.toLowerCase().includes(query)
-      );
+      if (this.isShowingBuiltIn) {
+        filtered = filtered.filter((item) => {
+          const word = item as WordDefinition;
+          return word.word.toLowerCase().includes(query) ||
+                 word.definitions.some(def => def.toLowerCase().includes(query));
+        });
+      } else {
+        filtered = filtered.filter((item) => {
+          const vocabItem = item as VocabularyItem;
+          return vocabItem.word.toLowerCase().includes(query) ||
+                 vocabItem.translation.toLowerCase().includes(query) ||
+                 vocabItem.context.toLowerCase().includes(query);
+        });
+      }
     }
 
-    // 应用状态过滤
-    switch (this.currentFilter) {
-      case 'new':
-        filtered = filtered.filter(item => item.masteryLevel === 0);
-        break;
-      case 'learning':
-        filtered = filtered.filter(item => item.masteryLevel > 0 && item.masteryLevel < 0.8);
-        break;
-      case 'mastered':
-        filtered = filtered.filter(item => item.masteryLevel >= 0.8);
-        break;
-      case 'difficult':
-        filtered = filtered.filter(item => item.reviewCount > 3 && item.masteryLevel < 0.5);
-        break;
+    // 应用状态过滤（仅对用户生词本有效）
+    if (!this.isShowingBuiltIn) {
+      switch (this.currentFilter) {
+        case 'new':
+          filtered = filtered.filter((item) => (item as VocabularyItem).masteryLevel === 0);
+          break;
+        case 'learning':
+          filtered = filtered.filter((item) => {
+            const vocabItem = item as VocabularyItem;
+            return vocabItem.masteryLevel > 0 && vocabItem.masteryLevel < 0.8;
+          });
+          break;
+        case 'mastered':
+          filtered = filtered.filter((item) => (item as VocabularyItem).masteryLevel >= 0.8);
+          break;
+        case 'difficult':
+          filtered = filtered.filter((item) => {
+            const vocabItem = item as VocabularyItem;
+            return vocabItem.reviewCount > 3 && vocabItem.masteryLevel < 0.5;
+          });
+          break;
+      }
     }
 
     // 应用排序
-    switch (this.currentSort) {
-      case 'word':
-        filtered.sort((a, b) => a.word.localeCompare(b.word));
-        break;
-      case 'masteryLevel':
-        filtered.sort((a, b) => a.masteryLevel - b.masteryLevel);
-        break;
-      case 'reviewCount':
-        filtered.sort((a, b) => b.reviewCount - a.reviewCount);
-        break;
-      case 'addedDate':
-      default:
-        filtered.sort((a, b) => b.addedDate.getTime() - a.addedDate.getTime());
-        break;
+    if (this.isShowingBuiltIn) {
+      switch (this.currentSort) {
+        case 'word':
+          filtered.sort((a, b) => (a as WordDefinition).word.localeCompare((b as WordDefinition).word));
+          break;
+        case 'difficulty':
+          filtered.sort((a, b) => (b as WordDefinition).difficulty - (a as WordDefinition).difficulty);
+          break;
+        case 'frequency':
+          filtered.sort((a, b) => (b as WordDefinition).frequency - (a as WordDefinition).frequency);
+          break;
+        default:
+          filtered.sort((a, b) => (a as WordDefinition).word.localeCompare((b as WordDefinition).word));
+          break;
+      }
+    } else {
+      switch (this.currentSort) {
+        case 'word':
+          filtered.sort((a, b) => (a as VocabularyItem).word.localeCompare((b as VocabularyItem).word));
+          break;
+        case 'masteryLevel':
+          filtered.sort((a, b) => (a as VocabularyItem).masteryLevel - (b as VocabularyItem).masteryLevel);
+          break;
+        case 'reviewCount':
+          filtered.sort((a, b) => (b as VocabularyItem).reviewCount - (a as VocabularyItem).reviewCount);
+          break;
+        case 'addedDate':
+        default:
+          filtered.sort((a, b) => (b as VocabularyItem).addedDate.getTime() - (a as VocabularyItem).addedDate.getTime());
+          break;
+      }
     }
 
     this.filteredVocabulary = filtered;
@@ -201,9 +314,58 @@ class VocabularyController {
     vocabularyList.innerHTML = '';
 
     pageItems.forEach(item => {
-      const itemElement = this.createVocabularyItemElement(item);
+      let itemElement: HTMLElement;
+      if (this.isShowingBuiltIn) {
+        itemElement = this.createBuiltInWordElement(item as WordDefinition);
+      } else {
+        itemElement = this.createVocabularyItemElement(item as VocabularyItem);
+      }
       vocabularyList.appendChild(itemElement);
     });
+  }
+
+  private createBuiltInWordElement(word: WordDefinition): HTMLElement {
+    const div = document.createElement('div');
+    div.className = 'vocabulary-item built-in-word';
+    div.addEventListener('click', () => this.showBuiltInWordDetails(word));
+
+    const difficultyClass = word.difficulty <= 3 ? 'easy' : 
+                           word.difficulty <= 6 ? 'medium' : 'hard';
+    const difficultyText = word.difficulty <= 3 ? '简单' : 
+                          word.difficulty <= 6 ? '中等' : '困难';
+
+    div.innerHTML = `
+      <div class="word-header">
+        <div>
+          <div class="word-text">${this.escapeHtml(word.word)}</div>
+          <div class="word-pronunciation">${this.escapeHtml(word.pronunciation)}</div>
+          <div class="word-translation">${this.escapeHtml(word.definitions.join('; '))}</div>
+        </div>
+        <div class="word-actions">
+          <button class="action-btn" title="播放发音">🔊</button>
+          <button class="action-btn add-to-vocabulary" title="添加到生词本">➕</button>
+        </div>
+      </div>
+      <div class="word-part-of-speech">${this.escapeHtml(word.partOfSpeech)}</div>
+      ${word.examples.length > 0 ? `<div class="word-examples">"${this.escapeHtml(word.examples[0])}"</div>` : ''}
+      <div class="word-meta">
+        <div>
+          <span class="difficulty-indicator ${difficultyClass}">
+            难度: ${difficultyText} (${word.difficulty}/10)
+          </span>
+          <span> • 频率: ${word.frequency}%</span>
+        </div>
+      </div>
+    `;
+
+    // 添加到生词本按钮事件
+    const addBtn = div.querySelector('.add-to-vocabulary');
+    addBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.addBuiltInWordToVocabulary(word);
+    });
+
+    return div;
   }
 
   private createVocabularyItemElement(item: VocabularyItem): HTMLElement {
@@ -249,6 +411,108 @@ class VocabularyController {
     return div;
   }
 
+  private showBuiltInWordDetails(word: WordDefinition): void {
+    const modal = document.getElementById('wordModal');
+    if (!modal) return;
+
+    // 填充模态框内容
+    const modalWord = document.getElementById('modalWord');
+    const modalTranslation = document.getElementById('modalTranslation');
+    const modalContext = document.getElementById('modalContext');
+    const modalSource = document.getElementById('modalSource') as HTMLAnchorElement;
+    const modalAddedDate = document.getElementById('modalAddedDate');
+    const modalReviewCount = document.getElementById('modalReviewCount');
+    const modalMasteryLevel = document.getElementById('modalMasteryLevel');
+    const modalMasteryText = document.getElementById('modalMasteryText');
+    const modalNextReview = document.getElementById('modalNextReview');
+
+    if (modalWord) modalWord.textContent = word.word;
+    if (modalTranslation) modalTranslation.textContent = word.definitions.join('; ');
+    if (modalContext) modalContext.textContent = word.examples.join(' | ') || '无例句';
+    if (modalSource) {
+      modalSource.href = '#';
+      modalSource.textContent = `内置词库 - ${this.getDictionaryName()}`;
+    }
+    if (modalAddedDate) modalAddedDate.textContent = '内置词汇';
+    if (modalReviewCount) modalReviewCount.textContent = '0';
+    if (modalNextReview) modalNextReview.textContent = '未添加到生词本';
+
+    // 更新掌握程度显示（内置词汇显示难度）
+    if (modalMasteryLevel && modalMasteryText) {
+      const difficultyPercentage = (word.difficulty / 10) * 100;
+      const difficultyClass = word.difficulty <= 3 ? 'low' : 
+                             word.difficulty <= 6 ? 'medium' : 'high';
+      const difficultyText = word.difficulty <= 3 ? '简单' : 
+                            word.difficulty <= 6 ? '中等' : '困难';
+
+      const masteryFill = modalMasteryLevel.querySelector('.mastery-fill') as HTMLElement;
+      if (masteryFill) {
+        masteryFill.className = `mastery-fill ${difficultyClass}`;
+        masteryFill.style.width = `${difficultyPercentage}%`;
+      }
+      modalMasteryText.textContent = `${difficultyText} (${word.difficulty}/10)`;
+    }
+
+    // 存储当前词汇用于操作
+    (modal as any).currentBuiltInWord = word;
+    (modal as any).currentWord = null;
+
+    // 更新按钮显示
+    const deleteWord = document.getElementById('deleteWord');
+    const markAsMastered = document.getElementById('markAsMastered');
+    const reviewWord = document.getElementById('reviewWord');
+
+    if (deleteWord) deleteWord.style.display = 'none';
+    if (markAsMastered) {
+      markAsMastered.textContent = '添加到生词本';
+      markAsMastered.style.display = 'inline-block';
+    }
+    if (reviewWord) reviewWord.style.display = 'none';
+
+    // 显示模态框
+    modal.style.display = 'flex';
+  }
+
+  private async addBuiltInWordToVocabulary(word: WordDefinition): Promise<void> {
+    try {
+      const vocabularyItem: Partial<VocabularyItem> = {
+        word: word.word,
+        translation: word.definitions.join('; '),
+        context: word.examples[0] || '',
+        sourceUrl: `内置词库-${this.getDictionaryName()}`,
+        addedDate: new Date(),
+        reviewCount: 0,
+        masteryLevel: 0,
+        nextReviewDate: new Date(Date.now() + 24 * 60 * 60 * 1000) // 明天
+      };
+
+      const response = await this.sendMessage({
+        action: 'addVocabulary',
+        data: vocabularyItem
+      });
+
+      if (response.success) {
+        this.showSuccess(`"${word.word}" 已添加到生词本`);
+      } else {
+        this.showError('添加到生词本失败: ' + response.error);
+      }
+    } catch (error) {
+      console.error('添加到生词本失败:', error);
+      this.showError('添加到生词本失败');
+    }
+  }
+
+  private getDictionaryName(): string {
+    if (!this.selectedDictionary) return '';
+    const names = {
+      [DictionaryType.GRE]: 'GRE词汇',
+      [DictionaryType.TOEFL]: '托福词汇',
+      [DictionaryType.IELTS]: '雅思词汇',
+      [DictionaryType.CET4]: '大学英语四级',
+      [DictionaryType.CET6]: '大学英语六级'
+    };
+    return names[this.selectedDictionary] || '';
+  }
   private showWordDetails(item: VocabularyItem): void {
     const modal = document.getElementById('wordModal');
     if (!modal) return;
@@ -294,6 +558,19 @@ class VocabularyController {
 
     // 存储当前词汇用于操作
     (modal as any).currentWord = item;
+    (modal as any).currentBuiltInWord = null;
+
+    // 更新按钮显示
+    const deleteWord = document.getElementById('deleteWord');
+    const markAsMastered = document.getElementById('markAsMastered');
+    const reviewWord = document.getElementById('reviewWord');
+
+    if (deleteWord) deleteWord.style.display = 'inline-block';
+    if (markAsMastered) {
+      markAsMastered.textContent = '标记为已掌握';
+      markAsMastered.style.display = 'inline-block';
+    }
+    if (reviewWord) reviewWord.style.display = 'inline-block';
 
     // 显示模态框
     modal.style.display = 'flex';
@@ -304,6 +581,7 @@ class VocabularyController {
     if (modal) {
       modal.style.display = 'none';
       (modal as any).currentWord = null;
+      (modal as any).currentBuiltInWord = null;
     }
   }
 
@@ -337,6 +615,14 @@ class VocabularyController {
   private async markCurrentWordAsMastered(): Promise<void> {
     const modal = document.getElementById('wordModal');
     const currentWord = (modal as any)?.currentWord;
+    const currentBuiltInWord = (modal as any)?.currentBuiltInWord;
+    
+    if (currentBuiltInWord) {
+      // 如果是内置词汇，添加到生词本
+      await this.addBuiltInWordToVocabulary(currentBuiltInWord);
+      this.closeModal();
+      return;
+    }
     
     if (!currentWord) return;
 

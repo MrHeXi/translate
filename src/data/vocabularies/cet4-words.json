@@ -1,0 +1,92 @@
+[
+  {
+    "word": "ability",
+    "pronunciation": "/əˈbɪləti/",
+    "partOfSpeech": "noun",
+    "definitions": ["能力", "才能", "本领"],
+    "examples": ["She has the ability to learn quickly.", "His musical ability is impressive."],
+    "difficulty": 3,
+    "frequency": 95
+  },
+  {
+    "word": "about",
+    "pronunciation": "/əˈbaʊt/",
+    "partOfSpeech": "preposition",
+    "definitions": ["关于", "大约", "周围"],
+    "examples": ["Tell me about your trip.", "It's about 5 o'clock."],
+    "difficulty": 2,
+    "frequency": 100
+  },
+  {
+    "word": "above",
+    "pronunciation": "/əˈbʌv/",
+    "partOfSpeech": "preposition",
+    "definitions": ["在...上面", "超过", "高于"],
+    "examples": ["The plane flew above the clouds.", "The temperature is above normal."],
+    "difficulty": 2,
+    "frequency": 95
+  },
+  {
+    "word": "accept",
+    "pronunciation": "/əkˈsept/",
+    "partOfSpeech": "verb",
+    "definitions": ["接受", "承认", "同意"],
+    "examples": ["I accept your invitation.", "Please accept my apology."],
+    "difficulty": 3,
+    "frequency": 90
+  },
+  {
+    "word": "accident",
+    "pronunciation": "/ˈæksɪdənt/",
+    "partOfSpeech": "noun",
+    "definitions": ["事故", "意外", "偶然"],
+    "examples": ["There was a car accident on the highway.", "Meeting you here was an accident."],
+    "difficulty": 3,
+    "frequency": 85
+  },
+  {
+    "word": "according",
+    "pronunciation": "/əˈkɔːrdɪŋ/",
+    "partOfSpeech": "preposition",
+    "definitions": ["根据", "按照", "依据"],
+    "examples": ["According to the weather report, it will rain.", "Act according to your conscience."],
+    "difficulty": 4,
+    "frequency": 80
+  },
+  {
+    "word": "account",
+    "pronunciation": "/əˈkaʊnt/",
+    "partOfSpeech": "noun",
+    "definitions": ["账户", "账目", "叙述"],
+    "examples": ["I opened a bank account.", "Give me an account of what happened."],
+    "difficulty": 4,
+    "frequency": 85
+  },
+  {
+    "word": "accurate",
+    "pronunciation": "/ˈækjərət/",
+    "partOfSpeech": "adjective",
+    "definitions": ["准确的", "精确的", "正确的"],
+    "examples": ["Please provide accurate information.", "The clock is very accurate."],
+    "difficulty": 4,
+    "frequency": 75
+  },
+  {
+    "word": "achieve",
+    "pronunciation": "/əˈtʃiːv/",
+    "partOfSpeech": "verb",
+    "definitions": ["实现", "达到", "完成"],
+    "examples": ["She achieved her dream of becoming a doctor.", "We achieved our sales target."],
+    "difficulty": 4,
+    "frequency": 80
+  },
+  {
+    "word": "across",
+    "pronunciation": "/əˈkrɔːs/",
+    "partOfSpeech": "preposition",
+    "definitions": ["穿过", "横过", "在...对面"],
+    "examples": ["Walk across the street carefully.", "The store is across from the bank."],
+    "difficulty": 3,
+    "frequency": 90
+  }
+]

@@ -1,0 +1,92 @@
+[
+  {
+    "word": "abandon",
+    "pronunciation": "/əˈbændən/",
+    "partOfSpeech": "verb",
+    "definitions": ["放弃", "抛弃", "遗弃"],
+    "examples": ["They had to abandon their car in the snow.", "Don't abandon hope."],
+    "difficulty": 6,
+    "frequency": 75
+  },
+  {
+    "word": "abate",
+    "pronunciation": "/əˈbeɪt/",
+    "partOfSpeech": "verb",
+    "definitions": ["减少", "减轻", "缓解"],
+    "examples": ["The storm began to abate.", "His anger slowly abated."],
+    "difficulty": 7,
+    "frequency": 45
+  },
+  {
+    "word": "aberrant",
+    "pronunciation": "/æˈberənt/",
+    "partOfSpeech": "adjective",
+    "definitions": ["异常的", "偏离的", "反常的"],
+    "examples": ["His aberrant behavior worried his friends.", "This is an aberrant result."],
+    "difficulty": 8,
+    "frequency": 25
+  },
+  {
+    "word": "abhor",
+    "pronunciation": "/æbˈhɔːr/",
+    "partOfSpeech": "verb",
+    "definitions": ["憎恶", "厌恶", "痛恨"],
+    "examples": ["She abhors violence.", "I abhor dishonesty."],
+    "difficulty": 7,
+    "frequency": 35
+  },
+  {
+    "word": "abject",
+    "pronunciation": "/ˈæbdʒekt/",
+    "partOfSpeech": "adjective",
+    "definitions": ["卑鄙的", "可怜的", "绝望的"],
+    "examples": ["He lived in abject poverty.", "The team's performance was abject."],
+    "difficulty": 8,
+    "frequency": 30
+  },
+  {
+    "word": "abjure",
+    "pronunciation": "/æbˈdʒʊr/",
+    "partOfSpeech": "verb",
+    "definitions": ["发誓放弃", "公开放弃", "正式拒绝"],
+    "examples": ["He abjured his former beliefs.", "The witness abjured his previous testimony."],
+    "difficulty": 9,
+    "frequency": 15
+  },
+  {
+    "word": "abnegate",
+    "pronunciation": "/ˈæbnɪɡeɪt/",
+    "partOfSpeech": "verb",
+    "definitions": ["放弃", "否认", "拒绝"],
+    "examples": ["She abnegated her right to the throne.", "He abnegated all responsibility."],
+    "difficulty": 9,
+    "frequency": 10
+  },
+  {
+    "word": "abscond",
+    "pronunciation": "/æbˈskɑːnd/",
+    "partOfSpeech": "verb",
+    "definitions": ["潜逃", "逃跑", "偷偷离开"],
+    "examples": ["The thief absconded with the money.", "He absconded from prison."],
+    "difficulty": 7,
+    "frequency": 40
+  },
+  {
+    "word": "abstemious",
+    "pronunciation": "/æbˈstiːmiəs/",
+    "partOfSpeech": "adjective",
+    "definitions": ["节制的", "有节制的", "戒酒的"],
+    "examples": ["He lived an abstemious lifestyle.", "She was abstemious in her eating habits."],
+    "difficulty": 8,
+    "frequency": 20
+  },
+  {
+    "word": "abstract",
+    "pronunciation": "/ˈæbstrækt/",
+    "partOfSpeech": "adjective",
+    "definitions": ["抽象的", "理论的", "概念的"],
+    "examples": ["Abstract art is difficult to understand.", "This is an abstract concept."],
+    "difficulty": 6,
+    "frequency": 80
+  }
+]
