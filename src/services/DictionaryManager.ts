@@ -74,12 +74,12 @@ export class DictionaryManager {
 
   async lookupWord(word: string): Promise<WordDefinition> {
     const normalizedWord = word.toLowerCase();
-    
+
     // 检查缓存
     if (this.wordCache.has(normalizedWord)) {
       return this.wordCache.get(normalizedWord)!;
     }
-    
+
     // 在所有已加载的词库中查找单词
     for (const dictionary of this.dictionaries.values()) {
       const wordDef = dictionary.words.find(w => w.word.toLowerCase() === normalizedWord);
@@ -89,7 +89,7 @@ export class DictionaryManager {
         return wordDef;
       }
     }
-    
+
     // 如果本地词库中没有找到，调用在线词典API
     const onlineResult = await this.lookupWordOnline(word);
     if (onlineResult) {
@@ -97,7 +97,7 @@ export class DictionaryManager {
       this.wordCache.set(normalizedWord, onlineResult);
       return onlineResult;
     }
-    
+
     // 如果都没有找到，返回一个默认的词汇定义
     const defaultDef: WordDefinition = {
       word,
@@ -108,7 +108,7 @@ export class DictionaryManager {
       difficulty: 1,
       frequency: 0
     };
-    
+
     // 缓存默认结果
     this.wordCache.set(normalizedWord, defaultDef);
     return defaultDef;
@@ -181,7 +181,7 @@ export class DictionaryManager {
     // 计算平均复习分数
     let totalScore = 0;
     let reviewCount = 0;
-    
+
     for (const [word, progress] of this.learningProgress) {
       if (this.isWordInDictionary(word, dictionaryType)) {
         totalScore += progress.masteryLevel;
@@ -204,13 +204,13 @@ export class DictionaryManager {
       // 从本地JSON文件加载词库数据
       const fileName = this.getDictionaryFileName(type);
       const response = await fetch(chrome.runtime.getURL(`data/vocabularies/${fileName}`));
-      
+
       if (!response.ok) {
         throw new Error(`无法加载词库文件: ${fileName}`);
       }
-      
+
       const words: WordDefinition[] = await response.json();
-      
+
       return {
         type,
         name: this.getDictionaryName(type),
@@ -328,7 +328,7 @@ export class DictionaryManager {
   private async lookupWordOnline(word: string): Promise<WordDefinition | null> {
     // 模拟在线词典查询
     // 实际实现中应该调用在线词典API
-    
+
     return {
       word,
       pronunciation: '/unknown/',
@@ -375,7 +375,7 @@ export class DictionaryManager {
   private isWordInDictionary(word: string, dictionaryType: DictionaryType): boolean {
     const dictionary = this.dictionaries.get(dictionaryType);
     if (!dictionary) return false;
-    
+
     return dictionary.words.some(w => w.word.toLowerCase() === word.toLowerCase());
   }
 
@@ -396,7 +396,7 @@ export class DictionaryManager {
   async preloadAllDictionaries(): Promise<void> {
     const types = Object.values(DictionaryType);
     const loadPromises = types.map(type => this.loadBuiltInDictionary(type));
-    
+
     try {
       await Promise.all(loadPromises);
       console.log('所有词库预加载完成');
@@ -411,7 +411,7 @@ export class DictionaryManager {
     if (!this.activeDictionary) {
       return [];
     }
-    
+
     const dictionary = this.dictionaries.get(this.activeDictionary);
     return dictionary ? dictionary.words : [];
   }
@@ -421,7 +421,7 @@ export class DictionaryManager {
     if (!this.activeDictionary) {
       return false;
     }
-    
+
     return this.isWordInDictionary(word, this.activeDictionary);
   }
 }

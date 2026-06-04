@@ -194,6 +194,27 @@ export class LearningMode {
     }
   }
 
+  async updateVocabularyMastery(word: string, masteryLevel: number): Promise<void> {
+    const key = word.toLowerCase();
+    const item = this.vocabulary.get(key);
+
+    if (!item) return;
+
+    const oldMasteryLevel = item.masteryLevel;
+    item.masteryLevel = Math.max(0, Math.min(1, masteryLevel));
+
+    if (oldMasteryLevel < 0.8 && item.masteryLevel >= 0.8) {
+      this.learningStats.todayReviewedCount++;
+
+      if (item.dictionaryType) {
+        await this.updateDictionaryProgress(item.dictionaryType);
+      }
+    }
+
+    await this.updateReviewSchedule(word);
+    await this.saveVocabulary();
+  }
+
   async updateReviewSchedule(word: string): Promise<void> {
     const key = word.toLowerCase();
     const item = this.vocabulary.get(key);

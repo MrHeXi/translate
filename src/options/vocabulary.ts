@@ -11,6 +11,7 @@ interface VocabularyItem {
   reviewCount: number;
   masteryLevel: number; // 0-1之间的值
   nextReviewDate: Date;
+  dictionaryType?: DictionaryType;
 }
 
 class VocabularyController {
@@ -34,10 +35,10 @@ class VocabularyController {
   private async initialize(): Promise<void> {
     // 绑定事件监听器
     this.bindEventListeners();
-    
+
     // 加载生词数据
     await this.loadVocabulary();
-    
+
     // 更新显示
     this.updateDisplay();
   }
@@ -75,12 +76,12 @@ class VocabularyController {
     // 搜索功能
     const searchInput = document.getElementById('searchInput') as HTMLInputElement;
     const searchBtn = document.getElementById('searchBtn');
-    
+
     searchInput?.addEventListener('input', (e) => {
       this.searchQuery = (e.target as HTMLInputElement).value;
       this.applyFiltersAndSort();
     });
-    
+
     searchBtn?.addEventListener('click', () => {
       this.applyFiltersAndSort();
     });
@@ -152,7 +153,7 @@ class VocabularyController {
       const dictionary = await this.dictionaryManager.loadBuiltInDictionary(this.selectedDictionary);
       this.builtInWords = dictionary.words;
       this.isShowingBuiltIn = true;
-      
+
       this.applyFiltersAndSort();
       this.showSuccess(`成功加载${dictionary.name}，共${dictionary.totalCount}个词汇`);
 
@@ -163,7 +164,7 @@ class VocabularyController {
     } catch (error) {
       console.error('加载内置词库失败:', error);
       this.showError('加载内置词库失败: ' + (error as Error).message);
-      
+
       // 重置加载按钮
       const loadDictionaryBtn = document.getElementById('loadDictionaryBtn');
       if (loadDictionaryBtn) {
@@ -180,15 +181,15 @@ class VocabularyController {
       const loadingState = document.getElementById('loadingState');
       if (loadingState) loadingState.style.display = 'block';
 
-      const response = await this.sendMessage({ action: 'getVocabulary' });
-      
+      const response = await this.sendMessage({ action: 'getVocabularyList' });
+
       if (response.success) {
         this.vocabulary = response.data.map((item: any) => ({
           ...item,
           addedDate: new Date(item.addedDate),
           nextReviewDate: new Date(item.nextReviewDate)
         }));
-        
+
         this.applyFiltersAndSort();
       } else {
         console.error('加载生词失败:', response.error);
@@ -329,9 +330,9 @@ class VocabularyController {
     div.className = 'vocabulary-item built-in-word';
     div.addEventListener('click', () => this.showBuiltInWordDetails(word));
 
-    const difficultyClass = word.difficulty <= 3 ? 'easy' : 
+    const difficultyClass = word.difficulty <= 3 ? 'easy' :
                            word.difficulty <= 6 ? 'medium' : 'hard';
-    const difficultyText = word.difficulty <= 3 ? '简单' : 
+    const difficultyText = word.difficulty <= 3 ? '简单' :
                           word.difficulty <= 6 ? '中等' : '困难';
 
     div.innerHTML = `
@@ -374,7 +375,7 @@ class VocabularyController {
     div.addEventListener('click', () => this.showWordDetails(item));
 
     const masteryPercentage = Math.round(item.masteryLevel * 100);
-    const masteryClass = item.masteryLevel < 0.3 ? 'low' : 
+    const masteryClass = item.masteryLevel < 0.3 ? 'low' :
                         item.masteryLevel < 0.7 ? 'medium' : 'high';
     const masteryText = item.masteryLevel === 0 ? '新词汇' :
                        item.masteryLevel < 0.3 ? '困难' :
@@ -440,9 +441,9 @@ class VocabularyController {
     // 更新掌握程度显示（内置词汇显示难度）
     if (modalMasteryLevel && modalMasteryText) {
       const difficultyPercentage = (word.difficulty / 10) * 100;
-      const difficultyClass = word.difficulty <= 3 ? 'low' : 
+      const difficultyClass = word.difficulty <= 3 ? 'low' :
                              word.difficulty <= 6 ? 'medium' : 'high';
-      const difficultyText = word.difficulty <= 3 ? '简单' : 
+      const difficultyText = word.difficulty <= 3 ? '简单' :
                             word.difficulty <= 6 ? '中等' : '困难';
 
       const masteryFill = modalMasteryLevel.querySelector('.mastery-fill') as HTMLElement;
@@ -483,7 +484,8 @@ class VocabularyController {
         addedDate: new Date(),
         reviewCount: 0,
         masteryLevel: 0,
-        nextReviewDate: new Date(Date.now() + 24 * 60 * 60 * 1000) // 明天
+        nextReviewDate: new Date(Date.now() + 24 * 60 * 60 * 1000), // 明天
+        dictionaryType: this.selectedDictionary || undefined
       };
 
       const response = await this.sendMessage({
@@ -542,7 +544,7 @@ class VocabularyController {
     // 更新掌握程度显示
     if (modalMasteryLevel && modalMasteryText) {
       const masteryPercentage = Math.round(item.masteryLevel * 100);
-      const masteryClass = item.masteryLevel < 0.3 ? 'low' : 
+      const masteryClass = item.masteryLevel < 0.3 ? 'low' :
                           item.masteryLevel < 0.7 ? 'medium' : 'high';
       const masteryText = item.masteryLevel === 0 ? '新词汇' :
                          item.masteryLevel < 0.3 ? '困难' :
@@ -588,7 +590,7 @@ class VocabularyController {
   private async deleteCurrentWord(): Promise<void> {
     const modal = document.getElementById('wordModal');
     const currentWord = (modal as any)?.currentWord;
-    
+
     if (!currentWord) return;
 
     if (confirm(`确定要删除单词"${currentWord.word}"吗？`)) {
@@ -616,20 +618,20 @@ class VocabularyController {
     const modal = document.getElementById('wordModal');
     const currentWord = (modal as any)?.currentWord;
     const currentBuiltInWord = (modal as any)?.currentBuiltInWord;
-    
+
     if (currentBuiltInWord) {
       // 如果是内置词汇，添加到生词本
       await this.addBuiltInWordToVocabulary(currentBuiltInWord);
       this.closeModal();
       return;
     }
-    
+
     if (!currentWord) return;
 
     try {
       const response = await this.sendMessage({
         action: 'updateVocabularyMastery',
-        data: { 
+        data: {
           word: currentWord.word,
           masteryLevel: 1.0
         }
@@ -651,20 +653,20 @@ class VocabularyController {
   private reviewCurrentWord(): void {
     const modal = document.getElementById('wordModal');
     const currentWord = (modal as any)?.currentWord;
-    
+
     if (!currentWord) return;
 
     // 跳转到复习页面，并传递特定单词
     const reviewUrl = chrome.runtime.getURL('review.html');
     const url = new URL(reviewUrl);
     url.searchParams.set('word', currentWord.word);
-    
+
     chrome.tabs.create({ url: url.toString() });
   }
 
   private updatePagination(): void {
     const totalPages = Math.ceil(this.filteredVocabulary.length / this.itemsPerPage);
-    
+
     const currentPageElement = document.getElementById('currentPage');
     const totalPagesElement = document.getElementById('totalPages');
     const prevPageBtn = document.getElementById('prevPage') as HTMLButtonElement;
@@ -687,7 +689,7 @@ class VocabularyController {
   private updateEmptyState(): void {
     const emptyState = document.getElementById('emptyState');
     const vocabularyList = document.getElementById('vocabularyList');
-    
+
     if (this.filteredVocabulary.length === 0) {
       if (emptyState) emptyState.style.display = 'block';
       if (vocabularyList) vocabularyList.style.display = 'none';
@@ -716,12 +718,12 @@ class VocabularyController {
     try {
       const dataStr = JSON.stringify(this.vocabulary, null, 2);
       const dataBlob = new Blob([dataStr], { type: 'application/json' });
-      
+
       const link = document.createElement('a');
       link.href = URL.createObjectURL(dataBlob);
       link.download = `vocabulary-${new Date().toISOString().split('T')[0]}.json`;
       link.click();
-      
+
       this.showSuccess('生词本导出成功');
     } catch (error) {
       console.error('导出生词本失败:', error);

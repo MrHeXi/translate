@@ -116,6 +116,7 @@ class BackgroundService {
       'removeVocabulary': this.handleRemoveVocabularyRequest.bind(this),
       'getVocabularyList': this.handleGetVocabularyListRequest.bind(this),
       'markAsLearned': this.handleMarkAsLearnedRequest.bind(this),
+      'updateVocabularyMastery': this.handleUpdateVocabularyMasteryRequest.bind(this),
       
       // 词典管理
       'loadDictionary': this.handleLoadDictionaryRequest.bind(this),
@@ -226,6 +227,10 @@ class BackgroundService {
         
         case 'markAsLearned':
           response = await this.handleMarkAsLearnedRequest(request);
+          break;
+
+        case 'updateVocabularyMastery':
+          response = await this.handleUpdateVocabularyMasteryRequest(request);
           break;
         
         case 'loadDictionary':
@@ -535,6 +540,18 @@ class BackgroundService {
 
   private async handleMarkAsLearnedRequest(request: MessageRequest): Promise<MessageResponse> {
     await this.learningMode.markAsLearned(request.data.word);
+    return { success: true };
+  }
+
+  private async handleUpdateVocabularyMasteryRequest(request: MessageRequest): Promise<MessageResponse> {
+    const word = request.data?.word;
+    const masteryLevel = request.data?.masteryLevel;
+
+    if (!word || typeof masteryLevel !== 'number') {
+      return { success: false, error: 'word and numeric masteryLevel are required' };
+    }
+
+    await this.learningMode.updateVocabularyMastery(word, masteryLevel);
     return { success: true };
   }
 
