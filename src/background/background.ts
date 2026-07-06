@@ -11,7 +11,7 @@ import { TranslationService } from '../services/TranslationService';
 import { DictionaryManager, DictionaryType } from '../services/DictionaryManager';
 import { LearningMode } from '../services/LearningMode';
 import { StorageManager } from '../services/StorageManager';
-import { messageManager, MessageRequest as MsgRequest, MessageResponse as MsgResponse } from '../services/MessageManager';
+import { ReviewService } from '../services/ReviewService';
 import { performanceManager } from '../services/PerformanceManager';
 import { errorHandler, ErrorType, ErrorSeverity } from '../services/ErrorHandler';
 import { offlineManager } from '../services/OfflineManager';
@@ -34,50 +34,64 @@ class BackgroundService {
   private dictionaryManager: DictionaryManager;
   private learningMode: LearningMode;
   private storageManager: StorageManager;
+  private reviewService: ReviewService;
   private isInitialized: boolean = false;
+  private initializationPromise: Promise<void>;
+  private initializationError: Error | null = null;
 
   constructor() {
     this.translationService = new TranslationService();
     this.dictionaryManager = new DictionaryManager();
     this.learningMode = new LearningMode(this.dictionaryManager);
     this.storageManager = new StorageManager();
-    
-    this.initialize();
+    this.reviewService = new ReviewService(
+      this.learningMode,
+      this.dictionaryManager,
+      this.storageManager
+    );
+
+    this.setupErrorHandling();
+    this.registerMessageHandlers();
+    this.initializeExtensionHandlers();
+    this.setupPerformanceOptimization();
+    this.setupOfflineSupport();
+
+    this.initializationPromise = this.initialize();
   }
 
   private async initialize(): Promise<void> {
     try {
       // 启动性能监控
       performanceManager.startMonitoring();
-      
-      // 设置错误处理
-      this.setupErrorHandling();
-      
+
       // 初始化服务
       await this.loadUserData();
       await this.preloadDictionaries();
-      
-      // 注册消息处理器
-      this.registerMessageHandlers();
-      
-      // 设置扩展安装和更新处理
-      this.initializeExtensionHandlers();
-      
-      // 设置性能优化
-      this.setupPerformanceOptimization();
-      
-      // 设置离线模式支持
-      this.setupOfflineSupport();
-      
+
       this.isInitialized = true;
       console.log('后台服务初始化完成');
     } catch (error) {
+      this.initializationError = error instanceof Error ? error : new Error('后台服务初始化失败');
       errorHandler.logError(
         ErrorType.INITIALIZATION_ERROR,
         '后台服务初始化失败',
         error,
         ErrorSeverity.CRITICAL
       );
+    }
+  }
+
+  private async ensureInitialized(): Promise<void> {
+    if (this.isInitialized) return;
+
+    await this.initializationPromise;
+
+    if (this.initializationError) {
+      throw this.initializationError;
+    }
+
+    if (!this.isInitialized) {
+      throw new Error('后台服务初始化失败');
     }
   }
 
@@ -105,69 +119,7 @@ class BackgroundService {
   }
 
   private registerMessageHandlers(): void {
-    // 注册所有消息处理器到统一管理器
-    messageManager.registerHandlers({
-      // 翻译相关
-      'translate': this.handleTranslateRequest.bind(this),
-      'detectLanguage': this.handleDetectLanguageRequest.bind(this),
-      
-      // 词汇管理
-      'addVocabulary': this.handleAddVocabularyRequest.bind(this),
-      'removeVocabulary': this.handleRemoveVocabularyRequest.bind(this),
-      'getVocabularyList': this.handleGetVocabularyListRequest.bind(this),
-      'markAsLearned': this.handleMarkAsLearnedRequest.bind(this),
-      'updateVocabularyMastery': this.handleUpdateVocabularyMasteryRequest.bind(this),
-      
-      // 词典管理
-      'loadDictionary': this.handleLoadDictionaryRequest.bind(this),
-      'lookupWord': this.handleLookupWordRequest.bind(this),
-      
-      // 设置管理
-      'getSettings': this.handleGetSettingsRequest.bind(this),
-      'updateSettings': this.handleUpdateSettingsRequest.bind(this),
-      
-      // 学习统计
-      'getLearningStats': this.handleGetLearningStatsRequest.bind(this),
-      'getDictionaryProgress': this.handleGetDictionaryProgressRequest.bind(this),
-      
-      // 复习会话
-      'startReviewSession': this.handleStartReviewSessionRequest.bind(this),
-      'endReviewSession': this.handleEndReviewSessionRequest.bind(this),
-      'recordReviewResult': this.handleRecordReviewResultRequest.bind(this),
-      
-      // 数据管理
-      'exportData': this.handleExportDataRequest.bind(this),
-      'importData': this.handleImportDataRequest.bind(this),
-      'syncData': this.handleSyncDataRequest.bind(this),
-      
-      // 系统操作
-      'resetSettings': this.handleResetSettingsRequest.bind(this),
-      'exportUserData': this.handleExportUserDataRequest.bind(this),
-      'importUserData': this.handleImportUserDataRequest.bind(this),
-      'forceSync': this.handleForceSyncRequest.bind(this),
-      'clearVocabulary': this.handleClearVocabularyRequest.bind(this),
-      'resetAllSettings': this.handleResetAllSettingsRequest.bind(this),
-      'clearAllData': this.handleClearAllDataRequest.bind(this),
-      
-      // 性能和系统
-      'ping': this.handlePingRequest.bind(this),
-      'getPerformanceMetrics': this.handleGetPerformanceMetricsRequest.bind(this),
-      'optimizeCache': this.handleOptimizeCacheRequest.bind(this),
-      'cleanupExpiredCache': this.handleCleanupExpiredCacheRequest.bind(this),
-      'performanceEvent': this.handlePerformanceEventRequest.bind(this),
-      
-      // UI操作
-      'openSettings': this.handleOpenSettingsRequest.bind(this),
-      'openVocabulary': this.handleOpenVocabularyRequest.bind(this),
-      'openReview': this.handleOpenReviewRequest.bind(this),
-      
-      // 错误处理和离线支持
-      'reportError': this.handleReportErrorRequest.bind(this),
-      'syncOfflineOperation': this.handleSyncOfflineOperationRequest.bind(this),
-      'networkStatusChanged': this.handleNetworkStatusChangedRequest.bind(this)
-    });
-
-    // 保持原有的消息监听器以确保兼容性
+    // 后台只保留一条主消息路由，避免多个监听器抢同一条响应。
     chrome.runtime.onMessage.addListener((request: MessageRequest, sender, sendResponse) => {
       this.handleMessage(request, sender, sendResponse);
       return true; // 保持消息通道开放以支持异步响应
@@ -196,12 +148,9 @@ class BackgroundService {
     _sender: chrome.runtime.MessageSender, 
     sendResponse: (response: MessageResponse) => void
   ): Promise<void> {
-    if (!this.isInitialized) {
-      sendResponse({ success: false, error: '服务尚未初始化完成' });
-      return;
-    }
-
     try {
+      await this.ensureInitialized();
+
       let response: MessageResponse;
       
       switch (request.action) {
@@ -255,6 +204,18 @@ class BackgroundService {
         
         case 'getDictionaryProgress':
           response = await this.handleGetDictionaryProgressRequest(request);
+          break;
+        
+        case 'getDueReviewCount':
+          response = await this.handleGetDueReviewCountRequest(request);
+          break;
+        
+        case 'getReviewItems':
+          response = await this.handleGetReviewItemsRequest(request);
+          break;
+        
+        case 'saveReviewResults':
+          response = await this.handleSaveReviewResultsRequest(request);
           break;
         
         case 'startReviewSession':
@@ -581,10 +542,47 @@ class BackgroundService {
   }
 
   private async handleGetDictionaryProgressRequest(request: MessageRequest): Promise<MessageResponse> {
-    const progress = request.data?.dictionaryType 
-      ? await this.learningMode.getDictionaryProgress(request.data.dictionaryType)
-      : await this.learningMode.getAllDictionaryProgress();
-    return { success: true, data: progress };
+    const summaries = await this.dictionaryManager.getDictionaryProgressSummaries();
+
+    for (const dictionaryType of Object.values(DictionaryType)) {
+      const learnedWords = (await this.learningMode.getVocabularyList(dictionaryType))
+        .filter(item => item.masteryLevel >= 0.8)
+        .length;
+      const summary = summaries[dictionaryType];
+
+      summary.learnedWords = learnedWords;
+      summary.masteryRate = summary.totalWords > 0 ? learnedWords / summary.totalWords : 0;
+    }
+
+    if (request.data?.dictionaryType) {
+      return { success: true, data: summaries[request.data.dictionaryType as DictionaryType] || null };
+    }
+
+    return { success: true, data: summaries };
+  }
+
+  private async handleGetDueReviewCountRequest(request: MessageRequest): Promise<MessageResponse> {
+    const count = await this.reviewService.getDueReviewCount();
+    return { success: true, data: count };
+  }
+
+  private async handleGetReviewItemsRequest(request: MessageRequest): Promise<MessageResponse> {
+    const items = await this.reviewService.getReviewItems({
+      type: request.data?.type || 'due',
+      count: request.data?.count,
+      word: request.data?.word
+    });
+
+    return { success: true, data: items };
+  }
+
+  private async handleSaveReviewResultsRequest(request: MessageRequest): Promise<MessageResponse> {
+    await this.reviewService.saveReviewResults({
+      results: request.data?.results || [],
+      sessionDuration: request.data?.sessionDuration
+    });
+
+    return { success: true };
   }
 
   private async handleStartReviewSessionRequest(request: MessageRequest): Promise<MessageResponse> {

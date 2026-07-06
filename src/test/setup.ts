@@ -31,3 +31,24 @@ global.chrome = {
     sendMessage: jest.fn().mockResolvedValue({})
   }
 } as any
+
+const getMockTranslatedText = (input: unknown): string => {
+  try {
+    const url = new URL(String(input))
+    return `mock translation: ${url.searchParams.get('q') || 'text'}`
+  } catch {
+    return 'mock translation'
+  }
+}
+
+global.fetch = jest.fn().mockImplementation((input: unknown) => Promise.resolve({
+  ok: true,
+  json: jest.fn().mockResolvedValue({
+    responseStatus: 200,
+    responseData: {
+      translatedText: getMockTranslatedText(input),
+      match: '0.9'
+    },
+    matches: []
+  })
+})) as any

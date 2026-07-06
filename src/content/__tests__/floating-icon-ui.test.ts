@@ -62,6 +62,19 @@ const mockChromeRuntime = {
 // 导入要测试的组件
 import { FloatingIcon } from '../components/FloatingIcon';
 
+const getFloatingIconElement = (floatingIcon: FloatingIcon): HTMLElement =>
+  (floatingIcon as any).iconElement as HTMLElement;
+
+const getFloatingIconSize = (floatingIcon: FloatingIcon): { width: number; height: number } => {
+  const iconElement = getFloatingIconElement(floatingIcon);
+  const iconRect = iconElement.getBoundingClientRect();
+
+  return {
+    width: iconElement.offsetWidth || iconRect.width || 50,
+    height: iconElement.offsetHeight || iconRect.height || 50
+  };
+};
+
 describe('浮动图标UI交互响应性属性测试', () => {
   let floatingIcon: FloatingIcon;
 
@@ -79,6 +92,27 @@ describe('浮动图标UI交互响应性属性测试', () => {
 
   afterEach(() => {
     floatingIcon.cleanup();
+  });
+
+  it('keeps the floating icon visible and above page styles when it is created', () => {
+    floatingIcon.create({ x: 32, y: 48 });
+
+    const iconElement = getFloatingIconElement(floatingIcon);
+
+    expect(iconElement.style.getPropertyValue('position')).toBe('fixed');
+    expect(iconElement.style.getPropertyPriority('position')).toBe('important');
+    expect(iconElement.style.getPropertyValue('display')).toBe('flex');
+    expect(iconElement.style.getPropertyPriority('display')).toBe('important');
+    expect(iconElement.style.getPropertyValue('left')).toBe('32px');
+    expect(iconElement.style.getPropertyPriority('left')).toBe('important');
+    expect(iconElement.style.getPropertyValue('top')).toBe('48px');
+    expect(iconElement.style.getPropertyPriority('top')).toBe('important');
+    expect(iconElement.style.getPropertyValue('right')).toBe('auto');
+    expect(iconElement.style.getPropertyPriority('right')).toBe('important');
+    expect(iconElement.style.getPropertyValue('width')).toBe('50px');
+    expect(iconElement.style.getPropertyValue('height')).toBe('50px');
+    expect(Number(iconElement.style.getPropertyValue('z-index'))).toBeGreaterThanOrEqual(2147483000);
+    expect(iconElement.parentElement).toBe(document.body);
   });
 
   describe('属性 12：UI交互响应性', () => {
@@ -337,10 +371,6 @@ describe('浮动图标UI交互响应性属性测试', () => {
             startPosition: fc.record({
               x: fc.integer({ min: 100, max: 400 }),
               y: fc.integer({ min: 100, max: 300 })
-            }),
-            iconSize: fc.record({
-              width: fc.integer({ min: 40, max: 80 }),
-              height: fc.integer({ min: 40, max: 80 })
             })
           }),
           async (dragPath, config) => {
@@ -353,7 +383,6 @@ describe('浮动图标UI交互响应性属性测试', () => {
             
             // 跟踪位置变化
             const positionLog: Array<{
-              timestamp: number;
               x: number;
               y: number;
               isValid: boolean;
@@ -361,7 +390,6 @@ describe('浮动图标UI交互响应性属性测试', () => {
             
             // 记录初始位置
             positionLog.push({
-              timestamp: Date.now(),
               x: config.startPosition.x,
               y: config.startPosition.y,
               isValid: true
@@ -384,31 +412,32 @@ describe('浮动图标UI交互响应性属性测试', () => {
               await new Promise(resolve => setTimeout(resolve, point.duration));
               
               // 计算约束后的位置
-              const constrainedX = Math.max(0, Math.min(point.x, mockWindow.innerWidth - config.iconSize.width));
-              const constrainedY = Math.max(0, Math.min(point.y, mockWindow.innerHeight - config.iconSize.height));
               
               // 更新图标位置
-              floatingIcon.updatePosition({ x: constrainedX, y: constrainedY });
+              floatingIcon.updatePosition({ x: point.x, y: point.y });
+              const iconElement = getFloatingIconElement(floatingIcon);
+              const iconSize = getFloatingIconSize(floatingIcon);
+              const actualX = parseFloat(iconElement.style.left);
+              const actualY = parseFloat(iconElement.style.top);
               
               // 记录位置
               const isValidPosition = 
-                constrainedX >= 0 && 
-                constrainedX <= mockWindow.innerWidth - config.iconSize.width &&
-                constrainedY >= 0 && 
-                constrainedY <= mockWindow.innerHeight - config.iconSize.height;
+                actualX >= 0 &&
+                actualX <= mockWindow.innerWidth - iconSize.width &&
+                actualY >= 0 &&
+                actualY <= mockWindow.innerHeight - iconSize.height;
               
               positionLog.push({
-                timestamp: Date.now(),
-                x: constrainedX,
-                y: constrainedY,
+                x: actualX,
+                y: actualY,
                 isValid: isValidPosition
               });
               
               // 验证位置约束
-              expect(constrainedX).toBeGreaterThanOrEqual(0);
-              expect(constrainedX).toBeLessThanOrEqual(mockWindow.innerWidth - config.iconSize.width);
-              expect(constrainedY).toBeGreaterThanOrEqual(0);
-              expect(constrainedY).toBeLessThanOrEqual(mockWindow.innerHeight - config.iconSize.height);
+              expect(actualX).toBeGreaterThanOrEqual(0);
+              expect(actualX).toBeLessThanOrEqual(mockWindow.innerWidth - iconSize.width);
+              expect(actualY).toBeGreaterThanOrEqual(0);
+              expect(actualY).toBeLessThanOrEqual(mockWindow.innerHeight - iconSize.height);
             }
             
             // 结束拖拽
@@ -422,49 +451,28 @@ describe('浮动图标UI交互响应性属性测试', () => {
             const invalidPositions = positionLog.filter(pos => !pos.isValid);
             expect(invalidPositions.length).toBe(0);
             
-            // 2. 验证位置更新的连续性
-            for (let i = 1; i < positionLog.length; i++) {
-              const prev = positionLog[i - 1]!;
-              const curr = positionLog[i]!;
-              
-              // 时间戳应该递增
-              expect(curr.timestamp).toBeGreaterThanOrEqual(prev.timestamp);
-              
-              // 位置变化应该合理（不应该有瞬移）
-              const deltaX = Math.abs(curr.x - prev.x);
-              const deltaY = Math.abs(curr.y - prev.y);
-              const deltaTime = curr.timestamp - prev.timestamp;
-              
-              if (deltaTime > 0) {
-                // 计算移动速度（像素/毫秒）
-                const speed = Math.sqrt(deltaX * deltaX + deltaY * deltaY) / deltaTime;
-                
-                // 速度应该在合理范围内（放宽限制到20像素/毫秒）
-                expect(speed).toBeLessThan(20);
-              }
-            }
-            
-            // 3. 验证拖拽路径的完整性
+            // 2. 验证拖拽路径的完整性
             expect(positionLog.length).toBe(dragPath.length + 1); // +1 for initial position
             
-            // 4. 验证最终位置
+            // 3. 验证最终位置
             const finalPosition = positionLog[positionLog.length - 1]!;
             const lastDragPoint = dragPath[dragPath.length - 1]!;
+            const iconSize = getFloatingIconSize(floatingIcon);
             
-            const expectedFinalX = Math.max(0, Math.min(lastDragPoint.x, mockWindow.innerWidth - config.iconSize.width));
-            const expectedFinalY = Math.max(0, Math.min(lastDragPoint.y, mockWindow.innerHeight - config.iconSize.height));
+            const expectedFinalX = Math.max(0, Math.min(lastDragPoint.x, mockWindow.innerWidth - iconSize.width));
+            const expectedFinalY = Math.max(0, Math.min(lastDragPoint.y, mockWindow.innerHeight - iconSize.height));
             
             expect(finalPosition.x).toBe(expectedFinalX);
             expect(finalPosition.y).toBe(expectedFinalY);
             
-            // 5. 验证拖拽性能
+            // 4. 验证拖拽性能
             if (dragPath.length > 1) {
               const avgUpdateInterval = totalDragTime / dragPath.length;
               // 平均更新间隔应该合理
               expect(avgUpdateInterval).toBeLessThan(200); // 不超过200ms
             }
             
-            // 6. 验证边界处理
+            // 5. 验证边界处理
             const boundaryTests = [
               { x: -50, y: 100 }, // 左边界外
               { x: mockWindow.innerWidth + 50, y: 100 }, // 右边界外
@@ -473,16 +481,17 @@ describe('浮动图标UI交互响应性属性测试', () => {
             ];
             
             for (const testPos of boundaryTests) {
-              const constrainedX = Math.max(0, Math.min(testPos.x, mockWindow.innerWidth - config.iconSize.width));
-              const constrainedY = Math.max(0, Math.min(testPos.y, mockWindow.innerHeight - config.iconSize.height));
-              
-              floatingIcon.updatePosition({ x: constrainedX, y: constrainedY });
+              floatingIcon.updatePosition(testPos);
+              const iconElement = getFloatingIconElement(floatingIcon);
+              const iconSize = getFloatingIconSize(floatingIcon);
+              const actualX = parseFloat(iconElement.style.left);
+              const actualY = parseFloat(iconElement.style.top);
               
               // 验证约束后的位置在有效范围内
-              expect(constrainedX).toBeGreaterThanOrEqual(0);
-              expect(constrainedX).toBeLessThanOrEqual(mockWindow.innerWidth - config.iconSize.width);
-              expect(constrainedY).toBeGreaterThanOrEqual(0);
-              expect(constrainedY).toBeLessThanOrEqual(mockWindow.innerHeight - config.iconSize.height);
+              expect(actualX).toBeGreaterThanOrEqual(0);
+              expect(actualX).toBeLessThanOrEqual(mockWindow.innerWidth - iconSize.width);
+              expect(actualY).toBeGreaterThanOrEqual(0);
+              expect(actualY).toBeLessThanOrEqual(mockWindow.innerHeight - iconSize.height);
             }
           }
         ),

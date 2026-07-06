@@ -40,6 +40,10 @@ export class MessageManager {
 
     // 设置消息监听器
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+      if (!this.handlers.has(request.action)) {
+        return false;
+      }
+
       this.handleMessage(request, sender, sendResponse);
       return true; // 保持消息通道开放
     });
@@ -183,6 +187,8 @@ export class MessageManager {
           
           if (chrome.runtime.lastError) {
             pending.reject(new Error(chrome.runtime.lastError.message));
+          } else if (!response) {
+            pending.reject(new Error('消息无响应'));
           } else {
             pending.resolve(response || { success: false, error: '无响应' });
           }
@@ -253,7 +259,7 @@ export class MessageManager {
   // 清理资源
   cleanup(): void {
     // 清理所有待处理的请求
-    for (const [requestId, pending] of this.pendingRequests) {
+    for (const [, pending] of this.pendingRequests) {
       clearTimeout(pending.timeout);
       pending.reject(new Error('MessageManager cleanup'));
     }

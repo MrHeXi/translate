@@ -93,7 +93,7 @@ describe('StorageManager', () => {
               dailyGoal: fc.integer({ min: 1, max: 20 }),
               currentStreak: fc.integer({ min: 0, max: 30 }),
               longestStreak: fc.integer({ min: 0, max: 30 }),
-              reviewAccuracy: fc.float({ min: 0, max: 1 }),
+              reviewAccuracy: fc.float({ min: 0, max: 1, noNaN: true }),
               timeSpentLearning: fc.integer({ min: 0, max: 1000 })
             }),
             dictionaryProgress: fc.dictionary(
@@ -101,7 +101,7 @@ describe('StorageManager', () => {
               fc.record({
                 totalWords: fc.integer({ min: 0, max: 100 }),
                 learnedWords: fc.integer({ min: 0, max: 100 }),
-                masteryRate: fc.float({ min: 0, max: 1 }),
+                masteryRate: fc.float({ min: 0, max: 1, noNaN: true }),
                 lastStudyDate: fc.date()
               })
             )
@@ -154,7 +154,7 @@ describe('StorageManager', () => {
                 sourceUrl: fc.constant('https://example.com'),
                 addedDate: fc.date(),
                 reviewCount: fc.integer({ min: 0, max: 20 }),
-                masteryLevel: fc.float({ min: 0, max: 1 }),
+                masteryLevel: fc.float({ min: 0, max: 1, noNaN: true }),
                 nextReviewDate: fc.date()
               }),
               { maxLength: 5 }
@@ -164,7 +164,7 @@ describe('StorageManager', () => {
               dailyGoal: fc.integer({ min: 1, max: 50 }),
               currentStreak: fc.integer({ min: 0, max: 100 }),
               longestStreak: fc.integer({ min: 0, max: 100 }),
-              reviewAccuracy: fc.float({ min: 0, max: 1 }),
+              reviewAccuracy: fc.float({ min: 0, max: 1, noNaN: true }),
               timeSpentLearning: fc.integer({ min: 0, max: 3600 })
             }),
             dictionaryProgress: fc.dictionary(
@@ -172,7 +172,7 @@ describe('StorageManager', () => {
               fc.record({
                 totalWords: fc.integer({ min: 0, max: 1000 }),
                 learnedWords: fc.integer({ min: 0, max: 1000 }),
-                masteryRate: fc.float({ min: 0, max: 1 }),
+                masteryRate: fc.float({ min: 0, max: 1, noNaN: true }),
                 lastStudyDate: fc.date()
               })
             )
@@ -294,7 +294,7 @@ describe('StorageManager', () => {
                 sourceUrl: fc.constant('https://test.com'),
                 addedDate: fc.date(),
                 reviewCount: fc.integer({ min: 0, max: 15 }),
-                masteryLevel: fc.float({ min: 0, max: 1 }),
+                masteryLevel: fc.float({ min: 0, max: 1, noNaN: true }),
                 nextReviewDate: fc.date()
               }),
               { maxLength: 4 }
@@ -304,7 +304,7 @@ describe('StorageManager', () => {
               dailyGoal: fc.integer({ min: 1, max: 30 }),
               currentStreak: fc.integer({ min: 0, max: 50 }),
               longestStreak: fc.integer({ min: 0, max: 50 }),
-              reviewAccuracy: fc.float({ min: 0, max: 1 }),
+              reviewAccuracy: fc.float({ min: 0, max: 1, noNaN: true }),
               timeSpentLearning: fc.integer({ min: 0, max: 1800 })
             })
           }),

@@ -183,6 +183,10 @@ export class PerformanceManager {
   }
 
   private updateRequestMetrics(): void {
+    if (this.requestTimes.length > 100) {
+      this.requestTimes = this.requestTimes.slice(-100);
+    }
+
     if (this.requestTimes.length > 0) {
       const sum = this.requestTimes.reduce((a, b) => a + b, 0);
       this.metrics.requestStats.averageResponseTime = sum / this.requestTimes.length;
@@ -191,6 +195,8 @@ export class PerformanceManager {
       if (this.requestTimes.length > 100) {
         this.requestTimes = this.requestTimes.slice(-100);
       }
+    } else {
+      this.metrics.requestStats.averageResponseTime = 0;
     }
   }
 
@@ -204,6 +210,8 @@ export class PerformanceManager {
     } else {
       this.metrics.requestStats.failedRequests++;
     }
+
+    this.updateRequestMetrics();
   }
 
   // 执行性能优化

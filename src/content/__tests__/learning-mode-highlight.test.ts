@@ -62,6 +62,27 @@ const mockChromeRuntime = {
   FILTER_REJECT: 2
 };
 
+const pageTextArbitrary = fc.array(
+  fc.constantFrom(
+    'This',
+    'is',
+    'an',
+    'example',
+    'academic',
+    'text',
+    'to',
+    'analyze',
+    'carefully',
+    'with',
+    'content',
+    'sentence'
+  ),
+  { minLength: 5, maxLength: 30 }
+).map(words => {
+  const normalizedWords = words.includes('example') ? words : ['example', ...words];
+  return `${normalizedWords.join(' ')}.`;
+});
+
 describe('学习模式词汇高亮属性测试', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -141,9 +162,7 @@ describe('学习模式词汇高亮属性测试', () => {
             ),
             pageContent: fc.array(
               fc.record({
-                text: fc.string({ minLength: 20, maxLength: 200 }).filter(s => 
-                  /^[a-zA-Z\s.,!?-]+$/.test(s) && s.includes('example')
-                ),
+                text: pageTextArbitrary,
                 containsVocabulary: fc.boolean(),
                 vocabularyWords: fc.array(
                   fc.constantFrom('example', 'academic', 'analyze', 'comprehensive', 'significant'),
@@ -239,7 +258,7 @@ describe('学习模式词汇高亮属性测试', () => {
             
             // 1. 验证所有词库都被处理了
             const processedDictionaries = new Set(highlightLog.map(log => log.dictionaryType));
-            expect(processedDictionaries.size).toBe(scenario.activeDictionaries.length);
+            expect(processedDictionaries.size).toBe(new Set(scenario.activeDictionaries).size);
             
             for (const dictType of scenario.activeDictionaries) {
               expect(processedDictionaries.has(dictType)).toBe(true);
@@ -267,7 +286,7 @@ describe('学习模式词汇高亮属性测试', () => {
             
             // 计算在页面内容中出现的词库词汇
             const expectedWords = new Set<string>();
-            for (const dictType of scenario.activeDictionaries) {
+            for (const _dictType of scenario.activeDictionaries) {
               const knownWords = ['example', 'academic', 'analyze']; // 模拟词库词汇
               for (const word of knownWords) {
                 for (const content of scenario.pageContent) {
@@ -288,21 +307,24 @@ describe('学习模式词汇高亮属性测试', () => {
             
             for (const log of highlightLog) {
               if (log.isVisible) {
-                const existing = wordHighlightMap.get(log.word);
+                const highlightKey = `${log.dictionaryType}:${log.word}`;
+                const existing = wordHighlightMap.get(highlightKey);
                 if (existing) {
                   existing.count += log.highlightCount;
                 } else {
-                  wordHighlightMap.set(log.word, { count: log.highlightCount, color: log.color });
+                  wordHighlightMap.set(highlightKey, { count: log.highlightCount, color: log.color });
                 }
               }
             }
             
             // 同一个词在不同位置的高亮应该使用相同的颜色
-            for (const [word, info] of wordHighlightMap) {
-              const wordLogs = highlightLog.filter(log => log.word === word && log.isVisible);
+            for (const [highlightKey, info] of wordHighlightMap) {
+              const wordLogs = highlightLog.filter(log =>
+                `${log.dictionaryType}:${log.word}` === highlightKey && log.isVisible
+              );
               
               if (wordLogs.length > 1) {
-                const firstColor = wordLogs[0]!.color;
+                const firstColor = info.color;
                 for (const log of wordLogs) {
                   expect(log.color).toBe(firstColor);
                 }
@@ -374,7 +396,7 @@ describe('学习模式词汇高亮属性测试', () => {
                   mockChromeRuntime.sendMessage({
                     action: 'lookupWord',
                     data: { word: scenario.word }
-                  }, (response) => {
+                  }, (response: any) => {
                     if (response?.success) {
                       detailsShown = true;
                       detailsContent = response.data;
@@ -486,19 +508,21 @@ describe('学习模式词汇高亮属性测试', () => {
               dictionaryType: string;
               highlightedWords: string[];
               isVisible: boolean;
+              learningModeEnabled: boolean;
             }> = [];
             
             // 初始状态
-            let activeDictionaries = new Set(['gre']);
-            let highlightColors = new Map([['gre', '#ff0000']]);
+            const activeDictionaries = new Set(['gre']);
+            const highlightColors = new Map([['gre', '#ff0000']]);
             let isLearningModeEnabled = true;
+            let virtualTime = Date.now();
             
             // 执行状态变化
             for (const change of stateChanges) {
               // 等待指定延迟
-              await new Promise(resolve => setTimeout(resolve, change.delay));
+              virtualTime += change.delay;
               
-              const timestamp = Date.now();
+              const timestamp = virtualTime;
               let highlightedWords: string[] = [];
               let isVisible = false;
               
@@ -563,7 +587,8 @@ describe('学习模式词汇高亮属性测试', () => {
                 timestamp,
                 dictionaryType: change.dictionaryType,
                 highlightedWords,
-                isVisible
+                isVisible,
+                learningModeEnabled: isLearningModeEnabled
               });
               
               // 验证状态变化的即时性
@@ -631,7 +656,7 @@ describe('学习模式词汇高亮属性测试', () => {
             
             // 添加词库应该增加高亮内容（如果学习模式启用）
             for (const addAction of addDictActions) {
-              if (isLearningModeEnabled) {
+              if (addAction.learningModeEnabled) {
                 expect(addAction.isVisible).toBe(true);
               }
             }
@@ -645,10 +670,11 @@ describe('学习模式词汇高亮属性测试', () => {
             const finalState = stateLog[stateLog.length - 1];
             if (finalState) {
               // 最终状态应该与预期的状态变化结果一致
-              if (isLearningModeEnabled && activeDictionaries.size > 0) {
+              if (finalState.isVisible) {
                 // 如果学习模式启用且有活跃词库，应该有高亮显示
-                const hasVisibleHighlights = stateLog.some(log => log.isVisible);
-                expect(hasVisibleHighlights).toBe(true);
+                expect(isLearningModeEnabled).toBe(true);
+                expect(activeDictionaries.has(finalState.dictionaryType)).toBe(true);
+                expect(finalState.highlightedWords.length).toBeGreaterThan(0);
               }
             }
           }

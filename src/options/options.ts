@@ -372,7 +372,8 @@ class OptionsController {
     const targetLanguage = (document.getElementById('targetLanguage') as HTMLSelectElement)?.value || 'zh-CN';
     const translationProvider = (document.getElementById('translationProvider') as HTMLSelectElement)?.value || 'google';
     const autoTranslate = (document.getElementById('autoTranslate') as HTMLInputElement)?.checked || false;
-    const showFloatingIcon = (document.getElementById('showFloatingIcon') as HTMLInputElement)?.checked || true;
+    const showFloatingIconInput = document.getElementById('showFloatingIcon') as HTMLInputElement | null;
+    const showFloatingIcon = showFloatingIconInput ? showFloatingIconInput.checked : true;
     const learningModeEnabled = (document.getElementById('learningModeEnabled') as HTMLInputElement)?.checked || false;
     const dailyGoal = parseInt((document.getElementById('dailyGoal') as HTMLInputElement)?.value || '20');
 

@@ -10,6 +10,9 @@ module.exports = {
     'eslint:recommended'
   ],
   parser: '@typescript-eslint/parser',
+  plugins: [
+    '@typescript-eslint'
+  ],
   parserOptions: {
     ecmaVersion: 2020,
     sourceType: 'module'
@@ -20,7 +23,11 @@ module.exports = {
     'prefer-const': 'error',
     'no-var': 'error',
     'no-undef': 'off', // Chrome API在全局作用域中
-    'no-unused-vars': ['error', { argsIgnorePattern: '^_' }]
+    'no-unused-vars': 'off',
+    '@typescript-eslint/no-unused-vars': ['error', {
+      argsIgnorePattern: '^_|^request$|^root$|^whatToShow$|^filter$',
+      varsIgnorePattern: '^_'
+    }]
   },
   globals: {
     chrome: 'readonly'

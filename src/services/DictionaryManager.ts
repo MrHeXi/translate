@@ -49,6 +49,15 @@ export interface LearningStats {
   averageReviewScore: number;
 }
 
+export interface DictionaryProgressSummary {
+  dictionaryType: DictionaryType;
+  totalWords: number;
+  learnedWords: number;
+  masteryRate: number;
+}
+
+export type DictionaryProgressSummaryMap = Record<DictionaryType, DictionaryProgressSummary>;
+
 export class DictionaryManager {
   private dictionaries: Map<DictionaryType, Dictionary> = new Map();
   private activeDictionary: DictionaryType | null = null;
@@ -197,6 +206,24 @@ export class DictionaryManager {
       masteryRate,
       averageReviewScore
     };
+  }
+
+  async getDictionaryProgressSummaries(): Promise<DictionaryProgressSummaryMap> {
+    const summaries = {} as DictionaryProgressSummaryMap;
+
+    for (const dictionaryType of Object.values(DictionaryType)) {
+      const dictionary = await this.loadBuiltInDictionary(dictionaryType);
+      const learnedWords = this.getLearnedWordsCount(dictionaryType);
+
+      summaries[dictionaryType] = {
+        dictionaryType,
+        totalWords: dictionary.totalCount,
+        learnedWords,
+        masteryRate: dictionary.totalCount > 0 ? learnedWords / dictionary.totalCount : 0
+      };
+    }
+
+    return summaries;
   }
 
   private async fetchDictionaryData(type: DictionaryType): Promise<Dictionary> {

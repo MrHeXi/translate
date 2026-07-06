@@ -113,13 +113,17 @@ export class ErrorHandler {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       const errorDetails = error instanceof Error ? { stack: error.stack } : error;
       
-      throw this.logError(
+      const loggedError = this.logError(
         errorType,
         errorMessage,
         errorDetails,
         ErrorSeverity.MEDIUM,
         context
       );
+      const wrappedError = new Error(loggedError.message);
+      (wrappedError as any).extensionError = loggedError;
+      (wrappedError as any).cause = error;
+      throw wrappedError;
     }
   }
 
@@ -158,13 +162,17 @@ export class ErrorHandler {
     this.retryAttempts.delete(operationId);
     const errorMessage = lastError?.message || '操作失败';
     
-    throw this.logError(
+    const loggedError = this.logError(
       errorType,
       `重试${maxRetries}次后仍然失败: ${errorMessage}`,
       { originalError: lastError, attempts: maxRetries },
       ErrorSeverity.HIGH,
       context
     );
+    const wrappedError = new Error(loggedError.message);
+    (wrappedError as any).extensionError = loggedError;
+    (wrappedError as any).cause = lastError;
+    throw wrappedError;
   }
 
   // 注册错误回调

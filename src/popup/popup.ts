@@ -14,6 +14,7 @@ interface LearningStats {
 
 class PopupController {
   private isTranslationActive: boolean = false;
+  private isTogglingTranslation: boolean = false;
 
   constructor() {
     this.initialize();
@@ -79,33 +80,48 @@ class PopupController {
       // 查询当前标签页的翻译状态
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.id) {
-        // 发送消息到content script查询状态
-        chrome.tabs.sendMessage(tab.id, { action: 'getTranslationStatus' }, (response) => {
-          if (response && response.isActive) {
-            this.isTranslationActive = true;
-            this.updateTranslationStatusUI();
-          }
-        });
+        const response = await this.sendTabMessage(tab.id, { action: 'getTranslationStatus' });
+        const isActive = response?.isActive ?? response?.data?.isActive;
+        if (typeof isActive === 'boolean') {
+          this.isTranslationActive = isActive;
+          this.updateTranslationStatusUI();
+        }
       }
     } catch (error) {
+      if (this.isMissingContentScriptReceiverError(error)) {
+        this.isTranslationActive = false;
+        this.updateTranslationStatusUI();
+        return;
+      }
+
       console.error('加载当前状态失败:', error);
     }
   }
 
   private async toggleTranslationMode(): Promise<void> {
+    if (this.isTogglingTranslation) return;
+
+    this.setTranslationToggleBusy(true);
+
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.id) {
-        // 发送切换消息到content script
-        chrome.tabs.sendMessage(tab.id, { action: 'toggleTranslation' }, (response) => {
-          if (response && response.success) {
-            this.isTranslationActive = response.isActive;
-            this.updateTranslationStatusUI();
-          }
-        });
+        const response = await this.sendMessageToTabWithInjection(tab, { action: 'toggleTranslation' });
+        if (response?.success) {
+          const isActive = response.isActive ?? response.data?.isActive;
+          this.isTranslationActive = Boolean(isActive);
+          this.updateTranslationStatusUI();
+        } else {
+          this.showError(response?.error || '切换翻译模式失败');
+        }
+      } else {
+        this.showError('未找到当前网页');
       }
     } catch (error) {
       console.error('切换翻译模式失败:', error);
+      this.showError(error instanceof Error ? error.message : '切换翻译模式失败');
+    } finally {
+      this.setTranslationToggleBusy(false);
     }
   }
 
@@ -176,7 +192,7 @@ class PopupController {
       const response = await this.sendMessage({ action: 'getLearningStats' });
       
       if (response.success) {
-        const stats = response.data;
+        const stats = response.data as Partial<LearningStats>;
         
         // 更新统计数字
         const totalWordsElement = document.getElementById('totalWords');
@@ -281,6 +297,96 @@ class PopupController {
         }
       });
     });
+  }
+
+  private sendTabMessage(tabId: number, message: any): Promise<any> {
+    return new Promise((resolve, reject) => {
+      chrome.tabs.sendMessage(tabId, message, (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else {
+          resolve(response);
+        }
+      });
+    });
+  }
+
+  private isMissingContentScriptReceiverError(error: unknown): boolean {
+    const message = error instanceof Error
+      ? error.message
+      : String((error as { message?: unknown })?.message || error || '');
+
+    return message.includes('Could not establish connection') ||
+      message.includes('Receiving end does not exist');
+  }
+
+  private async sendMessageToTabWithInjection(tab: chrome.tabs.Tab, message: any): Promise<any> {
+    if (!tab.id) {
+      throw new Error('未找到当前网页');
+    }
+
+    try {
+      return await this.sendTabMessage(tab.id, message);
+    } catch (error) {
+      if (!this.canInjectContentScript(tab.url)) {
+        throw new Error('当前页面不支持网页翻译，请切换到普通网页后再试');
+      }
+
+      await this.injectContentScript(tab.id);
+      await this.waitForContentScript(tab.id);
+      return await this.sendTabMessage(tab.id, message);
+    }
+  }
+
+  private canInjectContentScript(url?: string): boolean {
+    if (!url) return false;
+
+    return /^(https?:|file:)/.test(url);
+  }
+
+  private async injectContentScript(tabId: number): Promise<void> {
+    try {
+      await chrome.scripting.insertCSS({
+        target: { tabId },
+        files: ['content.css']
+      });
+    } catch (error) {
+      console.warn('注入样式失败:', error);
+    }
+
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content.js']
+    });
+  }
+
+  private async waitForContentScript(tabId: number): Promise<void> {
+    const maxAttempts = 10;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const response = await this.sendTabMessage(tabId, { action: 'getTranslationStatus' });
+        const isActive = response?.isActive ?? response?.data?.isActive;
+        if (response?.success && typeof isActive === 'boolean') {
+          return;
+        }
+      } catch {
+        // Content script may still be initializing.
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    throw new Error('页面翻译脚本初始化失败，请刷新网页后再试');
+  }
+
+  private setTranslationToggleBusy(isBusy: boolean): void {
+    this.isTogglingTranslation = isBusy;
+
+    const toggleBtn = document.getElementById('toggleTranslation') as HTMLButtonElement;
+    if (toggleBtn) {
+      toggleBtn.disabled = isBusy;
+    }
   }
 
   private showLoadingState(): void {

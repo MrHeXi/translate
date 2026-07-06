@@ -71,6 +71,9 @@ describe('翻译流程集成测试', () => {
     jest.clearAllMocks();
     mockChromeStorage.local.data = {};
     mockChromeStorage.local.data = {};
+    offlineManager.clearOfflineQueue();
+    errorHandler.clearErrorLog();
+    performanceManager.resetMetrics();
     
     // 设置Chrome全局对象
     (global as any).chrome = {
@@ -720,11 +723,7 @@ describe('翻译流程集成测试', () => {
     });
 
     it('应该处理错误恢复流程', async () => {
-      // 模拟网络错误
-      const mockSendMessage = jest.fn((message, callback) => {
-        callback({ success: false, error: '网络错误' });
-      });
-      (global as any).chrome.runtime.sendMessage = mockSendMessage;
+      const mockFetch = global.fetch as jest.Mock;
 
       // 尝试翻译（应该失败）
       const translationRequest: TranslationRequest = {
@@ -732,26 +731,19 @@ describe('翻译流程集成测试', () => {
         targetLang: 'zh-CN'
       };
 
-      await expect(translationService.translate(translationRequest))
+      mockFetch
+        .mockRejectedValueOnce(new Error('网络错误'))
+        .mockRejectedValueOnce(new Error('网络错误'));
+
+      await expect(errorHandler.handleAsyncError(
+        () => translationService.translate(translationRequest),
+        ErrorType.TRANSLATION_API_ERROR
+      ))
         .rejects.toThrow();
 
       // 验证错误被记录
       const errorStats = errorHandler.getErrorStats();
       expect(errorStats.totalErrors).toBeGreaterThan(0);
-
-      // 模拟网络恢复
-      mockSendMessage.mockImplementation((message, callback) => {
-        callback({
-          success: true,
-          data: {
-            originalText: message.data.text,
-            translatedText: `[翻译] ${message.data.text}`,
-            sourceLang: 'en',
-            targetLang: 'zh-CN',
-            confidence: 0.95
-          }
-        });
-      });
 
       // 重试翻译（应该成功）
       const retryResult = await translationService.translate(translationRequest);
@@ -774,7 +766,7 @@ describe('翻译流程集成测试', () => {
       offlineManager.queueOperation('vocabulary_add', vocabularyData);
       
       // 验证离线队列
-      let status = offlineManager.getOfflineStatus();
+      const status = offlineManager.getOfflineStatus();
       expect(status.queuedOperations).toBe(1);
 
       // 模拟网络恢复

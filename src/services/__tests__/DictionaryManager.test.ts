@@ -1,6 +1,8 @@
 // DictionaryManager 测试文件
 
 import * as fc from 'fast-check';
+import fs from 'fs';
+import path from 'path';
 import { DictionaryManager, DictionaryType, WordDefinition } from '../DictionaryManager';
 
 describe('DictionaryManager', () => {
@@ -11,6 +13,91 @@ describe('DictionaryManager', () => {
   });
 
   describe('单元测试', () => {
+    it('bundled vocabulary files should match the advertised word counts', () => {
+      const vocabularyDir = path.resolve(__dirname, '../../data/vocabularies');
+      const expectedCounts: Record<string, number> = {
+        'gre-words.json': 3000,
+        'toefl-words.json': 4000,
+        'ielts-words.json': 3500,
+        'cet4-words.json': 2500,
+        'cet6-words.json': 3000
+      };
+
+      for (const [fileName, expectedCount] of Object.entries(expectedCounts)) {
+        const filePath = path.join(vocabularyDir, fileName);
+        const words = JSON.parse(fs.readFileSync(filePath, 'utf8')) as WordDefinition[];
+        const uniqueWords = new Set(words.map(word => word.word.toLowerCase()));
+
+        expect(words).toHaveLength(expectedCount);
+        expect(uniqueWords.size).toBe(expectedCount);
+        for (const word of words) {
+          expect(word.word).toMatch(/^[a-z][a-z-]*$/);
+          expect(word.definitions.length).toBeGreaterThan(0);
+          expect(word.examples.length).toBeGreaterThan(0);
+          expect(word.difficulty).toBeGreaterThanOrEqual(1);
+          expect(word.difficulty).toBeLessThanOrEqual(10);
+          expect(word.frequency).toBeGreaterThanOrEqual(0);
+          expect(word.frequency).toBeLessThanOrEqual(100);
+        }
+      }
+    });
+
+    it('should provide dictionary progress summaries keyed by dictionary type', async () => {
+      const dictionaryData: Record<string, WordDefinition[]> = {
+        'gre-words.json': [
+          {
+            word: 'aberrant',
+            pronunciation: '/aberrant/',
+            partOfSpeech: 'adjective',
+            definitions: ['deviating from the normal type'],
+            examples: ['The result was aberrant.'],
+            difficulty: 8,
+            frequency: 30
+          }
+        ],
+        'toefl-words.json': [
+          {
+            word: 'analyze',
+            pronunciation: '/analyze/',
+            partOfSpeech: 'verb',
+            definitions: ['examine carefully'],
+            examples: ['Analyze the data.'],
+            difficulty: 5,
+            frequency: 80
+          },
+          {
+            word: 'evidence',
+            pronunciation: '/evidence/',
+            partOfSpeech: 'noun',
+            definitions: ['information showing something is true'],
+            examples: ['The evidence was clear.'],
+            difficulty: 4,
+            frequency: 85
+          }
+        ],
+        'ielts-words.json': [],
+        'cet4-words.json': [],
+        'cet6-words.json': []
+      };
+
+      (global.fetch as jest.Mock).mockImplementation(async (input: unknown) => {
+        const fileName = String(input).split('/').pop()!;
+        return {
+          ok: true,
+          json: async () => dictionaryData[fileName] || []
+        };
+      });
+      (chrome.runtime as any).getURL = jest.fn((resourcePath: string) => resourcePath);
+
+      const summaries = await dictionaryManager.getDictionaryProgressSummaries();
+
+      expect(summaries.gre.totalWords).toBe(1);
+      expect(summaries.gre.learnedWords).toBe(0);
+      expect(summaries.toefl.totalWords).toBe(2);
+      expect(summaries.toefl.masteryRate).toBe(0);
+      expect(Object.keys(summaries)).toEqual(['gre', 'toefl', 'ielts', 'cet4', 'cet6']);
+    });
+
     it('应该创建DictionaryManager实例', () => {
       expect(dictionaryManager).toBeInstanceOf(DictionaryManager);
     });

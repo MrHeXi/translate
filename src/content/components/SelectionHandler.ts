@@ -5,17 +5,26 @@ export class SelectionHandler {
   private currentSelection: string = '';
   private textSelectedCallback: ((text: string, position: { x: number; y: number }) => void) | null = null;
   private isEnabled: boolean = true;
+  private isInitialized: boolean = false;
+  private readonly boundHandleSelection = this.handleSelection.bind(this);
+  private readonly boundHandleClick = this.handleClick.bind(this);
+  private readonly boundHandleDoubleClick = this.handleDoubleClick.bind(this);
 
   initialize(): void {
+    if (this.isInitialized) return;
+
+    this.isEnabled = true;
+
     // 监听文本选择事件
-    document.addEventListener('mouseup', this.handleSelection.bind(this));
-    document.addEventListener('keyup', this.handleSelection.bind(this));
+    document.addEventListener('mouseup', this.boundHandleSelection);
+    document.addEventListener('keyup', this.boundHandleSelection);
     
     // 监听点击事件以隐藏工具提示
-    document.addEventListener('click', this.handleClick.bind(this));
+    document.addEventListener('click', this.boundHandleClick);
     
     // 监听双击事件进行快速翻译
-    document.addEventListener('dblclick', this.handleDoubleClick.bind(this));
+    document.addEventListener('dblclick', this.boundHandleDoubleClick);
+    this.isInitialized = true;
   }
 
   onTextSelected(callback: (text: string, position: { x: number; y: number }) => void): void {
@@ -39,7 +48,7 @@ export class SelectionHandler {
     }
 
     const selectedText = selection.toString().trim();
-    if (selectedText && selectedText !== this.currentSelection && selectedText.length > 0) {
+    if (selectedText && selectedText.length > 0) {
       this.currentSelection = selectedText;
       
       // 获取选择位置
@@ -53,10 +62,10 @@ export class SelectionHandler {
       // 调用回调函数
       if (this.textSelectedCallback) {
         this.textSelectedCallback(selectedText, position);
+      } else {
+        // Standalone fallback for tests or direct embedding without ContentScript.
+        this.showTranslationTooltip(selectedText, selection);
       }
-
-      // 显示翻译工具提示
-      this.showTranslationTooltip(selectedText, selection);
     } else if (!selectedText) {
       this.hideTooltip();
     }
@@ -67,13 +76,23 @@ export class SelectionHandler {
 
     // 获取双击位置的单词
     const target = event.target as HTMLElement;
-    if (target && target.nodeType === Node.TEXT_NODE || target.textContent) {
+    if ((target && target.nodeType === Node.TEXT_NODE) || target?.textContent) {
       const word = this.getWordAtPosition(event);
       if (word && word.length > 2) {
         const position = { x: event.clientX, y: event.clientY };
+        this.currentSelection = word;
         
         if (this.textSelectedCallback) {
           this.textSelectedCallback(word, position);
+        } else {
+          this.requestTranslation(word)
+            .then((translation) => {
+              this.showTooltipAtPosition(word, translation, position);
+            })
+            .catch((error) => {
+              console.error('双击查词失败:', error);
+              this.showErrorTooltip(word, '翻译失败，请稍后重试');
+            });
         }
       }
     }
@@ -203,6 +222,20 @@ export class SelectionHandler {
 
     // 3秒后自动隐藏
     setTimeout(() => this.hideTooltip(), 3000);
+  }
+
+  private showTooltipAtPosition(originalText: string, translation: string, position: { x: number; y: number }): void {
+    this.createTooltip(originalText, translation, {
+      left: position.x,
+      top: position.y,
+      right: position.x,
+      bottom: position.y,
+      width: 0,
+      height: 0,
+      x: position.x,
+      y: position.y,
+      toJSON: () => ({})
+    } as DOMRect);
   }
 
   private escapeHtml(text: string): string {
@@ -369,25 +402,49 @@ export class SelectionHandler {
     document.body.removeChild(this.tooltip);
     this.tooltip.style.visibility = 'visible';
 
-    // 计算工具提示位置
-    let top = rect.bottom + window.scrollY + 8;
-    let left = rect.left + window.scrollX + (rect.width - tooltipRect.width) / 2;
+    const tooltipWidth = tooltipRect.width || 200;
+    const tooltipHeight = tooltipRect.height || 100;
+    const position = this.calculateTooltipPosition(rect, { width: tooltipWidth, height: tooltipHeight });
 
-    // 水平位置调整
-    if (left + tooltipRect.width > window.innerWidth - 10) {
-      left = window.innerWidth - tooltipRect.width - 10;
-    }
-    if (left < 10) {
-      left = 10;
+    this.tooltip.style.top = position.top + 'px';
+    this.tooltip.style.left = position.left + 'px';
+  }
+
+  private calculateTooltipPosition(
+    rect: Pick<DOMRect, 'left' | 'top' | 'bottom' | 'width'>,
+    tooltipSize: { width: number; height: number },
+    viewport: { width: number; height: number } = { width: window.innerWidth, height: window.innerHeight }
+  ): { left: number; top: number } {
+    const margin = 10;
+    const maxLeft = Math.max(0, viewport.width - tooltipSize.width);
+    const maxTop = Math.max(0, viewport.height - tooltipSize.height);
+
+    // fixed positioning uses viewport coordinates. Scroll offsets belong to absolute positioning only.
+    let left = rect.left + (rect.width - tooltipSize.width) / 2;
+    let top: number;
+
+    const gap = 8;
+    const spaceBelow = viewport.height - rect.bottom;
+    const spaceAbove = rect.top;
+
+    if (tooltipSize.height + gap + margin <= spaceBelow) {
+      top = rect.bottom + gap;
+    } else if (tooltipSize.height + gap + margin <= spaceAbove) {
+      top = rect.top - tooltipSize.height - gap;
+    } else if (tooltipSize.height <= spaceBelow) {
+      top = rect.bottom;
+    } else if (tooltipSize.height <= spaceAbove) {
+      top = rect.top - tooltipSize.height;
+    } else if (spaceBelow >= spaceAbove) {
+      top = rect.bottom;
+    } else {
+      top = rect.top - tooltipSize.height;
     }
 
-    // 垂直位置调整
-    if (top + tooltipRect.height > window.innerHeight + window.scrollY - 10) {
-      top = rect.top + window.scrollY - tooltipRect.height - 8;
-    }
+    left = Math.min(Math.max(left, 0), maxLeft);
+    top = Math.min(Math.max(top, 0), maxTop);
 
-    this.tooltip.style.top = top + 'px';
-    this.tooltip.style.left = left + 'px';
+    return { left, top };
   }
 
   private addTooltipEventListeners(): void {
@@ -576,13 +633,18 @@ export class SelectionHandler {
 
   private hideTooltip(): void {
     if (this.tooltip && this.tooltip.parentNode) {
+      const tooltipToRemove = this.tooltip;
+
       // 添加淡出动画
-      this.tooltip.style.opacity = '0';
-      this.tooltip.style.transform = 'translateY(-10px)';
+      tooltipToRemove.style.opacity = '0';
+      tooltipToRemove.style.transform = 'translateY(-10px)';
       
       setTimeout(() => {
-        if (this.tooltip && this.tooltip.parentNode) {
-          this.tooltip.parentNode.removeChild(this.tooltip);
+        if (tooltipToRemove.parentNode) {
+          tooltipToRemove.parentNode.removeChild(tooltipToRemove);
+        }
+
+        if (this.tooltip === tooltipToRemove) {
           this.tooltip = null;
           this.currentSelection = '';
         }
@@ -613,9 +675,10 @@ export class SelectionHandler {
     this.setEnabled(false);
     
     // 移除事件监听器
-    document.removeEventListener('mouseup', this.handleSelection.bind(this));
-    document.removeEventListener('keyup', this.handleSelection.bind(this));
-    document.removeEventListener('click', this.handleClick.bind(this));
-    document.removeEventListener('dblclick', this.handleDoubleClick.bind(this));
+    document.removeEventListener('mouseup', this.boundHandleSelection);
+    document.removeEventListener('keyup', this.boundHandleSelection);
+    document.removeEventListener('click', this.boundHandleClick);
+    document.removeEventListener('dblclick', this.boundHandleDoubleClick);
+    this.isInitialized = false;
   }
 }

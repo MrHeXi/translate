@@ -41,6 +41,8 @@ class ContentScript {
   private translationCache: Map<string, string> = new Map();
   private pageObserver: MutationObserver | null = null;
   private isInitialized: boolean = false;
+  private translationRunId: number = 0;
+  private pageTranslationLoadingId: string | null = null;
 
   constructor() {
     this.floatingIcon = new FloatingIcon();
@@ -91,11 +93,6 @@ class ContentScript {
       if (this.userSettings?.learningModeEnabled) {
         this.isLearningMode = true;
         await this.initializeLearningMode();
-      }
-
-      // 如果启用了自动翻译，开始翻译页面
-      if (this.userSettings?.autoTranslate) {
-        await this.toggleTranslation();
       }
 
       // 监听动态内容变化
@@ -192,12 +189,12 @@ class ContentScript {
       switch (request.action) {
         case 'toggleTranslation':
           await this.toggleTranslation();
-          sendResponse({ success: true });
+          sendResponse({ success: true, isActive: this.isTranslationMode });
           break;
         
         case 'toggleLearningMode':
           await this.toggleLearningMode();
-          sendResponse({ success: true });
+          sendResponse({ success: true, isActive: this.isLearningMode });
           break;
         
         case 'updateSettings':
@@ -211,9 +208,18 @@ class ContentScript {
           sendResponse({ success: true });
           break;
         
-        case 'getPageInfo':
+        case 'getPageInfo': {
           const pageInfo = this.getPageInfo();
           sendResponse({ success: true, data: pageInfo });
+          break;
+        }
+
+        case 'getTranslationStatus':
+          sendResponse({
+            success: true,
+            isActive: this.isTranslationMode,
+            isLearningMode: this.isLearningMode
+          });
           break;
         
         default:
@@ -230,17 +236,28 @@ class ContentScript {
       return;
     }
 
-    try {
-      if (this.isTranslationMode) {
-        this.restoreOriginalPage();
-      } else {
-        await this.translatePage();
-      }
-      this.isTranslationMode = !this.isTranslationMode;
-      this.floatingIcon.updateState(this.isTranslationMode);
-    } catch (error) {
-      console.error('切换翻译模式失败:', error);
+    if (this.isTranslationMode) {
+      this.disableTranslationMode();
+      return;
     }
+
+    this.enableTranslationMode();
+  }
+
+  private enableTranslationMode(): void {
+    this.isTranslationMode = true;
+    this.floatingIcon.updateState(true);
+
+    const runId = ++this.translationRunId;
+    void this.translatePage(runId);
+  }
+
+  private disableTranslationMode(): void {
+    this.isTranslationMode = false;
+    this.translationRunId++;
+    this.hidePageTranslationLoading();
+    this.restoreOriginalPage();
+    this.floatingIcon.updateState(false);
   }
 
   private async toggleLearningMode(): Promise<void> {
@@ -460,13 +477,26 @@ class ContentScript {
     }
   }
 
-  private async translatePage(): Promise<void> {
-    // 显示页面翻译加载状态
-    const loadingId = loadingManager.showProgressLoading('正在翻译页面...', 0);
+  private async translatePage(runId: number): Promise<void> {
+    // 显示页面翻译加载状态，保持非阻塞，避免遮住整页。
+    this.hidePageTranslationLoading();
+    const loadingId = `page_translation_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    this.pageTranslationLoadingId = loadingId;
+    loadingManager.showLoading(loadingId, {
+      message: '正在翻译页面...',
+      type: 'progress',
+      progress: 0,
+      position: 'top',
+      overlay: false
+    });
     
     try {
       // 获取页面所有文本节点
       const textNodes = this.getTextNodes(document.body);
+
+      if (!this.isCurrentTranslationRun(runId)) {
+        return;
+      }
       
       // 更新进度
       loadingManager.updateProgress(loadingId, 10, '正在分析页面内容...');
@@ -476,6 +506,10 @@ class ContentScript {
       const totalBatches = Math.ceil(textNodes.length / batchSize);
       
       for (let i = 0; i < textNodes.length; i += batchSize) {
+        if (!this.isCurrentTranslationRun(runId)) {
+          return;
+        }
+
         const batch = textNodes.slice(i, i + batchSize);
         const currentBatch = Math.floor(i / batchSize) + 1;
         
@@ -483,18 +517,37 @@ class ContentScript {
         const progress = 10 + (currentBatch / totalBatches) * 80;
         loadingManager.updateProgress(loadingId, progress, `正在翻译第 ${currentBatch}/${totalBatches} 批内容...`);
         
-        await this.translateTextNodeBatch(batch);
+        await this.translateTextNodeBatch(batch, runId);
+
+        if (!this.isCurrentTranslationRun(runId)) {
+          return;
+        }
         
         // 添加小延迟以避免过于频繁的API调用
         await new Promise(resolve => setTimeout(resolve, 100));
       }
+
+      if (!this.isCurrentTranslationRun(runId)) {
+        return;
+      }
       
       // 完成
       loadingManager.updateProgress(loadingId, 100, '翻译完成');
-      setTimeout(() => loadingManager.hideLoading(loadingId), 1000);
+      setTimeout(() => {
+        if (this.pageTranslationLoadingId === loadingId) {
+          this.hidePageTranslationLoading(loadingId);
+        }
+      }, 1000);
       
     } catch (error) {
-      loadingManager.hideLoading(loadingId);
+      this.hidePageTranslationLoading(loadingId);
+
+      if (!this.isCurrentTranslationRun(runId)) {
+        return;
+      }
+
+      this.isTranslationMode = false;
+      this.floatingIcon.updateState(false);
       
       errorHandler.logError(
         ErrorType.TRANSLATION_API_ERROR,
@@ -516,8 +569,12 @@ class ContentScript {
     }
   }
 
-  private async translateTextNodeBatch(textNodes: Text[]): Promise<void> {
+  private async translateTextNodeBatch(textNodes: Text[], runId?: number): Promise<void> {
     const promises = textNodes.map(async (node) => {
+      if (runId !== undefined && !this.isCurrentTranslationRun(runId)) {
+        return;
+      }
+
       if (node.textContent && node.textContent.trim().length > 3) {
         try {
           // 检查缓存
@@ -527,6 +584,10 @@ class ContentScript {
             const result = await this.requestTranslation(node.textContent);
             translation = result.translatedText;
             this.translationCache.set(node.textContent, translation);
+          }
+
+          if (runId !== undefined && !this.isCurrentTranslationRun(runId)) {
+            return;
           }
           
           this.translationOverlay.addTranslation(node, translation);
@@ -542,6 +603,19 @@ class ContentScript {
   private restoreOriginalPage(): void {
     this.translationOverlay.removeAllTranslations();
     this.translationCache.clear();
+  }
+
+  private isCurrentTranslationRun(runId: number): boolean {
+    return this.isTranslationMode && this.translationRunId === runId;
+  }
+
+  private hidePageTranslationLoading(loadingId: string | null = this.pageTranslationLoadingId): void {
+    if (!loadingId) return;
+
+    loadingManager.hideLoading(loadingId);
+    if (this.pageTranslationLoadingId === loadingId) {
+      this.pageTranslationLoadingId = null;
+    }
   }
 
   private getTextNodes(element: Element): Text[] {
@@ -645,7 +719,7 @@ class ContentScript {
 
   private async translateNewContent(element: Element): Promise<void> {
     const textNodes = this.getTextNodes(element);
-    await this.translateTextNodeBatch(textNodes);
+    await this.translateTextNodeBatch(textNodes, this.translationRunId);
   }
 
   private async applySettingsChanges(): Promise<void> {

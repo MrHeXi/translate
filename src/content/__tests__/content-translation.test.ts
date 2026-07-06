@@ -494,7 +494,7 @@ describe('Content Script 页面翻译属性测试', () => {
             });
             
             // 模拟翻译模式已启用的状态
-            let isTranslationModeActive = true;
+            const isTranslationModeActive = true;
             
             // 模拟MutationObserver的行为
             const observedMutations: { addedNodes: Node[] }[] = [];
@@ -519,7 +519,7 @@ describe('Content Script 页面翻译属性测试', () => {
                   testContainer.appendChild(newElement);
                   break;
                   
-                case 'insertBefore':
+                case 'insertBefore': {
                   newElement = document.createElement('p');
                   newElement.textContent = dynamicItem.text;
                   const firstChild = testContainer.firstChild;
@@ -529,6 +529,7 @@ describe('Content Script 页面翻译属性测试', () => {
                     testContainer.appendChild(newElement);
                   }
                   break;
+                }
                   
                 default:
                   newElement = document.createElement('div');
