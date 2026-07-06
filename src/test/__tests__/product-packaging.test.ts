@@ -26,7 +26,7 @@ describe('product packaging contract', () => {
   });
 
   it('ships release-ready user documentation and privacy disclosure', () => {
-    const expectedDocs = ['README.md', 'PRIVACY.md', 'RELEASE_CHECKLIST.md'];
+    const expectedDocs = ['README.md', 'PRIVACY.md', 'RELEASE_CHECKLIST.md', 'STORE_LISTING.md'];
 
     expectedDocs.forEach(relativePath => {
       const absolutePath = path.join(rootDir, relativePath);
@@ -49,9 +49,32 @@ describe('product packaging contract', () => {
 
     const checklist = readProjectFile('RELEASE_CHECKLIST.md');
     expect(checklist).toContain('Chrome Web Store');
+    expect(checklist).toContain('STORE_LISTING.md');
     expect(checklist).toContain('Privacy practices');
     expect(checklist).toContain('Screenshots');
     expect(checklist).toContain('Permissions');
     expect(checklist).toContain('Version');
+  });
+
+  it('provides store listing copy with permission, privacy, and screenshot guidance', () => {
+    const listing = readProjectFile('STORE_LISTING.md');
+
+    expect(listing).toContain('LexiBridge Translate');
+    expect(listing).toContain('Translate web pages on demand');
+    expect(listing).toContain('Manual page translation');
+    expect(listing).toContain('Selection translation tooltip');
+    expect(listing).toContain('Vocabulary notebook');
+    expect(listing).toContain('CET4');
+    expect(listing).toContain('CET6');
+    expect(listing).toContain('GRE');
+    expect(listing).toContain('IELTS');
+    expect(listing).toContain('TOEFL');
+    expect(listing).toContain('Screenshot Plan');
+    expect(listing).toContain('Permission Justifications');
+    expect(listing).toContain('Privacy Questionnaire Notes');
+    expect(listing).toContain('No default telemetry');
+    expect(listing).toContain('Translate page');
+    expect(listing).toContain('bottom-right');
+    expect(listing).not.toMatch(/PDF layout translator|video subtitle|OCR\/image reader|meeting translator|account-based cloud/i);
   });
 });

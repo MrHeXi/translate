@@ -416,8 +416,10 @@ export class SelectionHandler {
     viewport: { width: number; height: number } = { width: window.innerWidth, height: window.innerHeight }
   ): { left: number; top: number } {
     const margin = 10;
-    const maxLeft = Math.max(0, viewport.width - tooltipSize.width);
-    const maxTop = Math.max(0, viewport.height - tooltipSize.height);
+    const minLeft = viewport.width >= tooltipSize.width + margin * 2 ? margin : 0;
+    const minTop = viewport.height >= tooltipSize.height + margin * 2 ? margin : 0;
+    const maxLeft = Math.max(minLeft, viewport.width - tooltipSize.width - minLeft);
+    const maxTop = Math.max(minTop, viewport.height - tooltipSize.height - minTop);
 
     // fixed positioning uses viewport coordinates. Scroll offsets belong to absolute positioning only.
     let left = rect.left + (rect.width - tooltipSize.width) / 2;
@@ -441,8 +443,8 @@ export class SelectionHandler {
       top = rect.top - tooltipSize.height;
     }
 
-    left = Math.min(Math.max(left, 0), maxLeft);
-    top = Math.min(Math.max(top, 0), maxTop);
+    left = Math.min(Math.max(left, minLeft), maxLeft);
+    top = Math.min(Math.max(top, minTop), maxTop);
 
     return { left, top };
   }

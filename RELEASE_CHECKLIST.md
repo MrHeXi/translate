@@ -18,6 +18,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 
 ## Chrome Web Store Listing
 
+- [ ] Use `STORE_LISTING.md` as the source draft for listing copy, permission explanations, privacy answers, and screenshot planning.
 - [ ] Name: `LexiBridge Translate`.
 - [ ] Short description explains web translation plus vocabulary review.
 - [ ] Detailed description mentions manual page translation, selection translation, built-in dictionaries, vocabulary notebook, review, import/export, and Chrome storage sync.

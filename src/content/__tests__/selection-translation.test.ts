@@ -132,6 +132,26 @@ describe('选词翻译功能属性测试', () => {
     selectionHandler.cleanup();
   });
 
+  it('keeps tooltip inside the comfortable viewport margin when there is enough room', () => {
+    const position = (selectionHandler as any).calculateTooltipPosition(
+      {
+        left: 50,
+        top: 50,
+        width: 20,
+        height: 15,
+        right: 70,
+        bottom: 65
+      },
+      { width: 200, height: 100 },
+      { width: 800, height: 600 }
+    );
+
+    expect(position.left).toBeGreaterThanOrEqual(10);
+    expect(position.top).toBeGreaterThanOrEqual(10);
+    expect(position.left + 200).toBeLessThanOrEqual(790);
+    expect(position.top + 100).toBeLessThanOrEqual(590);
+  });
+
   describe('属性 4：选词翻译响应性', () => {
     it('对于任何文本选择操作，系统应该快速响应并显示翻译结果', async () => {
       // Feature: chrome-translation-extension, Property 4: 选词翻译响应性
