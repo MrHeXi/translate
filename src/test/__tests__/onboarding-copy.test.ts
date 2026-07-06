@@ -32,6 +32,8 @@ describe('first-run and empty-state copy', () => {
     expect(popupHtml).toContain('Start');
     expect(popupHtml).toContain('Vocabulary notebook');
     expect(popupHtml).toContain('Review words');
+    expect(popupHtml).toContain('Recent words');
+    expect(popupHtml).toContain('No saved words yet');
   });
 
   it('gives useful empty-state guidance on vocabulary and review pages', () => {

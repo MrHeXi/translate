@@ -12,6 +12,12 @@ interface LearningStats {
   reviewDueCount: number;
 }
 
+interface VocabularyPreview {
+  word: string;
+  translation?: string;
+  addedDate?: string | Date;
+}
+
 class PopupController {
   private isTranslationActive: boolean = false;
   private isTogglingTranslation: boolean = false;
@@ -32,6 +38,7 @@ class PopupController {
     
     // 加载词库设置
     await this.loadDictionarySettings();
+    await this.updateRecentWords();
   }
 
   private bindEventListeners(): void {
@@ -227,6 +234,7 @@ class PopupController {
       if (response.success) {
         const settings = response.data;
         const activeDictionaries = settings.activeDictionaries || [];
+        this.updateActiveDictionarySummary(activeDictionaries.length);
         
         // 更新复选框状态
         const checkboxes = document.querySelectorAll('.dictionary-item input[type="checkbox"]') as NodeListOf<HTMLInputElement>;
@@ -246,6 +254,7 @@ class PopupController {
     try {
       const checkboxes = document.querySelectorAll('.dictionary-item input[type="checkbox"]:checked') as NodeListOf<HTMLInputElement>;
       const activeDictionaries = Array.from(checkboxes).map(cb => cb.value);
+      this.updateActiveDictionarySummary(activeDictionaries.length);
       
       const response = await this.sendMessage({
         action: 'updateSettings',
@@ -261,6 +270,70 @@ class PopupController {
       console.error('Could not update dictionary settings:', error);
       this.showError('Could not update dictionary settings.');
     }
+  }
+
+  private updateActiveDictionarySummary(count: number): void {
+    const summary = document.getElementById('activeDictionarySummary');
+    if (summary) {
+      summary.textContent = `${count} enabled`;
+    }
+  }
+
+  private async updateRecentWords(): Promise<void> {
+    try {
+      const response = await this.sendMessage({
+        action: 'getVocabularyList',
+        data: {}
+      });
+
+      if (response.success) {
+        this.renderRecentWords(response.data || []);
+      } else {
+        this.renderRecentWords([]);
+      }
+    } catch (error) {
+      console.error('Could not load recent words:', error);
+      this.renderRecentWords([]);
+    }
+  }
+
+  private renderRecentWords(words: VocabularyPreview[]): void {
+    const recentWords = document.getElementById('recentWords');
+    const emptyState = document.getElementById('recentWordsEmpty');
+    if (!recentWords || !emptyState) return;
+
+    recentWords.replaceChildren();
+
+    const sortedWords = [...words]
+      .sort((a, b) => this.getAddedDateTime(b) - this.getAddedDateTime(a))
+      .slice(0, 3);
+
+    emptyState.style.display = sortedWords.length > 0 ? 'none' : 'block';
+
+    sortedWords.forEach(item => {
+      const listItem = document.createElement('li');
+      listItem.className = 'recent-word-item';
+
+      const word = document.createElement('span');
+      word.className = 'recent-word';
+      word.textContent = item.word;
+
+      const translation = document.createElement('span');
+      translation.className = 'recent-translation';
+      translation.textContent = item.translation || 'Saved for review';
+
+      listItem.appendChild(word);
+      listItem.appendChild(translation);
+      recentWords.appendChild(listItem);
+    });
+  }
+
+  private getAddedDateTime(item: VocabularyPreview): number {
+    if (!item.addedDate) return 0;
+
+    const date = item.addedDate instanceof Date ? item.addedDate : new Date(item.addedDate);
+    const time = date.getTime();
+    return Number.isNaN(time) ? 0 : time;
   }
 
   private openVocabulary(): void {

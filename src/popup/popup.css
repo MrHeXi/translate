@@ -233,6 +233,48 @@ body {
   gap: 8px;
 }
 
+.recent-words-section h3,
+.dictionary-selection h3 {
+  font-size: 16px;
+  margin-bottom: 12px;
+  color: #333;
+}
+
+.recent-word-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recent-word-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 8px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+}
+
+.recent-word {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.recent-translation {
+  color: #64748b;
+  font-size: 12px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty-copy {
+  color: #64748b;
+  font-size: 13px;
+}
+
 .secondary-btn {
   flex: 1;
   padding: 8px 12px;
@@ -251,10 +293,25 @@ body {
 }
 
 /* 词库选择 */
-.dictionary-selection h3 {
-  font-size: 16px;
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 12px;
-  color: #333;
+}
+
+.section-heading h3 {
+  margin-bottom: 0;
+}
+
+.summary-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background-color: #eef2ff;
+  color: #3730a3;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .dictionary-list {

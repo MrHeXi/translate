@@ -20,7 +20,11 @@ const setupPopupDom = (): void => {
     <span id="reviewDue"></span>
     <span id="currentStreak"></span>
     <span id="reviewAccuracy"></span>
+    <span id="activeDictionarySummary"></span>
+    <ul id="recentWords"></ul>
+    <p id="recentWordsEmpty"></p>
     <label class="dictionary-item"><input type="checkbox" value="gre"></label>
+    <label class="dictionary-item"><input type="checkbox" value="toefl"></label>
   `;
 };
 
@@ -53,6 +57,25 @@ describe('Popup current tab state', () => {
             callback({
               success: true,
               data: { activeDictionaries: ['gre'] }
+            });
+            return;
+          }
+
+          if (message.action === 'getVocabularyList') {
+            callback({
+              success: true,
+              data: [
+                {
+                  word: 'ability',
+                  translation: 'capacity to do something',
+                  addedDate: new Date('2026-07-05T10:00:00.000Z').toISOString()
+                },
+                {
+                  word: 'bridge',
+                  translation: 'connect',
+                  addedDate: new Date('2026-07-04T10:00:00.000Z').toISOString()
+                }
+              ]
             });
             return;
           }
@@ -92,6 +115,11 @@ describe('Popup current tab state', () => {
     expect(document.getElementById('translationStatus')?.textContent).toBe('Off');
     expect(document.getElementById('toggleTranslation')?.textContent).toBe('Start');
     expect(document.getElementById('toggleTranslation')?.classList.contains('active')).toBe(false);
+    expect(document.getElementById('activeDictionarySummary')?.textContent).toBe('1 enabled');
+    expect(document.querySelectorAll('#recentWords li')).toHaveLength(2);
+    expect(document.getElementById('recentWords')?.textContent).toContain('ability');
+    expect(document.getElementById('recentWords')?.textContent).toContain('capacity to do something');
+    expect(document.getElementById('recentWordsEmpty')?.style.display).toBe('none');
 
     errorSpy.mockRestore();
   });
