@@ -269,6 +269,18 @@ class BackgroundService {
         case 'clearAllData':
           response = await this.handleClearAllDataRequest(request);
           break;
+
+        case 'openSettings':
+          response = await this.handleOpenSettingsRequest(request);
+          break;
+
+        case 'openVocabulary':
+          response = await this.handleOpenVocabularyRequest(request);
+          break;
+
+        case 'openReview':
+          response = await this.handleOpenReviewRequest(request);
+          break;
         
         default:
           response = { success: false, error: `未知的操作类型: ${request.action}` };
@@ -628,7 +640,7 @@ class BackgroundService {
       translationProvider: 'google',
       autoTranslate: false,
       showFloatingIcon: true,
-      floatingIconPosition: { x: 50, y: 50 },
+      floatingIconPosition: { x: 9999, y: 9999 },
       learningModeEnabled: true,
       activeDictionaries: ['gre', 'toefl'],
       highlightColors: {
@@ -677,7 +689,7 @@ class BackgroundService {
       translationProvider: 'google',
       autoTranslate: false,
       showFloatingIcon: true,
-      floatingIconPosition: { x: 50, y: 50 },
+      floatingIconPosition: { x: 9999, y: 9999 },
       learningModeEnabled: true,
       activeDictionaries: ['gre', 'toefl'],
       highlightColors: {

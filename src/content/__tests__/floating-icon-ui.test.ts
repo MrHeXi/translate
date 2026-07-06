@@ -115,6 +115,41 @@ describe('浮动图标UI交互响应性属性测试', () => {
     expect(iconElement.parentElement).toBe(document.body);
   });
 
+  it('defaults to a discoverable bottom-right position when no saved position exists', () => {
+    mockWindow.innerWidth = 1024;
+    mockWindow.innerHeight = 768;
+
+    floatingIcon.create();
+
+    const iconElement = getFloatingIconElement(floatingIcon);
+
+    expect(iconElement.style.getPropertyValue('left')).toBe('950px');
+    expect(iconElement.style.getPropertyValue('top')).toBe('694px');
+    expect(iconElement.getAttribute('role')).toBe('button');
+    expect(iconElement.getAttribute('aria-label')).toBe('Start page translation');
+    expect(iconElement.textContent).toBe('T');
+    expect(iconElement.title).toBe('Start page translation');
+  });
+
+  it('uses clear English labels for icon states and context menu actions', () => {
+    floatingIcon.create();
+
+    const iconElement = getFloatingIconElement(floatingIcon);
+    const contextMenu = document.getElementById('translation-context-menu') as HTMLElement;
+
+    expect(contextMenu.textContent).toContain('Start page translation');
+    expect(contextMenu.textContent).toContain('Turn learning highlights on');
+    expect(contextMenu.textContent).toContain('Settings');
+    expect(contextMenu.textContent).toContain('Hide floating button');
+
+    floatingIcon.updateState(true);
+
+    expect(iconElement.textContent).toBe('On');
+    expect(iconElement.getAttribute('aria-label')).toBe('Stop page translation');
+    expect(iconElement.title).toBe('Stop page translation');
+    expect(contextMenu.textContent).toContain('Stop page translation');
+  });
+
   describe('属性 12：UI交互响应性', () => {
     it('对于任何用户交互操作，浮动图标应该在合理时间内响应并提供视觉反馈', async () => {
       // Feature: chrome-translation-extension, Property 12: UI交互响应性

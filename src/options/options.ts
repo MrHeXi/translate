@@ -36,6 +36,8 @@ class OptionsController {
   private settings: UserSettings | null = null;
   private stats: LearningStats | null = null;
   private dictionaryProgress: DictionaryProgress = {};
+  private readonly floatingIconEdgeMargin = 24;
+  private readonly floatingIconFarEdge = 9999;
 
   constructor() {
     this.initialize();
@@ -251,14 +253,20 @@ class OptionsController {
     const iconPosition = document.getElementById('iconPosition') as HTMLSelectElement;
     if (iconPosition && this.settings.floatingIconPosition) {
       const { x, y } = this.settings.floatingIconPosition;
-      if (x > window.innerWidth / 2 && y < window.innerHeight / 2) {
+      if (x >= this.floatingIconFarEdge && y >= this.floatingIconFarEdge) {
+        iconPosition.value = 'bottom-right';
+      } else if (x >= this.floatingIconFarEdge) {
         iconPosition.value = 'top-right';
-      } else if (x < window.innerWidth / 2 && y < window.innerHeight / 2) {
-        iconPosition.value = 'top-left';
+      } else if (y >= this.floatingIconFarEdge) {
+        iconPosition.value = 'bottom-left';
+      } else if (x > window.innerWidth / 2 && y < window.innerHeight / 2) {
+        iconPosition.value = 'top-right';
       } else if (x > window.innerWidth / 2 && y > window.innerHeight / 2) {
         iconPosition.value = 'bottom-right';
-      } else {
+      } else if (x < window.innerWidth / 2 && y > window.innerHeight / 2) {
         iconPosition.value = 'bottom-left';
+      } else {
+        iconPosition.value = 'top-left';
       }
     }
   }
@@ -401,7 +409,7 @@ class OptionsController {
       translationProvider: translationProvider,
       autoTranslate: autoTranslate,
       showFloatingIcon: showFloatingIcon,
-      floatingIconPosition: this.settings?.floatingIconPosition || { x: 50, y: 50 },
+      floatingIconPosition: this.getSelectedFloatingIconPosition(),
       learningModeEnabled: learningModeEnabled,
       activeDictionaries: activeDictionaries,
       highlightColors: highlightColors,
@@ -409,6 +417,22 @@ class OptionsController {
       reviewInterval: (document.getElementById('reviewInterval') as HTMLSelectElement)?.value || 'spaced',
       difficultyAdjustment: (document.getElementById('difficultyAdjustment') as HTMLSelectElement)?.value || 'auto'
     };
+  }
+
+  private getSelectedFloatingIconPosition(): { x: number; y: number } {
+    const selectedPosition = (document.getElementById('iconPosition') as HTMLSelectElement)?.value || 'bottom-right';
+
+    switch (selectedPosition) {
+      case 'top-left':
+        return { x: this.floatingIconEdgeMargin, y: this.floatingIconEdgeMargin };
+      case 'top-right':
+        return { x: this.floatingIconFarEdge, y: this.floatingIconEdgeMargin };
+      case 'bottom-left':
+        return { x: this.floatingIconEdgeMargin, y: this.floatingIconFarEdge };
+      case 'bottom-right':
+      default:
+        return { x: this.floatingIconFarEdge, y: this.floatingIconFarEdge };
+    }
   }
 
   private async resetToDefault(): Promise<void> {

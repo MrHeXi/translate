@@ -14,7 +14,12 @@ describe('options UI settings contract', () => {
       <button id="startReview"></button>
       <select id="targetLanguage"><option value="zh-CN" selected>Chinese</option></select>
       <select id="translationProvider"><option value="google" selected>Google</option></select>
-      <select id="iconPosition"><option value="top-left" selected>Top left</option></select>
+      <select id="iconPosition">
+        <option value="top-left" selected>Top left</option>
+        <option value="top-right">Top right</option>
+        <option value="bottom-right">Bottom right</option>
+        <option value="bottom-left">Bottom left</option>
+      </select>
       <input id="autoTranslate" type="checkbox">
       <input id="showFloatingIcon" type="checkbox">
       <input id="learningModeEnabled" type="checkbox">
@@ -130,6 +135,84 @@ describe('options UI settings contract', () => {
       expect.objectContaining({
         action: 'updateSettings',
         data: expect.objectContaining({ showFloatingIcon: false })
+      }),
+      expect.any(Function)
+    );
+  });
+
+  it('saves the selected floating button corner as clampable page coordinates', async () => {
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getSettings') {
+        callback({
+          success: true,
+          data: {
+            defaultTargetLanguage: 'zh-CN',
+            translationProvider: 'google',
+            autoTranslate: false,
+            showFloatingIcon: true,
+            floatingIconPosition: { x: 24, y: 24 },
+            learningModeEnabled: false,
+            activeDictionaries: ['gre'],
+            highlightColors: {
+              gre: '#ff6b6b',
+              toefl: '#4ecdc4',
+              ielts: '#45b7d1',
+              cet4: '#96ceb4',
+              cet6: '#feca57'
+            },
+            dailyGoal: 20,
+            reviewInterval: 'spaced',
+            difficultyAdjustment: 'auto'
+          }
+        });
+        return;
+      }
+
+      if (message.action === 'getLearningStats') {
+        callback({
+          success: true,
+          data: {
+            totalWordsLearned: 0,
+            dailyGoal: 20,
+            currentStreak: 0,
+            longestStreak: 0,
+            reviewAccuracy: 0,
+            timeSpentLearning: 0
+          }
+        });
+        return;
+      }
+
+      if (message.action === 'getDictionaryProgress') {
+        callback({ success: true, data: {} });
+        return;
+      }
+
+      callback({ success: true });
+    });
+
+    (global as any).chrome = {
+      runtime: {
+        sendMessage,
+        lastError: null
+      }
+    };
+
+    require('../options');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    const iconPosition = document.getElementById('iconPosition') as HTMLSelectElement;
+    iconPosition.value = 'bottom-right';
+    document.getElementById('saveSettings')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'updateSettings',
+        data: expect.objectContaining({
+          floatingIconPosition: { x: 9999, y: 9999 }
+        })
       }),
       expect.any(Function)
     );

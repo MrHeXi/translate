@@ -22,7 +22,7 @@ export class StorageManager {
   private defaultSettings: UserSettings = {
     defaultTargetLanguage: 'zh-CN',
     translationProvider: 'google',
-    floatingIconPosition: { x: 20, y: 20 },
+    floatingIconPosition: { x: 9999, y: 9999 },
     learningModeEnabled: true,
     activeDictionaries: ['gre', 'toefl'],
     highlightColors: {

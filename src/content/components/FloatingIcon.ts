@@ -1,5 +1,3 @@
-// 浮动翻译图标组件
-
 export class FloatingIcon {
   private iconElement: HTMLElement | null = null;
   private toggleCallback: (() => void) | null = null;
@@ -10,73 +8,77 @@ export class FloatingIcon {
   private isLearningModeActive: boolean = false;
   private contextMenu: HTMLElement | null = null;
   private readonly defaultIconSize = { width: 50, height: 50 };
+  private readonly edgeMargin = 24;
   private readonly iconZIndex = '2147483000';
   private readonly contextMenuZIndex = '2147483001';
   private readonly boundHandleDocumentClick = this.handleDocumentClick.bind(this);
 
   create(position?: { x: number; y: number }): void {
-    // 如果已存在，先移除
     if (this.iconElement) {
       this.cleanup();
     }
 
-    // 创建浮动图标元素
     this.iconElement = document.createElement('div');
     this.iconElement.id = 'translation-floating-icon';
-    this.iconElement.innerHTML = '🌐';
-    
-    // 设置样式
-    this.setStyles(position);
-    
-    // 添加事件监听器
-    this.addEventListeners();
-    
-    // 添加到页面
-    document.body.appendChild(this.iconElement);
+    this.iconElement.setAttribute('role', 'button');
+    this.iconElement.tabIndex = 0;
 
-    // 创建右键菜单
+    this.setStyles(position);
+    this.updateAppearance();
+    this.addEventListeners();
+
+    document.body.appendChild(this.iconElement);
     this.createContextMenu();
   }
 
   private setStyles(position?: { x: number; y: number }): void {
     if (!this.iconElement) return;
 
-    const defaultPosition = position || { x: 20, y: 20 };
-
     [
       ['position', 'fixed'],
-      ['top', `${defaultPosition.y}px`],
-      ['left', `${defaultPosition.x}px`],
       ['right', 'auto'],
       ['bottom', 'auto'],
       ['width', '50px'],
       ['height', '50px'],
-      ['background-color', '#4285f4'],
+      ['background-color', '#2563eb'],
       ['color', 'white'],
       ['border-radius', '50%'],
       ['display', 'flex'],
       ['align-items', 'center'],
       ['justify-content', 'center'],
       ['cursor', 'pointer'],
-      ['font-size', '20px'],
+      ['font-size', '15px'],
+      ['font-weight', '700'],
       ['font-family', 'Arial, sans-serif'],
       ['line-height', '1'],
       ['box-sizing', 'border-box'],
       ['z-index', this.iconZIndex],
-      ['box-shadow', '0 2px 10px rgba(0,0,0,0.3)'],
-      ['transition', 'transform 0.3s ease, opacity 0.3s ease, background-color 0.3s ease'],
+      ['box-shadow', '0 8px 24px rgba(15, 23, 42, 0.28)'],
+      ['transition', 'transform 0.2s ease, opacity 0.2s ease, background-color 0.2s ease'],
       ['user-select', 'none'],
       ['pointer-events', 'auto'],
-      ['opacity', '0.8']
+      ['opacity', '0.92']
     ].forEach(([property, value]) => {
       this.setIconStyle(property, value);
     });
+
+    this.applyPosition(position || this.getDefaultPosition());
   }
 
   private setIconStyle(property: string, value: string): void {
     if (!this.iconElement) return;
 
     this.iconElement.style.setProperty(property, value, 'important');
+  }
+
+  private getDefaultPosition(): { x: number; y: number } {
+    const width = window.innerWidth || 1024;
+    const height = window.innerHeight || 768;
+
+    return {
+      x: Math.max(this.edgeMargin, width - this.defaultIconSize.width - this.edgeMargin),
+      y: Math.max(this.edgeMargin, height - this.defaultIconSize.height - this.edgeMargin)
+    };
   }
 
   private createContextMenu(): void {
@@ -86,42 +88,62 @@ export class FloatingIcon {
     this.contextMenu.id = 'translation-context-menu';
     this.contextMenu.style.cssText = `
       position: fixed;
-      background: white;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      background: #ffffff;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      box-shadow: 0 12px 32px rgba(15, 23, 42, 0.22);
       z-index: ${this.contextMenuZIndex};
       display: none;
-      min-width: 150px;
+      min-width: 220px;
       font-family: Arial, sans-serif;
       font-size: 14px;
+      color: #111827;
+      overflow: hidden;
     `;
 
-    // 创建菜单项
-    const menuItems = [
-      { text: '切换翻译模式', action: 'toggle-translation' },
-      { text: '切换学习模式', action: 'toggle-learning' },
-      { text: '设置', action: 'settings' },
-      { text: '隐藏图标', action: 'hide' }
-    ];
+    this.renderContextMenuItems();
+    document.body.appendChild(this.contextMenu);
+    document.addEventListener('click', this.boundHandleDocumentClick);
+  }
 
-    menuItems.forEach(item => {
+  private getContextMenuItems(): Array<{ text: string; action: string }> {
+    return [
+      {
+        text: this.isTranslationActive ? 'Stop page translation' : 'Start page translation',
+        action: 'toggle-translation'
+      },
+      {
+        text: this.isLearningModeActive ? 'Turn learning highlights off' : 'Turn learning highlights on',
+        action: 'toggle-learning'
+      },
+      { text: 'Settings', action: 'settings' },
+      { text: 'Hide floating button', action: 'hide' }
+    ];
+  }
+
+  private renderContextMenuItems(): void {
+    if (!this.contextMenu) return;
+
+    this.contextMenu.replaceChildren();
+
+    this.getContextMenuItems().forEach(item => {
       const menuItem = document.createElement('div');
       menuItem.textContent = item.text;
       menuItem.style.cssText = `
-        padding: 8px 12px;
+        padding: 9px 12px;
         cursor: pointer;
-        border-bottom: 1px solid #eee;
+        border-bottom: 1px solid #edf2f7;
+        white-space: nowrap;
       `;
-      
+
       menuItem.addEventListener('mouseenter', () => {
-        menuItem.style.backgroundColor = '#f5f5f5';
+        menuItem.style.backgroundColor = '#f8fafc';
       });
-      
+
       menuItem.addEventListener('mouseleave', () => {
-        menuItem.style.backgroundColor = 'white';
+        menuItem.style.backgroundColor = '#ffffff';
       });
-      
+
       menuItem.addEventListener('click', () => {
         this.handleContextMenuAction(item.action);
         this.hideContextMenu();
@@ -129,11 +151,6 @@ export class FloatingIcon {
 
       this.contextMenu!.appendChild(menuItem);
     });
-
-    document.body.appendChild(this.contextMenu);
-
-    // 点击其他地方时隐藏菜单
-    document.addEventListener('click', this.boundHandleDocumentClick);
   }
 
   private handleDocumentClick(e: Event): void {
@@ -146,21 +163,20 @@ export class FloatingIcon {
   private handleContextMenuAction(action: string): void {
     switch (action) {
       case 'toggle-translation':
-        if (this.toggleCallback) {
-          this.toggleCallback();
-        }
+        this.toggleCallback?.();
         break;
       case 'toggle-learning':
-        if (this.learningModeToggleCallback) {
-          this.learningModeToggleCallback();
-        }
+        this.learningModeToggleCallback?.();
         break;
       case 'settings':
-        // 发送消息给后台脚本打开设置页面
         chrome.runtime.sendMessage({ action: 'openSettings' });
         break;
       case 'hide':
         this.hide();
+        chrome.runtime.sendMessage({
+          action: 'updateSettings',
+          data: { showFloatingIcon: false }
+        });
         break;
     }
   }
@@ -168,23 +184,23 @@ export class FloatingIcon {
   private showContextMenu(x: number, y: number): void {
     if (!this.contextMenu) return;
 
-    // 调整菜单位置，确保不超出视窗
-    const menuWidth = 150;
-    const menuHeight = 160;
-    
+    this.renderContextMenuItems();
+
+    const menuWidth = 220;
+    const menuHeight = 156;
     let left = x;
     let top = y;
-    
+
     if (left + menuWidth > window.innerWidth) {
       left = window.innerWidth - menuWidth - 10;
     }
-    
+
     if (top + menuHeight > window.innerHeight) {
       top = window.innerHeight - menuHeight - 10;
     }
 
-    this.contextMenu.style.left = `${left}px`;
-    this.contextMenu.style.top = `${top}px`;
+    this.contextMenu.style.left = `${Math.max(10, left)}px`;
+    this.contextMenu.style.top = `${Math.max(10, top)}px`;
     this.contextMenu.style.display = 'block';
   }
 
@@ -197,38 +213,41 @@ export class FloatingIcon {
   private addEventListeners(): void {
     if (!this.iconElement) return;
 
-    // 左键点击事件
     this.iconElement.addEventListener('click', (e) => {
       e.preventDefault();
-      if (!this.isDragging && this.toggleCallback) {
-        this.toggleCallback();
+      if (!this.isDragging) {
+        this.toggleCallback?.();
       }
     });
 
-    // 右键点击事件
+    this.iconElement.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+
+      e.preventDefault();
+      this.toggleCallback?.();
+    });
+
     this.iconElement.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       this.showContextMenu(e.clientX, e.clientY);
     });
 
-    // 拖拽事件
     this.iconElement.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return; // 只处理左键
-      
+      if (e.button !== 0) return;
+
       this.isDragging = false;
       this.dragOffset.x = e.clientX - this.iconElement!.getBoundingClientRect().left;
       this.dragOffset.y = e.clientY - this.iconElement!.getBoundingClientRect().top;
-      
+
       document.addEventListener('mousemove', this.handleMouseMove);
       document.addEventListener('mouseup', this.handleMouseUp);
-      
+
       e.preventDefault();
     });
 
-    // 悬停效果
     this.iconElement.addEventListener('mouseenter', () => {
       if (this.iconElement) {
-        this.setIconStyle('transform', 'scale(1.1)');
+        this.setIconStyle('transform', 'scale(1.08)');
         this.setIconStyle('opacity', '1');
       }
     });
@@ -236,22 +255,19 @@ export class FloatingIcon {
     this.iconElement.addEventListener('mouseleave', () => {
       if (this.iconElement) {
         this.setIconStyle('transform', 'scale(1)');
-        this.setIconStyle('opacity', '0.8');
+        this.setIconStyle('opacity', '0.92');
       }
     });
 
-    // 双击事件 - 切换学习模式
     this.iconElement.addEventListener('dblclick', (e) => {
       e.preventDefault();
-      if (this.learningModeToggleCallback) {
-        this.learningModeToggleCallback();
-      }
+      this.learningModeToggleCallback?.();
     });
   }
 
   private handleMouseMove = (e: MouseEvent) => {
     if (!this.iconElement) return;
-    
+
     this.isDragging = true;
     const x = e.clientX - this.dragOffset.x;
     const y = e.clientY - this.dragOffset.y;
@@ -262,20 +278,17 @@ export class FloatingIcon {
   private handleMouseUp = () => {
     document.removeEventListener('mousemove', this.handleMouseMove);
     document.removeEventListener('mouseup', this.handleMouseUp);
-    
-    // 保存新位置到设置
+
     if (this.iconElement && this.isDragging) {
       const rect = this.iconElement.getBoundingClientRect();
       const position = { x: rect.left, y: rect.top };
-      
-      // 发送消息给后台脚本保存位置
+
       chrome.runtime.sendMessage({
         action: 'updateSettings',
         data: { floatingIconPosition: position }
       });
     }
-    
-    // 延迟重置拖拽状态，避免触发点击事件
+
     setTimeout(() => {
       this.isDragging = false;
     }, 100);
@@ -306,28 +319,29 @@ export class FloatingIcon {
   private updateAppearance(): void {
     if (!this.iconElement) return;
 
-    // 根据状态更新图标外观
     if (this.isTranslationActive && this.isLearningModeActive) {
-      // 翻译模式 + 学习模式
-      this.setIconStyle('background-color', '#ff9800');
-      this.iconElement.innerHTML = '📚';
-      this.iconElement.title = '翻译模式 + 学习模式已启用';
+      this.setIconStyle('background-color', '#d97706');
+      this.setIconText('On', 'Stop page translation. Learning highlights are on.');
     } else if (this.isTranslationActive) {
-      // 仅翻译模式
-      this.setIconStyle('background-color', '#34a853');
-      this.iconElement.innerHTML = '✓';
-      this.iconElement.title = '翻译模式已启用';
+      this.setIconStyle('background-color', '#16a34a');
+      this.setIconText('On', 'Stop page translation');
     } else if (this.isLearningModeActive) {
-      // 仅学习模式
-      this.setIconStyle('background-color', '#9c27b0');
-      this.iconElement.innerHTML = '📖';
-      this.iconElement.title = '学习模式已启用';
+      this.setIconStyle('background-color', '#7c3aed');
+      this.setIconText('L', 'Learning highlights are on. Start page translation');
     } else {
-      // 默认状态
-      this.setIconStyle('background-color', '#4285f4');
-      this.iconElement.innerHTML = '🌐';
-      this.iconElement.title = '点击启用翻译，双击启用学习模式，右键查看更多选项';
+      this.setIconStyle('background-color', '#2563eb');
+      this.setIconText('T', 'Start page translation');
     }
+
+    this.renderContextMenuItems();
+  }
+
+  private setIconText(label: string, description: string): void {
+    if (!this.iconElement) return;
+
+    this.iconElement.textContent = label;
+    this.iconElement.title = description;
+    this.iconElement.setAttribute('aria-label', description);
   }
 
   updatePosition(position: { x: number; y: number }): void {

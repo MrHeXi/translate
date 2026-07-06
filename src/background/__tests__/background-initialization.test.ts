@@ -46,7 +46,8 @@ describe('BackgroundService initialization', () => {
         },
         onConnect: { addListener: jest.fn() },
         onInstalled: { addListener: jest.fn() },
-        onStartup: { addListener: jest.fn() }
+        onStartup: { addListener: jest.fn() },
+        openOptionsPage: jest.fn()
       },
       storage: {
         local: {
@@ -160,5 +161,17 @@ describe('BackgroundService initialization', () => {
       success: true,
       data: reviewItems
     });
+
+    const settingsResponse = jest.fn();
+    mainListener!(
+      { action: 'openSettings' },
+      {},
+      settingsResponse
+    );
+
+    await flushPromises();
+
+    expect((global as any).chrome.runtime.openOptionsPage).toHaveBeenCalled();
+    expect(settingsResponse).toHaveBeenCalledWith({ success: true });
   });
 });
