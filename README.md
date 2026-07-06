@@ -1,171 +1,126 @@
-# Chrome翻译插件
+# LexiBridge Translate
 
-一个功能强大的Chrome浏览器扩展，提供智能网页翻译、选词翻译和学习模式功能。
+LexiBridge Translate is a Chrome extension for reading real web pages in another language while turning unknown words into review material.
 
-## 功能特性
+It keeps the existing translation workflow, built-in exam vocabularies, vocabulary notebook, review page, progress tracking, import/export, and settings. Page translation is user-controlled: use the popup or the manual floating button to start or stop translation.
 
-### 🌐 网页翻译
-- 一键翻译整个网页
-- 双语对照显示
-- 保持原始页面布局
-- 动态内容自动翻译
+## Product Positioning
 
-### 📝 选词翻译
-- 选中文本即时翻译
-- 智能工具提示
-- 词汇详细信息显示
-- 一键收藏生词
+LexiBridge is built around one idea: translate while you read, then review what you did not know.
 
-### 📚 学习模式
-- 内置分级词库（GRE、托福、雅思、四六级）
-- 生词本管理
-- 学习进度跟踪
-- 智能复习系统
+It is best for:
 
-### 💾 数据管理
-- 本地数据存储
-- 跨设备同步
-- 数据导入导出
-- 学习统计分析
+- Reading English web pages, technical articles, documentation, and study material.
+- Collecting useful words from real context.
+- Reviewing CET4, CET6, GRE, IELTS, TOEFL vocabulary.
+- Keeping a local-first vocabulary notebook with Chrome storage sync support.
 
-## 技术架构
+It is not marketed as a document layout translator, video subtitle tool, image reader, or meeting assistant.
 
-- **框架**: Manifest V3
-- **语言**: TypeScript
-- **构建工具**: Webpack 5
-- **测试框架**: Jest + fast-check
-- **代码规范**: ESLint + TypeScript
+## Core Features
 
-## 项目结构
+### Web Page Translation
 
-```
-chrome-translation-extension/
-├── src/
-│   ├── background/          # 后台脚本
-│   ├── content/            # 内容脚本
-│   │   └── components/     # UI组件
-│   ├── services/           # 核心服务
-│   ├── popup/              # 弹出窗口
-│   ├── options/            # 选项页面
-│   └── test/               # 测试文件
-├── dist/                   # 构建输出
-├── icons/                  # 图标文件
-├── manifest.json           # 扩展清单
-├── webpack.config.js       # Webpack配置
-├── tsconfig.json          # TypeScript配置
-└── package.json           # 项目配置
-```
+- Translate page text from the extension popup or the floating page button.
+- Keep translation mode off until the user explicitly enables it.
+- Turn translation mode off immediately to remove added page translations.
+- Show page translation progress without blocking the whole page.
 
-## 开发指南
+### Selection Translation
 
-### 环境要求
+- Select text on a page to show a translation tooltip.
+- Add useful words to the vocabulary notebook.
+- Use the selected text as learning material instead of a one-time lookup.
 
-- Node.js 16+
-- npm 8+
-- Chrome浏览器
+### Vocabulary Learning
 
-### 安装依赖
+- Built-in dictionaries: CET4, CET6, GRE, IELTS, TOEFL.
+- Highlight enabled dictionary words on pages.
+- Track vocabulary progress and mastery.
+- Review due words and new built-in words from the review page.
 
-```bash
-npm install
-```
+### Data Management
 
-### 开发模式
+- Store settings, vocabulary, review progress, and learning stats in Chrome storage.
+- Use Chrome sync where available.
+- Export and import learning data.
+- Keep default telemetry off.
 
-```bash
-npm run dev
-```
+## Install for Local Testing
 
-### 构建生产版本
+1. Build the extension:
 
 ```bash
 npm run build
 ```
 
-### 运行测试
+2. Open Chrome and go to `chrome://extensions/`.
+3. Enable Developer mode.
+4. Choose `Load unpacked`.
+5. Select the `dist` folder from this repository.
+
+The generated test package is `chrome-translation-extension.zip`.
+
+## Usage
+
+### Start Page Translation
+
+1. Open a web page.
+2. Click the extension popup or the manual floating button.
+3. Click again to stop translation and restore the page.
+
+### Translate a Selection
+
+1. Select text on any page.
+2. Read the translation tooltip.
+3. Add useful words to the vocabulary notebook when needed.
+
+### Study Vocabulary
+
+1. Open the options page and enable the dictionaries you care about.
+2. Browse English content and collect words from context.
+3. Open the vocabulary page to manage saved words.
+4. Open the review page to practice due or new words.
+
+## Development
+
+### Requirements
+
+- Node.js 16+
+- npm 8+
+- Chrome
+
+### Commands
 
 ```bash
-# 运行所有测试
-npm test
-
-# 监听模式
-npm run test:watch
-
-# 生成覆盖率报告
-npm run test:coverage
-```
-
-### 代码检查
-
-```bash
-# 检查代码规范
+npm install
+npm run type-check
 npm run lint
-
-# 自动修复
-npm run lint:fix
+npm test
+npm run build
 ```
 
-## 安装扩展
+### Project Structure
 
-1. 运行 `npm run build` 构建项目
-2. 打开Chrome浏览器，进入 `chrome://extensions/`
-3. 开启"开发者模式"
-4. 点击"加载已解压的扩展程序"
-5. 选择项目的 `dist` 文件夹
+```text
+src/background/   extension service worker
+src/content/      page translation, floating button, selection UI
+src/options/      settings, vocabulary, review pages
+src/popup/        browser action popup
+src/services/     translation, dictionary, learning, review, storage services
+src/data/         built-in vocabulary dictionaries
+scripts/          data generation scripts
+icons/            extension icons
+```
 
-## 使用说明
+## Release Notes
 
-### 基本使用
+See `RELEASE_CHECKLIST.md` before packaging or submitting to Chrome Web Store.
 
-1. 点击浏览器工具栏中的插件图标
-2. 在弹出窗口中开启翻译模式
-3. 访问任意网页，点击浮动翻译图标进行翻译
+## Privacy
 
-### 选词翻译
+See `PRIVACY.md` for storage, sync, translation provider, and telemetry details.
 
-1. 在网页中选中任意文本
-2. 自动显示翻译工具提示
-3. 点击"收藏"按钮添加到生词本
+## License
 
-### 学习模式
-
-1. 在插件设置中选择词库类型
-2. 开启学习模式后，页面中的词库词汇会被高亮显示
-3. 点击高亮词汇查看详细信息
-4. 使用生词本进行复习和学习
-
-## 测试策略
-
-### 单元测试
-- 验证具体功能和边缘情况
-- 测试组件交互和错误处理
-
-### 属性测试
-- 使用fast-check进行属性测试
-- 验证通用正确性属性
-- 每个测试运行100+次迭代
-
-### 集成测试
-- 端到端功能测试
-- 跨组件交互测试
-
-## 贡献指南
-
-1. Fork项目
-2. 创建功能分支
-3. 提交更改
-4. 推送到分支
-5. 创建Pull Request
-
-## 许可证
-
-MIT License
-
-## 更新日志
-
-### v1.0.0
-- 初始版本发布
-- 基础翻译功能
-- 选词翻译
-- 学习模式
-- 数据存储和同步
+MIT License.

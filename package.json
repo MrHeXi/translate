@@ -1,7 +1,7 @@
 {
-  "name": "chrome-translation-extension",
+  "name": "lexibridge-translate",
   "version": "1.0.0",
-  "description": "Chrome浏览器翻译插件，提供智能网页翻译、选词翻译和学习模式功能",
+  "description": "Chrome extension for user-triggered web translation, vocabulary collection, and exam vocabulary review.",
   "main": "dist/background.js",
   "scripts": {
     "build": "webpack --mode=production",

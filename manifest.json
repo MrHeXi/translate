@@ -1,25 +1,21 @@
 {
   "manifest_version": 3,
-  "name": "Chrome翻译插件",
+  "name": "LexiBridge Translate",
   "version": "1.0.0",
-  "description": "智能网页翻译、选词翻译和学习模式功能的Chrome浏览器扩展",
-  
+  "description": "Translate web pages, collect unknown words, and review CET, GRE, IELTS, and TOEFL vocabulary.",
   "permissions": [
     "storage",
     "activeTab",
     "scripting",
     "tabs"
   ],
-  
   "host_permissions": [
     "https://translate.googleapis.com/*",
     "https://api.mymemory.translated.net/*"
   ],
-  
   "background": {
     "service_worker": "background.js"
   },
-  
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
@@ -28,10 +24,9 @@
       "run_at": "document_end"
     }
   ],
-  
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Chrome翻译插件",
+    "default_title": "LexiBridge Translate",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
@@ -39,21 +34,17 @@
       "128": "icons/icon128.png"
     }
   },
-  
   "options_page": "options.html",
-  
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  
   "web_accessible_resources": [
     {
       "resources": [
-        "src/content/components/*",
-        "src/content/content.css",
+        "content.css",
         "data/vocabularies/*"
       ],
       "matches": ["<all_urls>"]
