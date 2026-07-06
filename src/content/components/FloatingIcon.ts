@@ -1,13 +1,16 @@
 export class FloatingIcon {
   private iconElement: HTMLElement | null = null;
+  private hintElement: HTMLElement | null = null;
   private toggleCallback: (() => void) | null = null;
   private learningModeToggleCallback: (() => void) | null = null;
   private isDragging: boolean = false;
   private dragOffset: { x: number; y: number } = { x: 0, y: 0 };
   private isTranslationActive: boolean = false;
   private isLearningModeActive: boolean = false;
+  private isVisible: boolean = true;
   private contextMenu: HTMLElement | null = null;
   private readonly defaultIconSize = { width: 50, height: 50 };
+  private readonly defaultHintSize = { width: 116, height: 34 };
   private readonly edgeMargin = 24;
   private readonly iconZIndex = '2147483000';
   private readonly contextMenuZIndex = '2147483001';
@@ -22,13 +25,58 @@ export class FloatingIcon {
     this.iconElement.id = 'translation-floating-icon';
     this.iconElement.setAttribute('role', 'button');
     this.iconElement.tabIndex = 0;
+    this.isVisible = true;
+
+    this.createHintElement();
 
     this.setStyles(position);
     this.updateAppearance();
     this.addEventListeners();
 
+    if (this.hintElement) {
+      document.body.appendChild(this.hintElement);
+      this.syncHintPosition();
+    }
     document.body.appendChild(this.iconElement);
     this.createContextMenu();
+  }
+
+  private createHintElement(): void {
+    this.removeHint();
+
+    this.hintElement = document.createElement('div');
+    this.hintElement.id = 'translation-floating-icon-hint';
+    this.hintElement.setAttribute('aria-hidden', 'true');
+
+    [
+      ['position', 'fixed'],
+      ['left', 'auto'],
+      ['top', 'auto'],
+      ['min-width', '92px'],
+      ['height', '34px'],
+      ['padding', '0 12px'],
+      ['background-color', '#ffffff'],
+      ['color', '#1f2937'],
+      ['border', '1px solid #d0d7de'],
+      ['border-radius', '999px'],
+      ['display', 'flex'],
+      ['align-items', 'center'],
+      ['justify-content', 'center'],
+      ['font-size', '13px'],
+      ['font-weight', '700'],
+      ['font-family', 'Arial, sans-serif'],
+      ['line-height', '1'],
+      ['box-sizing', 'border-box'],
+      ['z-index', this.iconZIndex],
+      ['box-shadow', '0 8px 22px rgba(15, 23, 42, 0.2)'],
+      ['transition', 'opacity 0.2s ease, transform 0.2s ease'],
+      ['user-select', 'none'],
+      ['pointer-events', 'none'],
+      ['opacity', '0.96'],
+      ['white-space', 'nowrap']
+    ].forEach(([property, value]) => {
+      this.setHintStyle(property, value);
+    });
   }
 
   private setStyles(position?: { x: number; y: number }): void {
@@ -69,6 +117,12 @@ export class FloatingIcon {
     if (!this.iconElement) return;
 
     this.iconElement.style.setProperty(property, value, 'important');
+  }
+
+  private setHintStyle(property: string, value: string): void {
+    if (!this.hintElement) return;
+
+    this.hintElement.style.setProperty(property, value, 'important');
   }
 
   private getDefaultPosition(): { x: number; y: number } {
@@ -321,16 +375,20 @@ export class FloatingIcon {
 
     if (this.isTranslationActive && this.isLearningModeActive) {
       this.setIconStyle('background-color', '#d97706');
-      this.setIconText('On', 'Stop page translation. Learning highlights are on.');
+      this.setIconText('Stop', 'Stop page translation. Learning highlights are on.');
+      this.setHintText('', false);
     } else if (this.isTranslationActive) {
       this.setIconStyle('background-color', '#16a34a');
-      this.setIconText('On', 'Stop page translation');
+      this.setIconText('Stop', 'Stop page translation');
+      this.setHintText('', false);
     } else if (this.isLearningModeActive) {
       this.setIconStyle('background-color', '#7c3aed');
-      this.setIconText('L', 'Learning highlights are on. Start page translation');
+      this.setIconText('Learn', 'Learning highlights are on. Start page translation');
+      this.setHintText('Study mode', true);
     } else {
       this.setIconStyle('background-color', '#2563eb');
-      this.setIconText('T', 'Start page translation');
+      this.setIconText('Start', 'Start page translation');
+      this.setHintText('Translate page', true);
     }
 
     this.renderContextMenuItems();
@@ -340,8 +398,17 @@ export class FloatingIcon {
     if (!this.iconElement) return;
 
     this.iconElement.textContent = label;
+    this.setIconStyle('font-size', label.length > 2 ? '11px' : '15px');
     this.iconElement.title = description;
     this.iconElement.setAttribute('aria-label', description);
+  }
+
+  private setHintText(label: string, shouldShow: boolean): void {
+    if (!this.hintElement) return;
+
+    this.hintElement.textContent = label;
+    this.setHintStyle('display', this.isVisible && shouldShow ? 'flex' : 'none');
+    this.syncHintPosition();
   }
 
   updatePosition(position: { x: number; y: number }): void {
@@ -361,6 +428,7 @@ export class FloatingIcon {
     this.setIconStyle('top', `${newY}px`);
     this.setIconStyle('right', 'auto');
     this.setIconStyle('bottom', 'auto');
+    this.positionHint(newX, newY, size);
   }
 
   private getIconSize(): { width: number; height: number } {
@@ -373,15 +441,66 @@ export class FloatingIcon {
     return { width, height };
   }
 
+  private syncHintPosition(): void {
+    if (!this.iconElement) return;
+
+    const left = parseFloat(this.iconElement.style.left || '0');
+    const top = parseFloat(this.iconElement.style.top || '0');
+
+    if (Number.isNaN(left) || Number.isNaN(top)) return;
+
+    this.positionHint(left, top, this.getIconSize());
+  }
+
+  private positionHint(iconX: number, iconY: number, iconSize: { width: number; height: number }): void {
+    if (!this.hintElement) return;
+
+    const hintSize = this.getHintSize();
+    const gap = 10;
+    const viewportWidth = window.innerWidth || 1024;
+    const viewportHeight = window.innerHeight || 768;
+    const maxLeft = Math.max(0, viewportWidth - hintSize.width - 8);
+    const maxTop = Math.max(0, viewportHeight - hintSize.height - 8);
+    let left = iconX - hintSize.width - gap;
+    const top = iconY + (iconSize.height - hintSize.height) / 2;
+
+    if (left < 8) {
+      left = iconX + iconSize.width + gap;
+    }
+
+    this.setHintStyle('left', `${Math.max(8, Math.min(left, maxLeft))}px`);
+    this.setHintStyle('top', `${Math.max(8, Math.min(top, maxTop))}px`);
+  }
+
+  private getHintSize(): { width: number; height: number } {
+    if (!this.hintElement) return this.defaultHintSize;
+
+    const rect = this.hintElement.getBoundingClientRect();
+    const width = this.hintElement.offsetWidth || rect.width || this.defaultHintSize.width;
+    const height = this.hintElement.offsetHeight || rect.height || this.defaultHintSize.height;
+
+    return { width, height };
+  }
+
   show(): void {
+    this.isVisible = true;
+
     if (this.iconElement) {
       this.setIconStyle('display', 'flex');
     }
+
+    this.updateAppearance();
   }
 
   hide(): void {
+    this.isVisible = false;
+
     if (this.iconElement) {
       this.setIconStyle('display', 'none');
+    }
+
+    if (this.hintElement) {
+      this.setHintStyle('display', 'none');
     }
   }
 
@@ -403,10 +522,20 @@ export class FloatingIcon {
     this.contextMenu = null;
   }
 
+  private removeHint(): void {
+    if (this.hintElement && this.hintElement.parentNode) {
+      this.hintElement.parentNode.removeChild(this.hintElement);
+    }
+
+    this.hintElement = null;
+  }
+
   remove(): void {
     if (this.iconElement && this.iconElement.parentNode) {
       this.iconElement.parentNode.removeChild(this.iconElement);
       this.iconElement = null;
     }
+
+    this.removeHint();
   }
 }

@@ -65,6 +65,9 @@ import { FloatingIcon } from '../components/FloatingIcon';
 const getFloatingIconElement = (floatingIcon: FloatingIcon): HTMLElement =>
   (floatingIcon as any).iconElement as HTMLElement;
 
+const getFloatingIconHint = (floatingIcon: FloatingIcon): HTMLElement =>
+  (floatingIcon as any).hintElement as HTMLElement;
+
 const getFloatingIconSize = (floatingIcon: FloatingIcon): { width: number; height: number } => {
   const iconElement = getFloatingIconElement(floatingIcon);
   const iconRect = iconElement.getBoundingClientRect();
@@ -127,14 +130,24 @@ describe('浮动图标UI交互响应性属性测试', () => {
     expect(iconElement.style.getPropertyValue('top')).toBe('694px');
     expect(iconElement.getAttribute('role')).toBe('button');
     expect(iconElement.getAttribute('aria-label')).toBe('Start page translation');
-    expect(iconElement.textContent).toBe('T');
+    expect(iconElement.textContent).toBe('Start');
     expect(iconElement.title).toBe('Start page translation');
+
+    const hintElement = getFloatingIconHint(floatingIcon);
+
+    expect(hintElement.parentElement).toBe(document.body);
+    expect(hintElement.textContent).toBe('Translate page');
+    expect(hintElement.style.getPropertyValue('display')).toBe('flex');
+    expect(hintElement.style.getPropertyValue('pointer-events')).toBe('none');
+    expect(parseFloat(hintElement.style.getPropertyValue('left'))).toBeLessThan(950);
+    expect(parseFloat(hintElement.style.getPropertyValue('top'))).toBeGreaterThanOrEqual(0);
   });
 
   it('uses clear English labels for icon states and context menu actions', () => {
     floatingIcon.create();
 
     const iconElement = getFloatingIconElement(floatingIcon);
+    const hintElement = getFloatingIconHint(floatingIcon);
     const contextMenu = document.getElementById('translation-context-menu') as HTMLElement;
 
     expect(contextMenu.textContent).toContain('Start page translation');
@@ -144,10 +157,17 @@ describe('浮动图标UI交互响应性属性测试', () => {
 
     floatingIcon.updateState(true);
 
-    expect(iconElement.textContent).toBe('On');
+    expect(iconElement.textContent).toBe('Stop');
     expect(iconElement.getAttribute('aria-label')).toBe('Stop page translation');
     expect(iconElement.title).toBe('Stop page translation');
+    expect(hintElement.style.getPropertyValue('display')).toBe('none');
     expect(contextMenu.textContent).toContain('Stop page translation');
+
+    floatingIcon.updateState(false);
+
+    expect(iconElement.textContent).toBe('Start');
+    expect(hintElement.textContent).toBe('Translate page');
+    expect(hintElement.style.getPropertyValue('display')).toBe('flex');
   });
 
   describe('属性 12：UI交互响应性', () => {
