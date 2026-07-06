@@ -5,7 +5,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 ## Version
 
 - [ ] Confirm `manifest.json` version is correct.
-- [ ] Confirm release notes match the version.
+- [ ] Confirm `RELEASE_NOTES.md` matches the version.
 - [ ] Confirm the generated package comes from the latest commit.
 
 ## Quality Gates
@@ -27,6 +27,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 
 ## Screenshots
 
+- [ ] Use `docs/release/SCREENSHOT_GUIDE.md` before capturing store screenshots.
 - [ ] Popup showing translation controls and learning summary.
 - [ ] Floating button on a real web page.
 - [ ] Selection translation tooltip.

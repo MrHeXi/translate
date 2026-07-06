@@ -26,7 +26,14 @@ describe('product packaging contract', () => {
   });
 
   it('ships release-ready user documentation and privacy disclosure', () => {
-    const expectedDocs = ['README.md', 'PRIVACY.md', 'RELEASE_CHECKLIST.md', 'STORE_LISTING.md'];
+    const expectedDocs = [
+      'README.md',
+      'PRIVACY.md',
+      'RELEASE_CHECKLIST.md',
+      'RELEASE_NOTES.md',
+      'STORE_LISTING.md',
+      'docs/release/SCREENSHOT_GUIDE.md'
+    ];
 
     expectedDocs.forEach(relativePath => {
       const absolutePath = path.join(rootDir, relativePath);
@@ -50,6 +57,8 @@ describe('product packaging contract', () => {
     const checklist = readProjectFile('RELEASE_CHECKLIST.md');
     expect(checklist).toContain('Chrome Web Store');
     expect(checklist).toContain('STORE_LISTING.md');
+    expect(checklist).toContain('RELEASE_NOTES.md');
+    expect(checklist).toContain('docs/release/SCREENSHOT_GUIDE.md');
     expect(checklist).toContain('Privacy practices');
     expect(checklist).toContain('Screenshots');
     expect(checklist).toContain('Permissions');
@@ -76,5 +85,26 @@ describe('product packaging contract', () => {
     expect(listing).toContain('Translate page');
     expect(listing).toContain('bottom-right');
     expect(listing).not.toMatch(/PDF layout translator|video subtitle|OCR\/image reader|meeting translator|account-based cloud/i);
+  });
+
+  it('records release verification and screenshot capture guidance', () => {
+    const releaseNotes = readProjectFile('RELEASE_NOTES.md');
+    const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
+
+    expect(releaseNotes).toContain('1.0.0 - 2026-07-06');
+    expect(releaseNotes).toContain('23 test suites and 163 tests');
+    expect(releaseNotes).toContain('chrome-translation-extension.zip');
+    expect(releaseNotes).toContain('webpack --mode=production');
+    expect(releaseNotes).toContain('Expected build warnings');
+
+    expect(screenshotGuide).toContain('Popup Overview');
+    expect(screenshotGuide).toContain('Floating Button');
+    expect(screenshotGuide).toContain('Manual Page Translation');
+    expect(screenshotGuide).toContain('Selection Translation');
+    expect(screenshotGuide).toContain('Vocabulary Notebook');
+    expect(screenshotGuide).toContain('Review Page');
+    expect(screenshotGuide).toContain('Options');
+    expect(screenshotGuide).toContain('No translated page text yet');
+    expect(screenshotGuide).toContain('STORE_LISTING.md');
   });
 });

@@ -1,0 +1,80 @@
+# LexiBridge Translate Screenshot Guide
+
+Use this guide to capture Chrome Web Store screenshots from the verified local build in `dist`.
+
+## Setup
+
+1. Run the release quality gates and production build.
+2. Load the unpacked extension from `dist` in Chrome.
+3. Use a regular web page with readable English content. Browser-owned pages such as `chrome://` URLs do not show content-script UI.
+4. Avoid pages with private data, account names, notifications, or unrelated browser extensions.
+5. Keep the capture style consistent: same browser theme, no developer tools, and a clean page zoom level.
+
+## Required Screenshots
+
+### Popup Overview
+
+Capture the extension popup with:
+
+- The Start/Stop translation control visible.
+- Active dictionary count visible.
+- Recent saved words or the empty learning state visible.
+
+### Floating Button
+
+Capture a normal web page before translation starts with:
+
+- The bottom-right floating button visible.
+- The "Translate page" hint visible.
+- No translated page text yet, to show that translation is user-triggered.
+
+### Manual Page Translation
+
+Capture the same page immediately after clicking Start with:
+
+- Page translation progress visible near the top.
+- No full-page blocking overlay.
+- The floating button in the Stop state.
+
+### Selection Translation
+
+Capture selected text on a page with:
+
+- The translation tooltip visible.
+- The save-to-vocabulary action visible.
+- The tooltip positioned inside the viewport with comfortable margins.
+
+### Vocabulary Notebook
+
+Capture the vocabulary page with:
+
+- Saved words visible.
+- Translation, example, mastery, or review metadata visible.
+- Search or filtering controls visible if the notebook has enough words.
+
+### Review Page
+
+Capture the review page with:
+
+- A due or new word card visible.
+- Review action buttons visible.
+- Progress or review context visible.
+
+### Options
+
+Capture the options page with:
+
+- Dictionary selection visible.
+- Translation provider and target language controls visible.
+- Floating button setting visible.
+
+## Do Not Show
+
+- Private browsing data or account details.
+- Any claim that translation starts automatically.
+- Unsupported feature claims beyond web page translation, selected-text translation, vocabulary collection, review, import/export, and Chrome storage sync.
+- Console errors, developer tools, or local file explorer windows.
+
+## Final Check
+
+Before upload, compare the screenshots with `STORE_LISTING.md` and `RELEASE_CHECKLIST.md` so the listing copy, screenshots, privacy answers, and permission explanations describe the same product.
