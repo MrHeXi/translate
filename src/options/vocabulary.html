@@ -1,138 +1,131 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>生词本 - Chrome翻译插件</title>
+  <title>Vocabulary Notebook - LexiBridge Translate</title>
   <link rel="stylesheet" href="vocabulary.css">
 </head>
 <body>
   <div class="vocabulary-container">
-    <!-- 头部 -->
     <header class="vocabulary-header">
       <div class="header-left">
-        <button id="backBtn" class="back-btn">← 返回</button>
-        <h1>我的生词本</h1>
+        <button id="backBtn" class="back-btn">&#8592; Back</button>
+        <h1>Vocabulary notebook</h1>
       </div>
       <div class="header-right">
         <div class="search-box">
-          <input type="text" id="searchInput" placeholder="搜索生词...">
-          <button id="searchBtn">🔍</button>
+          <input type="text" id="searchInput" placeholder="Search saved words...">
+          <button id="searchBtn" aria-label="Search">&#128269;</button>
         </div>
       </div>
     </header>
 
-    <!-- 工具栏 -->
     <div class="toolbar">
       <div class="toolbar-left">
-        <select id="dictionarySelect">
-          <option value="">选择内置词库</option>
-          <option value="gre">GRE词汇</option>
-          <option value="toefl">托福词汇</option>
-          <option value="ielts">雅思词汇</option>
-          <option value="cet4">大学英语四级</option>
-          <option value="cet6">大学英语六级</option>
+        <select id="dictionarySelect" aria-label="Built-in dictionary">
+          <option value="">Choose a built-in dictionary to browse exam words.</option>
+          <option value="gre">GRE vocabulary</option>
+          <option value="toefl">TOEFL vocabulary</option>
+          <option value="ielts">IELTS vocabulary</option>
+          <option value="cet4">CET4 vocabulary</option>
+          <option value="cet6">CET6 vocabulary</option>
         </select>
-        <select id="sortBy">
-          <option value="addedDate">按添加时间</option>
-          <option value="word">按字母顺序</option>
-          <option value="masteryLevel">按掌握程度</option>
-          <option value="reviewCount">按复习次数</option>
+        <select id="sortBy" aria-label="Sort words">
+          <option value="addedDate">Recently added</option>
+          <option value="word">A to Z</option>
+          <option value="masteryLevel">Mastery level</option>
+          <option value="reviewCount">Review count</option>
         </select>
-        <select id="filterBy">
-          <option value="all">全部词汇</option>
-          <option value="new">新词汇</option>
-          <option value="learning">学习中</option>
-          <option value="mastered">已掌握</option>
-          <option value="difficult">困难词汇</option>
+        <select id="filterBy" aria-label="Filter words">
+          <option value="all">All words</option>
+          <option value="new">New words</option>
+          <option value="learning">Learning</option>
+          <option value="mastered">Mastered</option>
+          <option value="difficult">Difficult</option>
         </select>
       </div>
       <div class="toolbar-right">
-        <span class="word-count">共 <span id="totalCount">0</span> 个生词</span>
-        <button id="loadDictionaryBtn" class="secondary-btn" style="display: none;">加载词库</button>
-        <button id="exportBtn" class="secondary-btn">导出</button>
-        <button id="reviewBtn" class="primary-btn">开始复习</button>
+        <span class="word-count"><span id="totalCount">0</span> saved words</span>
+        <button id="loadDictionaryBtn" class="secondary-btn" style="display: none;">Load dictionary</button>
+        <button id="exportBtn" class="secondary-btn">Export</button>
+        <button id="reviewBtn" class="primary-btn">Review</button>
       </div>
     </div>
 
-    <!-- 生词列表 -->
     <main class="vocabulary-main">
       <div id="vocabularyList" class="vocabulary-list">
-        <!-- 生词项将通过JavaScript动态生成 -->
-      </div>
-      
-      <!-- 空状态 -->
-      <div id="emptyState" class="empty-state" style="display: none;">
-        <div class="empty-icon">📚</div>
-        <h3>还没有收集任何生词</h3>
-        <p>在浏览网页时选中单词并点击收藏按钮来添加生词</p>
       </div>
 
-      <!-- 加载状态 -->
+      <div id="emptyState" class="empty-state" style="display: none;">
+        <div class="empty-icon">&#128218;</div>
+        <h3>No saved words yet</h3>
+        <p>Select text on a page, save the word, then review it here.</p>
+        <p>Choose a built-in dictionary to browse exam words.</p>
+      </div>
+
       <div id="loadingState" class="loading-state">
         <div class="loading-spinner"></div>
-        <p>正在加载生词...</p>
+        <p>Loading vocabulary...</p>
       </div>
     </main>
 
-    <!-- 分页 -->
     <div class="pagination">
-      <button id="prevPage" class="page-btn" disabled>上一页</button>
+      <button id="prevPage" class="page-btn" disabled>Previous</button>
       <span class="page-info">
-        第 <span id="currentPage">1</span> 页，共 <span id="totalPages">1</span> 页
+        Page <span id="currentPage">1</span> of <span id="totalPages">1</span>
       </span>
-      <button id="nextPage" class="page-btn" disabled>下一页</button>
+      <button id="nextPage" class="page-btn" disabled>Next</button>
     </div>
   </div>
 
-  <!-- 词汇详情模态框 -->
   <div id="wordModal" class="modal" style="display: none;">
     <div class="modal-content">
       <div class="modal-header">
-        <h2 id="modalWord">单词</h2>
-        <button id="closeModal" class="close-btn">×</button>
+        <h2 id="modalWord">Word</h2>
+        <button id="closeModal" class="close-btn" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body">
         <div class="word-details">
           <div class="detail-item">
-            <label>翻译：</label>
-            <span id="modalTranslation">翻译内容</span>
+            <label>Translation:</label>
+            <span id="modalTranslation">Translation</span>
           </div>
           <div class="detail-item">
-            <label>语境：</label>
-            <span id="modalContext">语境内容</span>
+            <label>Context:</label>
+            <span id="modalContext">Context</span>
           </div>
           <div class="detail-item">
-            <label>来源：</label>
-            <a id="modalSource" href="#" target="_blank">来源链接</a>
+            <label>Source:</label>
+            <a id="modalSource" href="#" target="_blank">Source link</a>
           </div>
           <div class="detail-item">
-            <label>添加时间：</label>
-            <span id="modalAddedDate">添加时间</span>
+            <label>Added:</label>
+            <span id="modalAddedDate">Added date</span>
           </div>
           <div class="detail-item">
-            <label>复习次数：</label>
+            <label>Reviews:</label>
             <span id="modalReviewCount">0</span>
           </div>
           <div class="detail-item">
-            <label>掌握程度：</label>
+            <label>Mastery:</label>
             <div class="mastery-level">
               <div id="modalMasteryLevel" class="mastery-bar">
                 <div class="mastery-fill"></div>
               </div>
-              <span id="modalMasteryText">新词汇</span>
+              <span id="modalMasteryText">New</span>
             </div>
           </div>
           <div class="detail-item">
-            <label>下次复习：</label>
-            <span id="modalNextReview">下次复习时间</span>
+            <label>Next review:</label>
+            <span id="modalNextReview">Not scheduled</span>
           </div>
         </div>
       </div>
       <div class="modal-footer">
-        <button id="deleteWord" class="danger-btn">删除</button>
-        <button id="markAsMastered" class="secondary-btn">标记为已掌握</button>
-        <button id="reviewWord" class="primary-btn">立即复习</button>
+        <button id="deleteWord" class="danger-btn">Delete</button>
+        <button id="markAsMastered" class="secondary-btn">Mark mastered</button>
+        <button id="reviewWord" class="primary-btn">Review now</button>
       </div>
     </div>
   </div>

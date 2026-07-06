@@ -86,11 +86,11 @@ describe('Popup current tab state', () => {
     await flushPromises();
 
     expect(console.error).not.toHaveBeenCalledWith(
-      '加载当前状态失败:',
+      'Could not load current state:',
       expect.any(Error)
     );
-    expect(document.getElementById('translationStatus')?.textContent).toBe('关闭');
-    expect(document.getElementById('toggleTranslation')?.textContent).toBe('开启');
+    expect(document.getElementById('translationStatus')?.textContent).toBe('Off');
+    expect(document.getElementById('toggleTranslation')?.textContent).toBe('Start');
     expect(document.getElementById('toggleTranslation')?.classList.contains('active')).toBe(false);
 
     errorSpy.mockRestore();

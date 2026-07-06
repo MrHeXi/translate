@@ -94,7 +94,7 @@ class PopupController {
         return;
       }
 
-      console.error('加载当前状态失败:', error);
+      console.error('Could not load current state:', error);
     }
   }
 
@@ -112,14 +112,14 @@ class PopupController {
           this.isTranslationActive = Boolean(isActive);
           this.updateTranslationStatusUI();
         } else {
-          this.showError(response?.error || '切换翻译模式失败');
+          this.showError(response?.error || 'Could not toggle page translation.');
         }
       } else {
-        this.showError('未找到当前网页');
+        this.showError('No active page found.');
       }
     } catch (error) {
-      console.error('切换翻译模式失败:', error);
-      this.showError(error instanceof Error ? error.message : '切换翻译模式失败');
+      console.error('Could not toggle page translation:', error);
+      this.showError(error instanceof Error ? error.message : 'Could not toggle page translation.');
     } finally {
       this.setTranslationToggleBusy(false);
     }
@@ -131,12 +131,12 @@ class PopupController {
 
     if (statusElement && toggleBtn) {
       if (this.isTranslationActive) {
-        statusElement.textContent = '开启';
-        toggleBtn.textContent = '关闭';
+        statusElement.textContent = 'On';
+        toggleBtn.textContent = 'Stop';
         toggleBtn.classList.add('active');
       } else {
-        statusElement.textContent = '关闭';
-        toggleBtn.textContent = '开启';
+        statusElement.textContent = 'Off';
+        toggleBtn.textContent = 'Start';
         toggleBtn.classList.remove('active');
       }
     }
@@ -156,7 +156,7 @@ class PopupController {
     try {
       // 禁用按钮并显示加载状态
       translateBtn.disabled = true;
-      translateBtn.textContent = '翻译中...';
+      translateBtn.textContent = 'Translating...';
 
       // 发送翻译请求到后台脚本
       const response = await this.sendMessage({
@@ -174,13 +174,13 @@ class PopupController {
         throw new Error(response.error);
       }
     } catch (error) {
-      console.error('快速翻译失败:', error);
-      resultText.textContent = '翻译失败，请稍后重试';
+      console.error('Quick translation failed:', error);
+      resultText.textContent = 'Translation failed. Please try again.';
       resultDiv.style.display = 'block';
     } finally {
       // 恢复按钮状态
       translateBtn.disabled = false;
-      translateBtn.textContent = '翻译';
+      translateBtn.textContent = 'Translate';
     }
   }
 
@@ -210,11 +210,11 @@ class PopupController {
           reviewAccuracyElement.textContent = `${accuracy}%`;
         }
       } else {
-        this.showError('加载学习统计失败');
+        this.showError('Could not load learning stats.');
       }
     } catch (error) {
-      console.error('更新学习统计失败:', error);
-      this.showError('加载学习统计失败');
+      console.error('Could not update learning stats:', error);
+      this.showError('Could not load learning stats.');
     } finally {
       this.hideLoadingState();
     }
@@ -234,11 +234,11 @@ class PopupController {
           checkbox.checked = activeDictionaries.includes(checkbox.value);
         });
       } else {
-        this.showError('加载词库设置失败');
+        this.showError('Could not load dictionary settings.');
       }
     } catch (error) {
-      console.error('加载词库设置失败:', error);
-      this.showError('加载词库设置失败');
+      console.error('Could not load dictionary settings:', error);
+      this.showError('Could not load dictionary settings.');
     }
   }
 
@@ -255,11 +255,11 @@ class PopupController {
       });
       
       if (!response.success) {
-        this.showError('更新词库设置失败');
+        this.showError('Could not update dictionary settings.');
       }
     } catch (error) {
-      console.error('更新词库设置失败:', error);
-      this.showError('更新词库设置失败');
+      console.error('Could not update dictionary settings:', error);
+      this.showError('Could not update dictionary settings.');
     }
   }
 
@@ -322,14 +322,14 @@ class PopupController {
 
   private async sendMessageToTabWithInjection(tab: chrome.tabs.Tab, message: any): Promise<any> {
     if (!tab.id) {
-      throw new Error('未找到当前网页');
+      throw new Error('No active page found.');
     }
 
     try {
       return await this.sendTabMessage(tab.id, message);
     } catch (error) {
       if (!this.canInjectContentScript(tab.url)) {
-        throw new Error('当前页面不支持网页翻译，请切换到普通网页后再试');
+        throw new Error('This page does not support page translation. Open a regular web page and try again.');
       }
 
       await this.injectContentScript(tab.id);
@@ -351,7 +351,7 @@ class PopupController {
         files: ['content.css']
       });
     } catch (error) {
-      console.warn('注入样式失败:', error);
+      console.warn('Could not inject content styles:', error);
     }
 
     await chrome.scripting.executeScript({
@@ -377,7 +377,7 @@ class PopupController {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    throw new Error('页面翻译脚本初始化失败，请刷新网页后再试');
+    throw new Error('The page translation script did not initialize. Refresh the page and try again.');
   }
 
   private setTranslationToggleBusy(isBusy: boolean): void {
