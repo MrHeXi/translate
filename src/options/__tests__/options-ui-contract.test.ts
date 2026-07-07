@@ -217,4 +217,75 @@ describe('options UI settings contract', () => {
       expect.any(Function)
     );
   });
+
+  it('renders the provider roadmap and 100-plus language choices in settings', async () => {
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getSettings') {
+        callback({
+          success: true,
+          data: {
+            defaultTargetLanguage: 'es',
+            translationProvider: 'deepl',
+            autoTranslate: false,
+            showFloatingIcon: true,
+            floatingIconPosition: { x: 9999, y: 9999 },
+            learningModeEnabled: false,
+            activeDictionaries: ['gre'],
+            highlightColors: {
+              gre: '#ff6b6b',
+              toefl: '#4ecdc4',
+              ielts: '#45b7d1',
+              cet4: '#96ceb4',
+              cet6: '#feca57'
+            },
+            dailyGoal: 20,
+            reviewInterval: 'spaced',
+            difficultyAdjustment: 'auto'
+          }
+        });
+        return;
+      }
+
+      if (message.action === 'getLearningStats') {
+        callback({
+          success: true,
+          data: {
+            totalWordsLearned: 0,
+            dailyGoal: 20,
+            currentStreak: 0,
+            longestStreak: 0,
+            reviewAccuracy: 0,
+            timeSpentLearning: 0
+          }
+        });
+        return;
+      }
+
+      if (message.action === 'getDictionaryProgress') {
+        callback({ success: true, data: {} });
+        return;
+      }
+
+      callback({ success: true });
+    });
+
+    (global as any).chrome = {
+      runtime: {
+        sendMessage,
+        lastError: null
+      }
+    };
+
+    require('../options');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    const targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement;
+    const translationProvider = document.getElementById('translationProvider') as HTMLSelectElement;
+
+    expect(targetLanguage.options.length).toBeGreaterThanOrEqual(100);
+    expect(targetLanguage.value).toBe('es');
+    expect(Array.from(translationProvider.options).some(option => option.value === 'deepl' && option.disabled)).toBe(true);
+    expect(translationProvider.value).toBe('google');
+  });
 });

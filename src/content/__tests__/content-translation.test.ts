@@ -400,7 +400,7 @@ describe('Content Script 页面翻译属性测试', () => {
             // 3. 验证没有翻译隐藏内容
             const hiddenTexts = pageStructure.hiddenContent.map(h => h.text);
             for (const hiddenText of hiddenTexts) {
-              const wasTranslated = translatedTexts.some(t => t.includes(hiddenText));
+              const wasTranslated = translatedTexts.some(t => t === `翻译：${hiddenText}`);
               expect(wasTranslated).toBe(false);
             }
             

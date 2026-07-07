@@ -47,6 +47,8 @@ describe('product packaging contract', () => {
     expect(readme).toContain('manual floating button');
     expect(readme).toContain('Hold Control while hovering');
     expect(readme).toContain('Press Space three times');
+    expect(readme).toContain('100+ target language options');
+    expect(readme).toContain('20+ provider roadmap');
     expect(readme).toContain('CET4, CET6, GRE, IELTS, TOEFL');
     expect(readme).not.toMatch(/PDF|video subtitles|OCR|meeting translation/);
 
@@ -77,6 +79,8 @@ describe('product packaging contract', () => {
     expect(listing).toContain('Selection translation tooltip');
     expect(listing).toContain('Control-hover paragraph translation');
     expect(listing).toContain('Input box translation');
+    expect(listing).toContain('100+ target language choices');
+    expect(listing).toContain('20+ provider definitions');
     expect(listing).toContain('Vocabulary notebook');
     expect(listing).toContain('CET4');
     expect(listing).toContain('CET6');
@@ -96,8 +100,8 @@ describe('product packaging contract', () => {
     const releaseNotes = readProjectFile('RELEASE_NOTES.md');
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
-    expect(releaseNotes).toContain('1.0.0 - 2026-07-06');
-    expect(releaseNotes).toContain('25 test suites and 170 tests');
+    expect(releaseNotes).toContain('1.0.0 - 2026-07-07');
+    expect(releaseNotes).toContain('25 test suites and 173 tests');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');

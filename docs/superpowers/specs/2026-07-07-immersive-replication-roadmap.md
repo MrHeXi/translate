@@ -32,6 +32,8 @@ Current batch:
 
 - Hover paragraph translation using a modifier-key interaction.
 - Input box translation using a deliberate shortcut.
+- Translation provider registry with Google Translate and MyMemory available.
+- 20+ provider definitions and 100+ target language choices for engine/language expansion.
 
 ## Planned Batches
 

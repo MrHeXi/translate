@@ -1,5 +1,7 @@
 // Chrome翻译插件选项页面脚本
 
+import { TRANSLATION_LANGUAGES, TRANSLATION_PROVIDERS } from '../services/TranslationProviderRegistry';
+
 interface UserSettings {
   defaultTargetLanguage: string;
   translationProvider: string;
@@ -44,6 +46,8 @@ class OptionsController {
   }
 
   private async initialize(): Promise<void> {
+    this.populateTranslationControls();
+
     // 绑定事件监听器
     this.bindEventListeners();
     
@@ -159,6 +163,33 @@ class OptionsController {
     difficultyAdjustment?.addEventListener('change', () => this.onSettingChange());
   }
 
+  private populateTranslationControls(): void {
+    const targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement | null;
+    if (targetLanguage && typeof targetLanguage.replaceChildren === 'function') {
+      targetLanguage.replaceChildren(
+        ...TRANSLATION_LANGUAGES.map(language => {
+          const option = document.createElement('option');
+          option.value = language.code;
+          option.textContent = language.label;
+          return option;
+        })
+      );
+    }
+
+    const translationProvider = document.getElementById('translationProvider') as HTMLSelectElement | null;
+    if (translationProvider && typeof translationProvider.replaceChildren === 'function') {
+      translationProvider.replaceChildren(
+        ...TRANSLATION_PROVIDERS.map(provider => {
+          const option = document.createElement('option');
+          option.value = provider.id;
+          option.textContent = provider.status === 'available' ? provider.label : `${provider.label} (planned)`;
+          option.disabled = provider.status !== 'available';
+          return option;
+        })
+      );
+    }
+  }
+
   private switchTab(tabId: string): void {
     // 隐藏所有标签页内容
     const tabContents = document.querySelectorAll('.tab-content');
@@ -238,10 +269,10 @@ class OptionsController {
     if (!this.settings) return;
 
     const targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement;
-    if (targetLanguage) targetLanguage.value = this.settings.defaultTargetLanguage;
+    if (targetLanguage) this.setSelectValue(targetLanguage, this.settings.defaultTargetLanguage, 'zh-CN');
 
     const translationProvider = document.getElementById('translationProvider') as HTMLSelectElement;
-    if (translationProvider) translationProvider.value = this.settings.translationProvider;
+    if (translationProvider) this.setSelectValue(translationProvider, this.settings.translationProvider, 'google');
 
     const autoTranslate = document.getElementById('autoTranslate') as HTMLInputElement;
     if (autoTranslate) autoTranslate.checked = this.settings.autoTranslate;
@@ -269,6 +300,16 @@ class OptionsController {
         iconPosition.value = 'top-left';
       }
     }
+  }
+
+  private setSelectValue(select: HTMLSelectElement, value: string, fallbackValue: string): void {
+    if (!select.options) {
+      select.value = value || fallbackValue;
+      return;
+    }
+
+    const hasValue = Array.from(select.options).some(option => option.value === value && !option.disabled);
+    select.value = hasValue ? value : fallbackValue;
   }
 
   private updateDictionarySettings(): void {

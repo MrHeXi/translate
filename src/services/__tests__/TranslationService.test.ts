@@ -2,12 +2,26 @@
 
 import * as fc from 'fast-check';
 import { TranslationService } from '../TranslationService';
+import {
+  AVAILABLE_TRANSLATION_PROVIDERS,
+  TRANSLATION_LANGUAGES,
+  TRANSLATION_PROVIDERS
+} from '../TranslationProviderRegistry';
 
 describe('TranslationService', () => {
   let translationService: TranslationService;
+  const originalFetch = global.fetch;
 
   beforeEach(() => {
     translationService = new TranslationService();
+  });
+
+  afterEach(() => {
+    if (originalFetch) {
+      global.fetch = originalFetch;
+    } else {
+      delete (global as any).fetch;
+    }
   });
 
   describe('单元测试', () => {
@@ -25,6 +39,57 @@ describe('TranslationService', () => {
       const englishText = 'Hello World';
       const language = await translationService.detectLanguage(englishText);
       expect(language).toBe('en');
+    });
+
+    it('tracks a 20-plus provider roadmap and 100-plus target language choices', () => {
+      expect(TRANSLATION_PROVIDERS.length).toBeGreaterThanOrEqual(20);
+      expect(AVAILABLE_TRANSLATION_PROVIDERS.map(provider => provider.id)).toEqual(['google', 'mymemory']);
+      expect(TRANSLATION_LANGUAGES.length).toBeGreaterThanOrEqual(100);
+      expect(TRANSLATION_LANGUAGES.some(language => language.code === 'zh-CN')).toBe(true);
+      expect(TRANSLATION_LANGUAGES.some(language => language.code === 'en')).toBe(true);
+      expect(TRANSLATION_LANGUAGES.some(language => language.code === 'es')).toBe(true);
+    });
+
+    it('uses the requested available provider before fallback providers', async () => {
+      const fetchMock = jest.fn(async (input: RequestInfo | URL) => {
+        const url = input.toString();
+        if (url.includes('translate.googleapis.com')) {
+          return {
+            ok: true,
+            json: async () => [[['Google result', 'Hello', null, null, 3]], null, 'en']
+          };
+        }
+
+        return {
+          ok: true,
+          json: async () => ({
+            responseStatus: 200,
+            responseData: { translatedText: 'MyMemory result', match: '0.8' },
+            matches: []
+          })
+        };
+      });
+      (global as any).fetch = fetchMock;
+
+      const googleResult = await translationService.translate({
+        text: 'Hello',
+        targetLang: 'zh-CN',
+        provider: 'google'
+      });
+
+      expect(fetchMock.mock.calls[0]?.[0].toString()).toContain('translate.googleapis.com');
+      expect(googleResult.translatedText).toBe('Google result');
+
+      translationService.clearCache();
+
+      const myMemoryResult = await translationService.translate({
+        text: 'Hello',
+        targetLang: 'zh-CN',
+        provider: 'mymemory'
+      });
+
+      expect(fetchMock.mock.calls[1]?.[0].toString()).toContain('api.mymemory.translated.net');
+      expect(myMemoryResult.translatedText).toBe('MyMemory result');
     });
   });
 

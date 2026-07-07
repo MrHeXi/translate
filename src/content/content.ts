@@ -680,7 +680,8 @@ class ContentScript {
         action: 'translate',
         data: {
           text: text,
-          targetLang: this.userSettings?.defaultTargetLanguage || 'zh-CN'
+          targetLang: this.userSettings?.defaultTargetLanguage || 'zh-CN',
+          provider: this.userSettings?.translationProvider || 'google'
         }
       });
 

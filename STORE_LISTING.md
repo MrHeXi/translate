@@ -24,6 +24,8 @@ Core features:
 - Selection translation tooltip for quick lookups.
 - Control-hover paragraph translation for quick in-page reading help.
 - Input box translation by typing three trailing spaces.
+- 100+ target language choices in settings.
+- Google Translate and MyMemory are available today, with 20+ provider definitions prepared for future engine expansion.
 - Vocabulary notebook for saved words, translations, examples, mastery level, and review schedule.
 - Built-in CET4, CET6, GRE, IELTS, and TOEFL dictionaries.
 - Review page for due words and new dictionary words.

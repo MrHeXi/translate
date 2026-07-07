@@ -1,9 +1,12 @@
 // 翻译服务接口和实现
 
+import { isAvailableTranslationProvider } from './TranslationProviderRegistry';
+
 export interface TranslationRequest {
   text: string;
   sourceLang?: string | undefined;
   targetLang: string;
+  provider?: string | undefined;
   context?: string;
 }
 
@@ -59,7 +62,7 @@ export class TranslationService {
       this.requestLimiter.recordRequest();
       
       // 调用翻译API
-      const result = await this.callTranslationAPI(request);
+      const result = await this.callTranslationAPIWithProvider(request);
       
       // 缓存结果
       this.setCacheItem(cacheKey, result);
@@ -163,7 +166,7 @@ export class TranslationService {
   }
 
   private generateCacheKey(request: TranslationRequest): string {
-    return `${request.text}_${request.sourceLang || 'auto'}_${request.targetLang}`;
+    return `${request.provider || 'auto-provider'}_${request.text}_${request.sourceLang || 'auto'}_${request.targetLang}`;
   }
 
   private setCacheItem(key: string, result: TranslationResult): void {
@@ -199,6 +202,38 @@ export class TranslationService {
         requests.push(Date.now());
       }
     };
+  }
+
+  private async callTranslationAPIWithProvider(request: TranslationRequest): Promise<TranslationResult> {
+    const providerOrder = this.getProviderOrder(request.provider);
+    let lastError: unknown = null;
+
+    for (const provider of providerOrder) {
+      try {
+        if (provider === 'google') {
+          return await this.callGoogleTranslateAPI(request);
+        }
+
+        if (provider === 'mymemory') {
+          return await this.callMyMemoryAPI(request);
+        }
+      } catch (error) {
+        lastError = error;
+        console.warn(`${provider} API failed, trying fallback provider`, error);
+      }
+    }
+
+    console.error('All translation providers failed:', lastError);
+    throw new Error('翻译服务暂时不可用，请稍后重试');
+  }
+
+  private getProviderOrder(providerId?: string): string[] {
+    if (isAvailableTranslationProvider(providerId)) {
+      const fallbackProviders = ['google', 'mymemory'].filter(provider => provider !== providerId);
+      return [providerId!, ...fallbackProviders];
+    }
+
+    return ['mymemory', 'google'];
   }
 
   private async callTranslationAPI(request: TranslationRequest): Promise<TranslationResult> {

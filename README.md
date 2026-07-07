@@ -25,6 +25,8 @@ It is not marketed as a document layout translator, video subtitle tool, image r
 - Keep translation mode off until the user explicitly enables it.
 - Turn translation mode off immediately to remove added page translations.
 - Show page translation progress without blocking the whole page.
+- Choose from 100+ target language options in settings.
+- Use Google Translate or MyMemory today, with a 20+ provider roadmap tracked for future engine expansion.
 
 ### Selection Translation
 
