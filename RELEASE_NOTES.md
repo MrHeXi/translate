@@ -12,6 +12,7 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Selected-text translation tooltip with vocabulary collection actions.
 - Control-hover paragraph translation for on-demand reading help.
 - Input box translation by typing three trailing spaces.
+- Text-based document translator for pasted text, text files, subtitle files, and simple PDFs.
 - 100+ target language choices in settings.
 - Provider registry with Google Translate and MyMemory available today plus a 20+ provider expansion roadmap.
 - Built-in CET4, CET6, GRE, IELTS, and TOEFL vocabulary dictionaries.
@@ -25,7 +26,7 @@ Verified on 2026-07-07:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 25 test suites and 173 tests.
+- `jest --runInBand --silent`: passed, 29 test suites and 185 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 

@@ -47,10 +47,13 @@ describe('product packaging contract', () => {
     expect(readme).toContain('manual floating button');
     expect(readme).toContain('Hold Control while hovering');
     expect(readme).toContain('Press Space three times');
+    expect(readme).toContain('Document Translation');
+    expect(readme).toContain('simple text-based `.pdf` files');
     expect(readme).toContain('100+ target language options');
     expect(readme).toContain('20+ provider roadmap');
     expect(readme).toContain('CET4, CET6, GRE, IELTS, TOEFL');
-    expect(readme).not.toMatch(/PDF|video subtitles|OCR|meeting translation/);
+    expect(readme).not.toMatch(/video subtitles|meeting translation/i);
+    expect(readme).toContain('not marketed as a layout-preserving PDF translator');
 
     const privacy = readProjectFile('PRIVACY.md');
     expect(privacy).toContain('No default telemetry');
@@ -79,6 +82,7 @@ describe('product packaging contract', () => {
     expect(listing).toContain('Selection translation tooltip');
     expect(listing).toContain('Control-hover paragraph translation');
     expect(listing).toContain('Input box translation');
+    expect(listing).toContain('Text-based document translator');
     expect(listing).toContain('100+ target language choices');
     expect(listing).toContain('20+ provider definitions');
     expect(listing).toContain('Vocabulary notebook');
@@ -101,7 +105,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-07');
-    expect(releaseNotes).toContain('25 test suites and 173 tests');
+    expect(releaseNotes).toContain('29 test suites and 185 tests');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -112,6 +116,7 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('Selection Translation');
     expect(screenshotGuide).toContain('Hover Translation');
     expect(screenshotGuide).toContain('Input Box Translation');
+    expect(screenshotGuide).toContain('Document Translator');
     expect(screenshotGuide).toContain('Vocabulary Notebook');
     expect(screenshotGuide).toContain('Review Page');
     expect(screenshotGuide).toContain('Options');

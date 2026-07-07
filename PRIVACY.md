@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-06
 
-LexiBridge Translate is a browser extension for user-triggered page translation, selection translation, vocabulary collection, and vocabulary review.
+LexiBridge Translate is a browser extension for user-triggered page translation, document text translation, selection translation, vocabulary collection, and vocabulary review.
 
 ## Data Stored by the Extension
 
@@ -17,16 +17,16 @@ Chrome storage may sync data through the user's browser profile if Chrome sync i
 
 ## Translation Provider Requests
 
-Translation provider requests happen only after the user asks LexiBridge to translate selected text or a page.
+Translation provider requests happen only after the user asks LexiBridge to translate selected text, document text, or a page.
 
-When the user translates selected text or starts page translation, LexiBridge sends the text to the selected translation provider.
+When the user translates selected text, starts page translation, or translates a document in the document translator, LexiBridge sends the requested text to the selected translation provider.
 
 Current provider hosts:
 
 - `translate.googleapis.com`
 - `api.mymemory.translated.net`
 
-The extension sends the text needed for the requested translation and the selected target language. Translation provider handling is governed by the provider's own terms and privacy practices.
+The extension sends the text needed for the requested translation and the selected target language. Uploaded document files are read locally in the browser; the extension sends only the extracted text blocks that the user asks to translate. Translation provider handling is governed by the provider's own terms and privacy practices.
 
 ## No Default Telemetry
 

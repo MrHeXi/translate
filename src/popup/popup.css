@@ -233,6 +233,23 @@ body {
   gap: 8px;
 }
 
+.wide-secondary-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 12px;
+  background-color: white;
+  color: #246bfe;
+  border: 1px solid #246bfe;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.wide-secondary-btn:hover {
+  background-color: #246bfe;
+  color: white;
+}
+
 .recent-words-section h3,
 .dictionary-selection h3 {
   font-size: 16px;

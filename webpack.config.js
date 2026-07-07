@@ -12,7 +12,8 @@ module.exports = (env, argv) => {
       popup: './src/popup/popup.ts',
       options: './src/options/options.ts',
       vocabulary: './src/options/vocabulary.ts',
-      review: './src/options/review.ts'
+      review: './src/options/review.ts',
+      document: './src/options/document.ts'
     },
     
     output: {
@@ -86,6 +87,14 @@ module.exports = (env, argv) => {
           {
             from: 'src/options/review.css',
             to: 'review.css'
+          },
+          {
+            from: 'src/options/document.html',
+            to: 'document.html'
+          },
+          {
+            from: 'src/options/document.css',
+            to: 'document.css'
           },
           {
             from: 'src/content/content.css',

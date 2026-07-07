@@ -281,6 +281,10 @@ class BackgroundService {
         case 'openReview':
           response = await this.handleOpenReviewRequest(request);
           break;
+
+        case 'openDocumentTranslator':
+          response = await this.handleOpenDocumentTranslatorRequest(request);
+          break;
         
         default:
           response = { success: false, error: `未知的操作类型: ${request.action}` };
@@ -785,6 +789,16 @@ class BackgroundService {
   private async handleOpenReviewRequest(request: MessageRequest): Promise<MessageResponse> {
     chrome.tabs.create({
       url: chrome.runtime.getURL('review.html')
+    });
+    return { success: true };
+  }
+
+  private async handleOpenDocumentTranslatorRequest(request: MessageRequest): Promise<MessageResponse> {
+    const sourceUrl = request.data?.sourceUrl;
+    const query = sourceUrl ? `?sourceUrl=${encodeURIComponent(sourceUrl)}` : '';
+
+    chrome.tabs.create({
+      url: chrome.runtime.getURL(`document.html${query}`)
     });
     return { success: true };
   }

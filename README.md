@@ -11,11 +11,12 @@ LexiBridge is built around one idea: translate while you read, then review what 
 It is best for:
 
 - Reading English web pages, technical articles, documentation, and study material.
+- Translating pasted or uploaded text documents, subtitle files, and simple text-based PDFs.
 - Collecting useful words from real context.
 - Reviewing CET4, CET6, GRE, IELTS, TOEFL vocabulary.
 - Keeping a local-first vocabulary notebook with Chrome storage sync support.
 
-It is not marketed as a document layout translator, video subtitle tool, image reader, or meeting assistant.
+It is not marketed as a layout-preserving PDF translator, scanned-document OCR reader, video subtitle tool, image reader, or meeting assistant.
 
 ## Core Features
 
@@ -40,6 +41,13 @@ It is not marketed as a document layout translator, video subtitle tool, image r
 - Hold Control while hovering over a readable paragraph to translate it in place.
 - Type three trailing spaces in a supported input box, textarea, or editable field to translate the typed text.
 - Keep both interactions deliberate so pages and forms are never translated automatically.
+
+### Document Translation
+
+- Open the document translator from the popup or from detected document URLs.
+- Paste text or upload `.txt`, `.md`, `.srt`, `.vtt`, or simple text-based `.pdf` files.
+- Translate document blocks manually with bilingual, translation-only, or original-only display.
+- Scanned PDFs and layout-preserving PDF rendering are planned for the OCR/document layout batches.
 
 ### Vocabulary Learning
 
@@ -126,7 +134,7 @@ npm run build
 ```text
 src/background/   extension service worker
 src/content/      page translation, floating button, selection UI
-src/options/      settings, vocabulary, review pages
+src/options/      settings, document translator, vocabulary, review pages
 src/popup/        browser action popup
 src/services/     translation, dictionary, learning, review, storage services
 src/data/         built-in vocabulary dictionaries

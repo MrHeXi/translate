@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document Translator - LexiBridge Translate</title>
+  <link rel="stylesheet" href="document.css">
+</head>
+<body>
+  <div class="document-page">
+    <header class="document-header">
+      <div>
+        <h1>Document Translator</h1>
+        <p id="sourceUrlInfo" class="source-url" hidden></p>
+      </div>
+      <button id="openOptions" class="secondary-btn">Settings</button>
+    </header>
+
+    <main class="document-main">
+      <section class="document-toolbar" aria-label="Document translation controls">
+        <label>
+          Target
+          <select id="targetLanguage"></select>
+        </label>
+        <label>
+          Provider
+          <select id="translationProvider"></select>
+        </label>
+        <label>
+          Display
+          <select id="displayMode">
+            <option value="bilingual">Bilingual</option>
+            <option value="translation-only">Translation only</option>
+            <option value="original-only">Original only</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="document-input">
+        <div class="input-actions">
+          <label class="file-picker">
+            <input id="documentFile" type="file" accept=".txt,.md,.markdown,.srt,.vtt,.pdf,text/plain,text/markdown,application/pdf">
+            Choose file
+          </label>
+          <button id="translateDocument" class="primary-btn">Translate document</button>
+          <button id="clearDocument" class="secondary-btn">Clear</button>
+        </div>
+        <textarea id="sourceText" placeholder="Paste document text or load a text-based PDF."></textarea>
+        <p id="documentMessage" class="document-message" role="status"></p>
+      </section>
+
+      <section class="document-progress" aria-label="Translation progress">
+        <div class="progress-track">
+          <div id="progressBar" class="progress-bar"></div>
+        </div>
+        <span id="progressText">0 blocks</span>
+      </section>
+
+      <section id="translationResults" class="translation-results" aria-live="polite"></section>
+    </main>
+  </div>
+
+  <script src="document.js"></script>
+</body>
+</html>

@@ -35,6 +35,8 @@ Current batch:
 - Translation provider registry with Google Translate and MyMemory available.
 - 20+ provider definitions and 100+ target language choices for engine/language expansion.
 - Configurable page display modes: bilingual, translation only, and original only.
+- Document translator page for pasted/uploaded text, subtitle files, and simple text-based PDFs.
+- Manual document entry prompt on detected document URLs.
 
 ## Planned Batches
 
@@ -59,10 +61,10 @@ Current batch:
 
 ### Batch D: PDF and Document Translation
 
-- Detect PDF/document pages or uploads.
-- Extract text while preserving reading order where possible.
-- Render bilingual overlays or translated text blocks.
-- Document limitations for scanned PDFs until OCR is available.
+- Done: detect document URLs and expose a manual document translator entry.
+- Done: support pasted text, text files, Markdown, subtitle files, and simple text-based PDFs.
+- Done: render translated document blocks with bilingual, translation-only, or original-only display.
+- Remaining: layout-preserving PDF rendering and scanned PDF OCR.
 
 ### Batch E: Video Subtitle Translation
 

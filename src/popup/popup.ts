@@ -58,6 +58,9 @@ class PopupController {
     const reviewBtn = document.getElementById('reviewBtn') as HTMLButtonElement;
     reviewBtn?.addEventListener('click', () => this.startReview());
 
+    const documentTranslatorBtn = document.getElementById('documentTranslatorBtn') as HTMLButtonElement;
+    documentTranslatorBtn?.addEventListener('click', () => this.openDocumentTranslator());
+
     // 设置按钮
     const settingsBtn = document.getElementById('settingsBtn') as HTMLButtonElement;
     settingsBtn?.addEventListener('click', () => this.openSettings());
@@ -348,6 +351,25 @@ class PopupController {
     chrome.tabs.create({
       url: chrome.runtime.getURL('review.html')
     });
+  }
+
+  private async openDocumentTranslator(): Promise<void> {
+    let documentUrl = chrome.runtime.getURL('document.html');
+
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.url && this.isDocumentUrl(tab.url)) {
+        documentUrl += `?sourceUrl=${encodeURIComponent(tab.url)}`;
+      }
+    } catch (error) {
+      console.warn('Could not read active tab URL for document translator:', error);
+    }
+
+    chrome.tabs.create({ url: documentUrl });
+  }
+
+  private isDocumentUrl(url: string): boolean {
+    return /\.(pdf|txt|md|markdown|srt|vtt)([?#].*)?$/i.test(url);
   }
 
   private openSettings(): void {

@@ -6,6 +6,7 @@ import { PageTranslationDisplayMode, TranslationOverlay } from './components/Tra
 import { SelectionHandler } from './components/SelectionHandler';
 import { HoverTranslator } from './components/HoverTranslator';
 import { InputBoxTranslator } from './components/InputBoxTranslator';
+import { DocumentPagePrompt } from './components/DocumentPagePrompt';
 import { messageManager } from '../services/MessageManager';
 import { performanceManager } from '../services/PerformanceManager';
 import { errorHandler, ErrorType, ErrorSeverity } from '../services/ErrorHandler';
@@ -40,6 +41,7 @@ class ContentScript {
   private selectionHandler: SelectionHandler;
   private hoverTranslator: HoverTranslator;
   private inputBoxTranslator: InputBoxTranslator;
+  private documentPagePrompt: DocumentPagePrompt;
   private isTranslationMode: boolean = false;
   private isLearningMode: boolean = false;
   private userSettings: UserSettings | null = null;
@@ -55,6 +57,7 @@ class ContentScript {
     this.selectionHandler = new SelectionHandler();
     this.hoverTranslator = new HoverTranslator();
     this.inputBoxTranslator = new InputBoxTranslator();
+    this.documentPagePrompt = new DocumentPagePrompt();
     
     this.initialize();
   }
@@ -98,6 +101,7 @@ class ContentScript {
 
       this.hoverTranslator.initialize((text) => this.translateInteractiveText(text));
       this.inputBoxTranslator.initialize((text) => this.translateInteractiveText(text));
+      this.documentPagePrompt.initialize();
 
       // 如果启用了学习模式，初始化词汇高亮
       if (this.userSettings?.learningModeEnabled) {
@@ -804,6 +808,7 @@ class ContentScript {
     this.selectionHandler.cleanup();
     this.hoverTranslator.cleanup();
     this.inputBoxTranslator.cleanup();
+    this.documentPagePrompt.cleanup();
   }
 }
 

@@ -12,9 +12,11 @@ Translate web pages on demand, save unknown words, and review CET, GRE, IELTS, a
 
 ## Detailed Description
 
-LexiBridge Translate helps you read real web pages in another language and turn unknown words into review material.
+LexiBridge Translate helps you read real web pages and text-based documents in another language while turning unknown words into review material.
 
 Page translation is always user-triggered. Start from the extension popup or the floating page button, then stop translation with the same control to restore the page. LexiBridge also supports selected-text translation, Control-hover paragraph translation, and a deliberate input-box shortcut, so you can translate a phrase or draft without translating the whole page.
+
+The document translator supports pasted text, text files, Markdown, subtitle files, and simple text-based PDFs. Scanned PDFs, OCR, and layout-preserving PDF rendering are not included yet.
 
 The extension includes built-in CET4, CET6, GRE, IELTS, and TOEFL vocabulary sets. Enable the dictionaries you care about, collect useful words from the pages you read, and review saved or due words from the review page.
 
@@ -24,6 +26,7 @@ Core features:
 - Selection translation tooltip for quick lookups.
 - Control-hover paragraph translation for quick in-page reading help.
 - Input box translation by typing three trailing spaces.
+- Text-based document translator for pasted text, text files, subtitle files, and simple PDFs.
 - 100+ target language choices in settings.
 - Google Translate and MyMemory are available today, with 20+ provider definitions prepared for future engine expansion.
 - Vocabulary notebook for saved words, translations, examples, mastery level, and review schedule.
@@ -43,7 +46,7 @@ LexiBridge is designed for reading, vocabulary collection, and review. Do not ad
 
 ## Search Keywords
 
-translation, page translation, vocabulary, English learning, CET4, CET6, GRE, IELTS, TOEFL, review, study, reading, dictionary, selection translation
+translation, page translation, document translation, vocabulary, English learning, CET4, CET6, GRE, IELTS, TOEFL, review, study, reading, dictionary, selection translation
 
 ## Screenshot Plan
 
@@ -53,9 +56,10 @@ translation, page translation, vocabulary, English learning, CET4, CET6, GRE, IE
 4. Selected text translation tooltip with save-to-vocabulary action.
 5. Paragraph hover translation created by holding Control over readable text.
 6. Input box translation shortcut before and after state.
-7. Vocabulary notebook with saved words and review metadata.
-8. Review page showing a due word card.
-9. Options page showing dictionary selection and translation settings.
+7. Document translator with bilingual translated blocks.
+8. Vocabulary notebook with saved words and review metadata.
+9. Review page showing a due word card.
+10. Options page showing dictionary selection and translation settings.
 
 ## Permission Justifications
 
@@ -68,9 +72,9 @@ translation, page translation, vocabulary, English learning, CET4, CET6, GRE, IE
 
 ## Privacy Questionnaire Notes
 
-- Single purpose: user-triggered web translation, selected-text translation, vocabulary collection, and vocabulary review.
+- Single purpose: user-triggered web and document text translation, selected-text translation, vocabulary collection, and vocabulary review.
 - Personal or sensitive user data: no account credentials, payment data, health data, financial data, or personal communications are collected by the extension.
-- Website content: only the text needed for the user-requested translation is sent to the selected translation provider.
+- Website and document content: only the text needed for the user-requested translation is sent to the selected translation provider.
 - User activity: learning progress and review stats are stored for product functionality, not default analytics.
 - Data sharing: translation text is shared with the selected translation provider only when the user requests translation.
 - Remote code: no remote executable code is used.
@@ -89,4 +93,5 @@ Common support answers:
 - Click the same Start/Stop control again to stop translation and restore the page.
 - Hold Control while hovering over a paragraph to translate that paragraph only.
 - Type three trailing spaces in a supported input box to translate the typed text.
+- The document translator handles text-based documents. Scanned PDFs need the planned OCR batch.
 - Vocabulary and review data are stored in Chrome storage. Chrome may sync the data if browser sync is enabled.

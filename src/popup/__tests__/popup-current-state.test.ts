@@ -4,6 +4,8 @@ const flushPromises = async (): Promise<void> => {
   await new Promise(resolve => setTimeout(resolve, 0));
 };
 
+export {};
+
 const setupPopupDom = (): void => {
   document.body.innerHTML = `
     <button id="toggleTranslation"></button>

@@ -60,6 +60,14 @@ Capture a supported input box, textarea, or editable field with:
 - The translated text inserted back into the field.
 - No private form data visible.
 
+### Document Translator
+
+Capture the document translator page with:
+
+- Source text or a safe sample document loaded.
+- Bilingual translated blocks visible.
+- Target language, provider, and display mode controls visible.
+
 ### Vocabulary Notebook
 
 Capture the vocabulary page with:
@@ -88,7 +96,8 @@ Capture the options page with:
 
 - Private browsing data or account details.
 - Any claim that translation starts automatically.
-- Unsupported feature claims beyond web page translation, selected-text translation, vocabulary collection, review, import/export, and Chrome storage sync.
+- Unsupported feature claims beyond web page translation, text-based document translation, selected-text translation, vocabulary collection, review, import/export, and Chrome storage sync.
+- Claims for scanned PDF OCR or layout-preserving PDF translation.
 - Console errors, developer tools, or local file explorer windows.
 
 ## Final Check
