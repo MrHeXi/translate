@@ -44,6 +44,22 @@ Capture selected text on a page with:
 - The save-to-vocabulary action visible.
 - The tooltip positioned inside the viewport with comfortable margins.
 
+### Hover Translation
+
+Capture a readable paragraph after holding Control while hovering with:
+
+- The generated hover translation visible below the paragraph.
+- The original paragraph still visible.
+- No page-wide translation mode active.
+
+### Input Box Translation
+
+Capture a supported input box, textarea, or editable field with:
+
+- The deliberate three-space shortcut described in nearby test notes or release notes, not as visible page text.
+- The translated text inserted back into the field.
+- No private form data visible.
+
 ### Vocabulary Notebook
 
 Capture the vocabulary page with:

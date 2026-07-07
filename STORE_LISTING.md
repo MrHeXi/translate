@@ -14,7 +14,7 @@ Translate web pages on demand, save unknown words, and review CET, GRE, IELTS, a
 
 LexiBridge Translate helps you read real web pages in another language and turn unknown words into review material.
 
-Page translation is always user-triggered. Start from the extension popup or the floating page button, then stop translation with the same control to restore the page. LexiBridge also supports selected-text translation, so you can look up a phrase without translating the whole page.
+Page translation is always user-triggered. Start from the extension popup or the floating page button, then stop translation with the same control to restore the page. LexiBridge also supports selected-text translation, Control-hover paragraph translation, and a deliberate input-box shortcut, so you can translate a phrase or draft without translating the whole page.
 
 The extension includes built-in CET4, CET6, GRE, IELTS, and TOEFL vocabulary sets. Enable the dictionaries you care about, collect useful words from the pages you read, and review saved or due words from the review page.
 
@@ -22,6 +22,8 @@ Core features:
 
 - Manual page translation from the popup or floating button.
 - Selection translation tooltip for quick lookups.
+- Control-hover paragraph translation for quick in-page reading help.
+- Input box translation by typing three trailing spaces.
 - Vocabulary notebook for saved words, translations, examples, mastery level, and review schedule.
 - Built-in CET4, CET6, GRE, IELTS, and TOEFL dictionaries.
 - Review page for due words and new dictionary words.
@@ -47,9 +49,11 @@ translation, page translation, vocabulary, English learning, CET4, CET6, GRE, IE
 2. Web page with the bottom-right floating button and the "Translate page" hint visible.
 3. Web page after manual translation starts, showing progress without a full-page blocking overlay.
 4. Selected text translation tooltip with save-to-vocabulary action.
-5. Vocabulary notebook with saved words and review metadata.
-6. Review page showing a due word card.
-7. Options page showing dictionary selection and translation settings.
+5. Paragraph hover translation created by holding Control over readable text.
+6. Input box translation shortcut before and after state.
+7. Vocabulary notebook with saved words and review metadata.
+8. Review page showing a due word card.
+9. Options page showing dictionary selection and translation settings.
 
 ## Permission Justifications
 
@@ -81,4 +85,6 @@ Common support answers:
 - Page translation does not start automatically. Use the popup Start button or the floating page button.
 - The floating button appears near the bottom-right of regular web pages. It is not shown on browser-owned pages such as `chrome://` URLs.
 - Click the same Start/Stop control again to stop translation and restore the page.
+- Hold Control while hovering over a paragraph to translate that paragraph only.
+- Type three trailing spaces in a supported input box to translate the typed text.
 - Vocabulary and review data are stored in Chrome storage. Chrome may sync the data if browser sync is enabled.

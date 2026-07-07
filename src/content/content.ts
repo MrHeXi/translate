@@ -4,6 +4,8 @@
 import { FloatingIcon } from './components/FloatingIcon';
 import { TranslationOverlay } from './components/TranslationOverlay';
 import { SelectionHandler } from './components/SelectionHandler';
+import { HoverTranslator } from './components/HoverTranslator';
+import { InputBoxTranslator } from './components/InputBoxTranslator';
 import { messageManager } from '../services/MessageManager';
 import { performanceManager } from '../services/PerformanceManager';
 import { errorHandler, ErrorType, ErrorSeverity } from '../services/ErrorHandler';
@@ -35,6 +37,8 @@ class ContentScript {
   private floatingIcon: FloatingIcon;
   private translationOverlay: TranslationOverlay;
   private selectionHandler: SelectionHandler;
+  private hoverTranslator: HoverTranslator;
+  private inputBoxTranslator: InputBoxTranslator;
   private isTranslationMode: boolean = false;
   private isLearningMode: boolean = false;
   private userSettings: UserSettings | null = null;
@@ -48,6 +52,8 @@ class ContentScript {
     this.floatingIcon = new FloatingIcon();
     this.translationOverlay = new TranslationOverlay();
     this.selectionHandler = new SelectionHandler();
+    this.hoverTranslator = new HoverTranslator();
+    this.inputBoxTranslator = new InputBoxTranslator();
     
     this.initialize();
   }
@@ -88,6 +94,9 @@ class ContentScript {
       this.selectionHandler.onTextSelected((text, position) => {
         this.handleTextSelection(text, position);
       });
+
+      this.hoverTranslator.initialize((text) => this.translateInteractiveText(text));
+      this.inputBoxTranslator.initialize((text) => this.translateInteractiveText(text));
 
       // 如果启用了学习模式，初始化词汇高亮
       if (this.userSettings?.learningModeEnabled) {
@@ -569,6 +578,22 @@ class ContentScript {
     }
   }
 
+  private async translateInteractiveText(text: string): Promise<string> {
+    const normalizedText = text.trim();
+    if (!normalizedText) {
+      return '';
+    }
+
+    const cachedTranslation = this.translationCache.get(normalizedText);
+    if (cachedTranslation) {
+      return cachedTranslation;
+    }
+
+    const result = await this.requestTranslation(normalizedText);
+    this.translationCache.set(normalizedText, result.translatedText);
+    return result.translatedText;
+  }
+
   private async translateTextNodeBatch(textNodes: Text[], runId?: number): Promise<void> {
     const promises = textNodes.map(async (node) => {
       if (runId !== undefined && !this.isCurrentTranslationRun(runId)) {
@@ -766,6 +791,8 @@ class ContentScript {
     this.translationOverlay.cleanup();
     this.floatingIcon.cleanup();
     this.selectionHandler.cleanup();
+    this.hoverTranslator.cleanup();
+    this.inputBoxTranslator.cleanup();
   }
 }
 

@@ -31,6 +31,8 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Popup showing translation controls and learning summary.
 - [ ] Floating button on a real web page.
 - [ ] Selection translation tooltip.
+- [ ] Control-hover paragraph translation.
+- [ ] Input box translation shortcut.
 - [ ] Vocabulary notebook page.
 - [ ] Review page.
 - [ ] Options page with dictionary settings.

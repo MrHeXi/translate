@@ -10,6 +10,8 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Immediate Start/Stop behavior that restores the page when translation mode is turned off.
 - Bottom-right floating button with a visible "Translate page" hint.
 - Selected-text translation tooltip with vocabulary collection actions.
+- Control-hover paragraph translation for on-demand reading help.
+- Input box translation by typing three trailing spaces.
 - Built-in CET4, CET6, GRE, IELTS, and TOEFL vocabulary dictionaries.
 - Vocabulary notebook, review page, learning progress, import/export, and settings.
 - Local-first data storage through Chrome storage, with Chrome sync support when enabled in the browser profile.
@@ -21,7 +23,7 @@ Verified on 2026-07-06:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 23 test suites and 163 tests.
+- `jest --runInBand --silent`: passed, 25 test suites and 170 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 

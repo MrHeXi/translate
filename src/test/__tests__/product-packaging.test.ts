@@ -32,7 +32,8 @@ describe('product packaging contract', () => {
       'RELEASE_CHECKLIST.md',
       'RELEASE_NOTES.md',
       'STORE_LISTING.md',
-      'docs/release/SCREENSHOT_GUIDE.md'
+      'docs/release/SCREENSHOT_GUIDE.md',
+      'docs/superpowers/specs/2026-07-07-immersive-replication-roadmap.md'
     ];
 
     expectedDocs.forEach(relativePath => {
@@ -44,6 +45,8 @@ describe('product packaging contract', () => {
     const readme = readProjectFile('README.md');
     expect(readme).toContain('LexiBridge Translate');
     expect(readme).toContain('manual floating button');
+    expect(readme).toContain('Hold Control while hovering');
+    expect(readme).toContain('Press Space three times');
     expect(readme).toContain('CET4, CET6, GRE, IELTS, TOEFL');
     expect(readme).not.toMatch(/PDF|video subtitles|OCR|meeting translation/);
 
@@ -72,6 +75,8 @@ describe('product packaging contract', () => {
     expect(listing).toContain('Translate web pages on demand');
     expect(listing).toContain('Manual page translation');
     expect(listing).toContain('Selection translation tooltip');
+    expect(listing).toContain('Control-hover paragraph translation');
+    expect(listing).toContain('Input box translation');
     expect(listing).toContain('Vocabulary notebook');
     expect(listing).toContain('CET4');
     expect(listing).toContain('CET6');
@@ -92,7 +97,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-06');
-    expect(releaseNotes).toContain('23 test suites and 163 tests');
+    expect(releaseNotes).toContain('25 test suites and 170 tests');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -101,10 +106,26 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('Floating Button');
     expect(screenshotGuide).toContain('Manual Page Translation');
     expect(screenshotGuide).toContain('Selection Translation');
+    expect(screenshotGuide).toContain('Hover Translation');
+    expect(screenshotGuide).toContain('Input Box Translation');
     expect(screenshotGuide).toContain('Vocabulary Notebook');
     expect(screenshotGuide).toContain('Review Page');
     expect(screenshotGuide).toContain('Options');
     expect(screenshotGuide).toContain('No translated page text yet');
     expect(screenshotGuide).toContain('STORE_LISTING.md');
+  });
+
+  it('tracks the expanded Immersive Translate replication scope', () => {
+    const roadmap = readProjectFile('docs/superpowers/specs/2026-07-07-immersive-replication-roadmap.md');
+
+    expect(roadmap).toContain('Web page bilingual translation');
+    expect(roadmap).toContain('Hover paragraph translation');
+    expect(roadmap).toContain('Input box translation');
+    expect(roadmap).toContain('PDF and document translation');
+    expect(roadmap).toContain('Video subtitle translation');
+    expect(roadmap).toContain('Meeting subtitle translation');
+    expect(roadmap).toContain('Image, manga, and OCR translation');
+    expect(roadmap).toContain('Multiple translation engines');
+    expect(roadmap).toContain('Do not auto-translate a page on load');
   });
 });

@@ -32,6 +32,12 @@ It is not marketed as a document layout translator, video subtitle tool, image r
 - Add useful words to the vocabulary notebook.
 - Use the selected text as learning material instead of a one-time lookup.
 
+### Hover and Input Translation
+
+- Hold Control while hovering over a readable paragraph to translate it in place.
+- Type three trailing spaces in a supported input box, textarea, or editable field to translate the typed text.
+- Keep both interactions deliberate so pages and forms are never translated automatically.
+
 ### Vocabulary Learning
 
 - Built-in dictionaries: CET4, CET6, GRE, IELTS, TOEFL.
@@ -74,6 +80,17 @@ The generated test package is `chrome-translation-extension.zip`.
 1. Select text on any page.
 2. Read the translation tooltip.
 3. Add useful words to the vocabulary notebook when needed.
+
+### Translate While Hovering
+
+1. Hover over a paragraph on a regular web page.
+2. Hold Control to insert an on-demand translation below that paragraph.
+
+### Translate in an Input Box
+
+1. Type text into a supported input, textarea, or editable field.
+2. Press Space three times at the end of the text.
+3. LexiBridge replaces the typed text with the translation.
 
 ### Study Vocabulary
 
