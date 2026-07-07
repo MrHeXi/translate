@@ -12,11 +12,12 @@ It is best for:
 
 - Reading English web pages, technical articles, documentation, and study material.
 - Translating pasted or uploaded text documents, subtitle files, and simple text-based PDFs.
+- Translating video captions when the page exposes subtitle or caption tracks.
 - Collecting useful words from real context.
 - Reviewing CET4, CET6, GRE, IELTS, TOEFL vocabulary.
 - Keeping a local-first vocabulary notebook with Chrome storage sync support.
 
-It is not marketed as a layout-preserving PDF translator, scanned-document OCR reader, video subtitle tool, image reader, or meeting assistant.
+It is not marketed as a layout-preserving PDF translator, scanned-document OCR reader, image reader, audio transcription tool, or meeting assistant.
 
 ## Core Features
 
@@ -48,6 +49,13 @@ It is not marketed as a layout-preserving PDF translator, scanned-document OCR r
 - Paste text or upload `.txt`, `.md`, `.srt`, `.vtt`, or simple text-based `.pdf` files.
 - Translate document blocks manually with bilingual, translation-only, or original-only display.
 - Scanned PDFs and layout-preserving PDF rendering are planned for the OCR/document layout batches.
+
+### Video Subtitle Translation
+
+- Start or stop video subtitle translation manually from the popup.
+- Translate active caption or subtitle cues when the current video exposes browser text tracks.
+- Render a bilingual subtitle overlay without recording audio or blocking playback.
+- Site-specific video support and subtitle export are planned for later batches.
 
 ### Vocabulary Learning
 
@@ -103,6 +111,13 @@ The generated test package is `chrome-translation-extension.zip`.
 1. Type text into a supported input, textarea, or editable field.
 2. Press Space three times at the end of the text.
 3. LexiBridge replaces the typed text with the translation.
+
+### Translate Video Subtitles
+
+1. Open a page with a video that has captions or subtitles.
+2. Open the extension popup.
+3. Click Start in Video subtitles.
+4. Click the same control again to remove the overlay and stop subtitle translation.
 
 ### Study Vocabulary
 

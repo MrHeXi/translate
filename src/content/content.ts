@@ -7,6 +7,7 @@ import { SelectionHandler } from './components/SelectionHandler';
 import { HoverTranslator } from './components/HoverTranslator';
 import { InputBoxTranslator } from './components/InputBoxTranslator';
 import { DocumentPagePrompt } from './components/DocumentPagePrompt';
+import { VideoSubtitleTranslator } from './components/VideoSubtitleTranslator';
 import { messageManager } from '../services/MessageManager';
 import { performanceManager } from '../services/PerformanceManager';
 import { errorHandler, ErrorType, ErrorSeverity } from '../services/ErrorHandler';
@@ -42,6 +43,7 @@ class ContentScript {
   private hoverTranslator: HoverTranslator;
   private inputBoxTranslator: InputBoxTranslator;
   private documentPagePrompt: DocumentPagePrompt;
+  private videoSubtitleTranslator: VideoSubtitleTranslator;
   private isTranslationMode: boolean = false;
   private isLearningMode: boolean = false;
   private userSettings: UserSettings | null = null;
@@ -58,6 +60,7 @@ class ContentScript {
     this.hoverTranslator = new HoverTranslator();
     this.inputBoxTranslator = new InputBoxTranslator();
     this.documentPagePrompt = new DocumentPagePrompt();
+    this.videoSubtitleTranslator = new VideoSubtitleTranslator();
     
     this.initialize();
   }
@@ -151,6 +154,10 @@ class ContentScript {
         await this.toggleLearningMode();
         return { success: true, data: { isActive: this.isLearningMode } };
       },
+      'toggleVideoSubtitleTranslation': async () => {
+        const state = await this.toggleVideoSubtitleTranslation();
+        return { success: true, data: state };
+      },
       'updateSettings': async (request) => {
         this.userSettings = { ...this.userSettings, ...request.data };
         await this.applySettingsChanges();
@@ -169,7 +176,8 @@ class ContentScript {
           success: true, 
           data: { 
             isActive: this.isTranslationMode,
-            isLearningMode: this.isLearningMode 
+            isLearningMode: this.isLearningMode,
+            isVideoSubtitleMode: this.videoSubtitleTranslator.getStatus().isActive
           } 
         };
       }
@@ -213,6 +221,12 @@ class ContentScript {
           await this.toggleLearningMode();
           sendResponse({ success: true, isActive: this.isLearningMode });
           break;
+
+        case 'toggleVideoSubtitleTranslation': {
+          const state = await this.toggleVideoSubtitleTranslation();
+          sendResponse({ success: true, ...state });
+          break;
+        }
         
         case 'updateSettings':
           this.userSettings = { ...this.userSettings, ...request.data };
@@ -235,7 +249,8 @@ class ContentScript {
           sendResponse({
             success: true,
             isActive: this.isTranslationMode,
-            isLearningMode: this.isLearningMode
+            isLearningMode: this.isLearningMode,
+            isVideoSubtitleMode: this.videoSubtitleTranslator.getStatus().isActive
           });
           break;
         
@@ -289,6 +304,10 @@ class ContentScript {
     } catch (error) {
       console.error('切换学习模式失败:', error);
     }
+  }
+
+  private async toggleVideoSubtitleTranslation(): Promise<{ isActive: boolean; hasTrack: boolean; message: string }> {
+    return this.videoSubtitleTranslator.toggle((text) => this.translateInteractiveText(text));
   }
 
   private async initializeLearningMode(): Promise<void> {
@@ -794,7 +813,8 @@ class ContentScript {
       language: document.documentElement.lang || 'unknown',
       textLength: document.body.textContent?.length || 0,
       isTranslationMode: this.isTranslationMode,
-      isLearningMode: this.isLearningMode
+      isLearningMode: this.isLearningMode,
+      isVideoSubtitleMode: this.videoSubtitleTranslator.getStatus().isActive
     };
   }
 
@@ -809,6 +829,7 @@ class ContentScript {
     this.hoverTranslator.cleanup();
     this.inputBoxTranslator.cleanup();
     this.documentPagePrompt.cleanup();
+    this.videoSubtitleTranslator.cleanup();
   }
 }
 

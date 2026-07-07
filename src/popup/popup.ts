@@ -20,7 +20,9 @@ interface VocabularyPreview {
 
 class PopupController {
   private isTranslationActive: boolean = false;
+  private isVideoSubtitleActive: boolean = false;
   private isTogglingTranslation: boolean = false;
+  private isTogglingVideoSubtitles: boolean = false;
 
   constructor() {
     this.initialize();
@@ -45,6 +47,9 @@ class PopupController {
     // 翻译模式切换
     const toggleBtn = document.getElementById('toggleTranslation') as HTMLButtonElement;
     toggleBtn?.addEventListener('click', () => this.toggleTranslationMode());
+
+    const toggleVideoSubtitles = document.getElementById('toggleVideoSubtitles') as HTMLButtonElement;
+    toggleVideoSubtitles?.addEventListener('click', () => this.toggleVideoSubtitleMode());
 
     // 快速翻译
     const translateBtn = document.getElementById('translateBtn') as HTMLButtonElement;
@@ -94,13 +99,22 @@ class PopupController {
         const isActive = response?.isActive ?? response?.data?.isActive;
         if (typeof isActive === 'boolean') {
           this.isTranslationActive = isActive;
-          this.updateTranslationStatusUI();
         }
+
+        const isVideoSubtitleMode = response?.isVideoSubtitleMode ?? response?.data?.isVideoSubtitleMode;
+        if (typeof isVideoSubtitleMode === 'boolean') {
+          this.isVideoSubtitleActive = isVideoSubtitleMode;
+        }
+
+        this.updateTranslationStatusUI();
+        this.updateVideoSubtitleStatusUI();
       }
     } catch (error) {
       if (this.isMissingContentScriptReceiverError(error)) {
         this.isTranslationActive = false;
+        this.isVideoSubtitleActive = false;
         this.updateTranslationStatusUI();
+        this.updateVideoSubtitleStatusUI();
         return;
       }
 
@@ -132,6 +146,33 @@ class PopupController {
       this.showError(error instanceof Error ? error.message : 'Could not toggle page translation.');
     } finally {
       this.setTranslationToggleBusy(false);
+    }
+  }
+
+  private async toggleVideoSubtitleMode(): Promise<void> {
+    if (this.isTogglingVideoSubtitles) return;
+
+    this.setVideoSubtitleToggleBusy(true);
+
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id) {
+        const response = await this.sendMessageToTabWithInjection(tab, { action: 'toggleVideoSubtitleTranslation' });
+        if (response?.success) {
+          const isActive = response.isActive ?? response.data?.isActive;
+          this.isVideoSubtitleActive = Boolean(isActive);
+          this.updateVideoSubtitleStatusUI();
+        } else {
+          this.showError(response?.error || 'Could not toggle video subtitles.');
+        }
+      } else {
+        this.showError('No active page found.');
+      }
+    } catch (error) {
+      console.error('Could not toggle video subtitles:', error);
+      this.showError(error instanceof Error ? error.message : 'Could not toggle video subtitles.');
+    } finally {
+      this.setVideoSubtitleToggleBusy(false);
     }
   }
 
@@ -272,6 +313,23 @@ class PopupController {
     } catch (error) {
       console.error('Could not update dictionary settings:', error);
       this.showError('Could not update dictionary settings.');
+    }
+  }
+
+  private updateVideoSubtitleStatusUI(): void {
+    const statusElement = document.getElementById('videoSubtitleStatus');
+    const toggleBtn = document.getElementById('toggleVideoSubtitles') as HTMLButtonElement;
+
+    if (statusElement && toggleBtn) {
+      if (this.isVideoSubtitleActive) {
+        statusElement.textContent = 'On';
+        toggleBtn.textContent = 'Stop';
+        toggleBtn.classList.add('active');
+      } else {
+        statusElement.textContent = 'Off';
+        toggleBtn.textContent = 'Start';
+        toggleBtn.classList.remove('active');
+      }
     }
   }
 
@@ -479,6 +537,15 @@ class PopupController {
     this.isTogglingTranslation = isBusy;
 
     const toggleBtn = document.getElementById('toggleTranslation') as HTMLButtonElement;
+    if (toggleBtn) {
+      toggleBtn.disabled = isBusy;
+    }
+  }
+
+  private setVideoSubtitleToggleBusy(isBusy: boolean): void {
+    this.isTogglingVideoSubtitles = isBusy;
+
+    const toggleBtn = document.getElementById('toggleVideoSubtitles') as HTMLButtonElement;
     if (toggleBtn) {
       toggleBtn.disabled = isBusy;
     }

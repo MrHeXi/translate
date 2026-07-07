@@ -37,6 +37,7 @@ Current batch:
 - Configurable page display modes: bilingual, translation only, and original only.
 - Document translator page for pasted/uploaded text, subtitle files, and simple text-based PDFs.
 - Manual document entry prompt on detected document URLs.
+- Manual video subtitle translation for pages that expose caption or subtitle text tracks.
 
 ## Planned Batches
 
@@ -68,9 +69,10 @@ Current batch:
 
 ### Batch E: Video Subtitle Translation
 
-- Detect subtitle/caption tracks on common video pages.
-- Translate active subtitle cues.
-- Render bilingual subtitle overlays without blocking playback.
+- Done: detect browser subtitle/caption text tracks on video pages.
+- Done: translate active subtitle cues after the user starts Video subtitles from the popup.
+- Done: render bilingual subtitle overlays without blocking playback.
+- Remaining: site-specific optimizations, subtitle file export, and richer caption timing controls.
 
 ### Batch F: Image, Manga, and OCR Translation
 

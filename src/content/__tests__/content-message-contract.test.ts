@@ -151,7 +151,8 @@ describe('Content script direct runtime message contract', () => {
     expect(statusResponse).toEqual({
       success: true,
       isActive: true,
-      isLearningMode: false
+      isLearningMode: false,
+      isVideoSubtitleMode: false
     });
   });
 
@@ -301,7 +302,8 @@ describe('Content script direct runtime message contract', () => {
     expect(statusResponse).toEqual({
       success: true,
       isActive: false,
-      isLearningMode: false
+      isLearningMode: false,
+      isVideoSubtitleMode: false
     });
   });
 
@@ -443,9 +445,163 @@ describe('Content script direct runtime message contract', () => {
     expect(statusResponse).toEqual({
       success: true,
       isActive: false,
-      isLearningMode: false
+      isLearningMode: false,
+      isVideoSubtitleMode: false
     });
 
     warnSpy.mockRestore();
+  });
+
+  it('toggles video subtitle translation through the direct runtime message contract', async () => {
+    const listeners: Array<(request: any, sender: any, sendResponse: (response: any) => void) => boolean> = [];
+    const addListener = jest.fn((listener) => {
+      listeners.push(listener);
+    });
+
+    (global as any).chrome = {
+      runtime: {
+        sendMessage: jest.fn((message, callback) => {
+          if (message.action === 'getSettings') {
+            callback({
+              success: true,
+              data: {
+                defaultTargetLanguage: 'zh-CN',
+                translationProvider: 'google',
+                pageTranslationDisplayMode: 'bilingual',
+                floatingIconPosition: { x: 20, y: 20 },
+                learningModeEnabled: false,
+                activeDictionaries: ['gre'],
+                highlightColors: { gre: '#ff0000' },
+                autoTranslate: false,
+                showFloatingIcon: true
+              }
+            });
+            return;
+          }
+
+          callback({ success: true });
+        }),
+        onMessage: {
+          addListener,
+          removeListener: jest.fn()
+        }
+      }
+    };
+
+    jest.doMock('../components/FloatingIcon', () => ({
+      FloatingIcon: jest.fn().mockImplementation(() => ({
+        create: jest.fn(),
+        onToggle: jest.fn(),
+        onLearningModeToggle: jest.fn(),
+        updateState: jest.fn(),
+        updateLearningModeState: jest.fn(),
+        updatePosition: jest.fn(),
+        show: jest.fn(),
+        hide: jest.fn(),
+        cleanup: jest.fn()
+      }))
+    }));
+
+    jest.doMock('../components/SelectionHandler', () => ({
+      SelectionHandler: jest.fn().mockImplementation(() => ({
+        initialize: jest.fn(),
+        onTextSelected: jest.fn(),
+        cleanup: jest.fn()
+      }))
+    }));
+
+    jest.doMock('../components/TranslationOverlay', () => ({
+      TranslationOverlay: jest.fn().mockImplementation(() => ({
+        addTranslation: jest.fn(),
+        removeAllTranslations: jest.fn(),
+        setDisplayMode: jest.fn(),
+        showTooltip: jest.fn(),
+        showAddToVocabularyOption: jest.fn(),
+        showWordDetails: jest.fn(),
+        showError: jest.fn(),
+        cleanup: jest.fn()
+      }))
+    }));
+
+    jest.doMock('../../services/MessageManager', () => ({
+      messageManager: {
+        registerHandlers: jest.fn(),
+        sendToBackground: jest.fn(async (request) => ({
+          success: true,
+          data: {
+            originalText: request.data.text,
+            translatedText: `translated: ${request.data.text}`,
+            sourceLang: 'en',
+            targetLang: request.data.targetLang,
+            confidence: 0.95
+          }
+        }))
+      }
+    }));
+
+    jest.doMock('../../services/PerformanceManager', () => ({
+      performanceManager: {
+        startMonitoring: jest.fn(),
+        recordRequest: jest.fn()
+      }
+    }));
+
+    jest.doMock('../../services/ErrorHandler', () => ({
+      ErrorType: { TRANSLATION_API_ERROR: 'TRANSLATION_API_ERROR' },
+      ErrorSeverity: { MEDIUM: 'MEDIUM', HIGH: 'HIGH' },
+      errorHandler: {
+        logError: jest.fn(),
+        getUserFriendlyMessage: jest.fn(() => 'translation failed')
+      }
+    }));
+
+    jest.doMock('../../services/OfflineManager', () => ({
+      offlineManager: {
+        isNetworkOnline: jest.fn(() => true),
+        handleOfflineTranslation: jest.fn()
+      }
+    }));
+
+    jest.doMock('../../services/LoadingManager', () => ({
+      loadingManager: {
+        showLoading: jest.fn(),
+        showSimpleLoading: jest.fn(() => 'simple-loading'),
+        showProgressLoading: jest.fn(() => 'progress-loading'),
+        updateProgress: jest.fn(),
+        hideLoading: jest.fn()
+      }
+    }));
+
+    await import('../content');
+    await flushPromises();
+
+    const directListener = listeners[listeners.length - 1]!;
+    const sendDirectMessage = (request: any): Promise<any> => new Promise(resolve => {
+      directListener(request, {}, resolve);
+    });
+
+    const startResponse = await sendDirectMessage({ action: 'toggleVideoSubtitleTranslation' });
+    expect(startResponse).toEqual({
+      success: true,
+      isActive: true,
+      hasTrack: false,
+      message: 'No caption track found'
+    });
+
+    const statusResponse = await sendDirectMessage({ action: 'getTranslationStatus' });
+    expect(statusResponse).toEqual({
+      success: true,
+      isActive: false,
+      isLearningMode: false,
+      isVideoSubtitleMode: true
+    });
+
+    const stopResponse = await sendDirectMessage({ action: 'toggleVideoSubtitleTranslation' });
+    expect(stopResponse).toEqual({
+      success: true,
+      isActive: false,
+      hasTrack: false,
+      message: 'Video subtitle translation stopped'
+    });
   });
 });

@@ -14,9 +14,9 @@ Translate web pages on demand, save unknown words, and review CET, GRE, IELTS, a
 
 LexiBridge Translate helps you read real web pages and text-based documents in another language while turning unknown words into review material.
 
-Page translation is always user-triggered. Start from the extension popup or the floating page button, then stop translation with the same control to restore the page. LexiBridge also supports selected-text translation, Control-hover paragraph translation, and a deliberate input-box shortcut, so you can translate a phrase or draft without translating the whole page.
+Page translation is always user-triggered. Start from the extension popup or the floating page button, then stop translation with the same control to restore the page. LexiBridge also supports selected-text translation, Control-hover paragraph translation, a deliberate input-box shortcut, and video subtitle translation when a page exposes browser caption tracks.
 
-The document translator supports pasted text, text files, Markdown, subtitle files, and simple text-based PDFs. Scanned PDFs, OCR, and layout-preserving PDF rendering are not included yet.
+The document translator supports pasted text, text files, Markdown, subtitle files, and simple text-based PDFs. Scanned PDFs, OCR, layout-preserving PDF rendering, audio transcription, and meeting translation are not included yet.
 
 The extension includes built-in CET4, CET6, GRE, IELTS, and TOEFL vocabulary sets. Enable the dictionaries you care about, collect useful words from the pages you read, and review saved or due words from the review page.
 
@@ -27,6 +27,7 @@ Core features:
 - Control-hover paragraph translation for quick in-page reading help.
 - Input box translation by typing three trailing spaces.
 - Text-based document translator for pasted text, text files, subtitle files, and simple PDFs.
+- Video subtitle translation when caption or subtitle tracks are available.
 - 100+ target language choices in settings.
 - Google Translate and MyMemory are available today, with 20+ provider definitions prepared for future engine expansion.
 - Vocabulary notebook for saved words, translations, examples, mastery level, and review schedule.
@@ -37,7 +38,7 @@ Core features:
 
 Privacy summary:
 
-- Translation requests are sent only after the user asks LexiBridge to translate selected text or a page.
+- Translation requests are sent only after the user asks LexiBridge to translate selected text, a page, a document, or available video subtitles.
 - Settings, vocabulary, review progress, and learning stats are stored in Chrome storage.
 - LexiBridge does not run its own account server.
 - No default telemetry is collected.
@@ -57,9 +58,10 @@ translation, page translation, document translation, vocabulary, English learnin
 5. Paragraph hover translation created by holding Control over readable text.
 6. Input box translation shortcut before and after state.
 7. Document translator with bilingual translated blocks.
-8. Vocabulary notebook with saved words and review metadata.
-9. Review page showing a due word card.
-10. Options page showing dictionary selection and translation settings.
+8. Video subtitle overlay on a sample page with available captions.
+9. Vocabulary notebook with saved words and review metadata.
+10. Review page showing a due word card.
+11. Options page showing dictionary selection and translation settings.
 
 ## Permission Justifications
 
@@ -94,4 +96,5 @@ Common support answers:
 - Hold Control while hovering over a paragraph to translate that paragraph only.
 - Type three trailing spaces in a supported input box to translate the typed text.
 - The document translator handles text-based documents. Scanned PDFs need the planned OCR batch.
+- Video subtitle translation works only when the current video exposes captions or subtitles to the browser. It does not record audio or transcribe meetings.
 - Vocabulary and review data are stored in Chrome storage. Chrome may sync the data if browser sync is enabled.

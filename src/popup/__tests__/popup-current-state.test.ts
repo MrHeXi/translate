@@ -9,12 +9,14 @@ export {};
 const setupPopupDom = (): void => {
   document.body.innerHTML = `
     <button id="toggleTranslation"></button>
+    <button id="toggleVideoSubtitles"></button>
     <button id="translateBtn"></button>
     <button id="vocabularyBtn"></button>
     <button id="reviewBtn"></button>
     <button id="settingsBtn"></button>
     <button id="optionsBtn"></button>
     <span id="translationStatus"></span>
+    <span id="videoSubtitleStatus"></span>
     <textarea id="inputText"></textarea>
     <div id="translateResult"><div class="result-text"></div></div>
     <span id="totalWords"></span>
@@ -117,6 +119,9 @@ describe('Popup current tab state', () => {
     expect(document.getElementById('translationStatus')?.textContent).toBe('Off');
     expect(document.getElementById('toggleTranslation')?.textContent).toBe('Start');
     expect(document.getElementById('toggleTranslation')?.classList.contains('active')).toBe(false);
+    expect(document.getElementById('videoSubtitleStatus')?.textContent).toBe('Off');
+    expect(document.getElementById('toggleVideoSubtitles')?.textContent).toBe('Start');
+    expect(document.getElementById('toggleVideoSubtitles')?.classList.contains('active')).toBe(false);
     expect(document.getElementById('activeDictionarySummary')?.textContent).toBe('1 enabled');
     expect(document.querySelectorAll('#recentWords li')).toHaveLength(2);
     expect(document.getElementById('recentWords')?.textContent).toContain('ability');

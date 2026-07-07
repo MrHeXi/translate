@@ -48,11 +48,13 @@ describe('product packaging contract', () => {
     expect(readme).toContain('Hold Control while hovering');
     expect(readme).toContain('Press Space three times');
     expect(readme).toContain('Document Translation');
+    expect(readme).toContain('Video Subtitle Translation');
     expect(readme).toContain('simple text-based `.pdf` files');
+    expect(readme).toContain('without recording audio');
     expect(readme).toContain('100+ target language options');
     expect(readme).toContain('20+ provider roadmap');
     expect(readme).toContain('CET4, CET6, GRE, IELTS, TOEFL');
-    expect(readme).not.toMatch(/video subtitles|meeting translation/i);
+    expect(readme).not.toMatch(/audio transcription service|meeting translation service/i);
     expect(readme).toContain('not marketed as a layout-preserving PDF translator');
 
     const privacy = readProjectFile('PRIVACY.md');
@@ -83,6 +85,8 @@ describe('product packaging contract', () => {
     expect(listing).toContain('Control-hover paragraph translation');
     expect(listing).toContain('Input box translation');
     expect(listing).toContain('Text-based document translator');
+    expect(listing).toContain('Video subtitle translation');
+    expect(listing).toContain('does not record audio');
     expect(listing).toContain('100+ target language choices');
     expect(listing).toContain('20+ provider definitions');
     expect(listing).toContain('Vocabulary notebook');
@@ -97,7 +101,7 @@ describe('product packaging contract', () => {
     expect(listing).toContain('No default telemetry');
     expect(listing).toContain('Translate page');
     expect(listing).toContain('bottom-right');
-    expect(listing).not.toMatch(/PDF layout translator|video subtitle|OCR\/image reader|meeting translator|account-based cloud/i);
+    expect(listing).not.toMatch(/PDF layout translator|OCR\/image reader|meeting translator|account-based cloud/i);
   });
 
   it('records release verification and screenshot capture guidance', () => {
@@ -105,7 +109,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-07');
-    expect(releaseNotes).toContain('29 test suites and 185 tests');
+    expect(releaseNotes).toContain('30 test suites and 190 tests');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -117,6 +121,7 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('Hover Translation');
     expect(screenshotGuide).toContain('Input Box Translation');
     expect(screenshotGuide).toContain('Document Translator');
+    expect(screenshotGuide).toContain('Video Subtitles');
     expect(screenshotGuide).toContain('Vocabulary Notebook');
     expect(screenshotGuide).toContain('Review Page');
     expect(screenshotGuide).toContain('Options');
