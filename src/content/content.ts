@@ -2,7 +2,7 @@
 // 在网页中注入翻译功能
 
 import { FloatingIcon } from './components/FloatingIcon';
-import { TranslationOverlay } from './components/TranslationOverlay';
+import { PageTranslationDisplayMode, TranslationOverlay } from './components/TranslationOverlay';
 import { SelectionHandler } from './components/SelectionHandler';
 import { HoverTranslator } from './components/HoverTranslator';
 import { InputBoxTranslator } from './components/InputBoxTranslator';
@@ -25,6 +25,7 @@ interface TranslationResult {
 interface UserSettings {
   defaultTargetLanguage: string;
   translationProvider: string;
+  pageTranslationDisplayMode: PageTranslationDisplayMode;
   floatingIconPosition: { x: number; y: number };
   learningModeEnabled: boolean;
   activeDictionaries: string[];
@@ -122,10 +123,12 @@ class ContentScript {
       chrome.runtime.sendMessage({ action: 'getSettings' }, (response) => {
         if (response?.success) {
           this.userSettings = response.data;
+          this.translationOverlay.setDisplayMode(this.userSettings?.pageTranslationDisplayMode || 'bilingual');
           resolve();
         } else {
           console.warn('加载用户设置失败，使用默认设置');
           this.userSettings = this.getDefaultSettings();
+          this.translationOverlay.setDisplayMode(this.userSettings.pageTranslationDisplayMode);
           resolve();
         }
       });
@@ -173,6 +176,7 @@ class ContentScript {
     return {
       defaultTargetLanguage: 'zh-CN',
       translationProvider: 'google',
+      pageTranslationDisplayMode: 'bilingual',
       floatingIconPosition: { x: 9999, y: 9999 },
       learningModeEnabled: true,
       activeDictionaries: ['gre', 'toefl'],
@@ -615,7 +619,11 @@ class ContentScript {
             return;
           }
           
-          this.translationOverlay.addTranslation(node, translation);
+          this.translationOverlay.addTranslation(
+            node,
+            translation,
+            this.userSettings?.pageTranslationDisplayMode || 'bilingual'
+          );
         } catch (error) {
           console.warn('翻译文本节点失败:', error);
         }
@@ -752,6 +760,8 @@ class ContentScript {
     if (!this.userSettings) return;
 
     try {
+      this.translationOverlay.setDisplayMode(this.userSettings.pageTranslationDisplayMode || 'bilingual');
+
       // 更新浮动图标位置
       this.floatingIcon.updatePosition(this.userSettings.floatingIconPosition);
       

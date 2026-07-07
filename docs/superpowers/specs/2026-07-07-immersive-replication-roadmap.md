@@ -34,6 +34,7 @@ Current batch:
 - Input box translation using a deliberate shortcut.
 - Translation provider registry with Google Translate and MyMemory available.
 - 20+ provider definitions and 100+ target language choices for engine/language expansion.
+- Configurable page display modes: bilingual, translation only, and original only.
 
 ## Planned Batches
 
@@ -46,9 +47,9 @@ Current batch:
 
 ### Batch B: Bilingual Page Layout
 
-- Improve page translation from inserted blocks to configurable bilingual layout.
-- Add per-page display mode controls: original only, translation only, bilingual.
-- Preserve restore behavior.
+- Done: improve page translation from inserted blocks to configurable bilingual layout.
+- Done: add display mode controls: original only, translation only, bilingual.
+- Done: preserve restore behavior.
 
 ### Batch C: Translation Engine Expansion
 

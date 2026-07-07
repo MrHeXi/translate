@@ -130,6 +130,19 @@ describe('OptionsController', () => {
         remove: jest.fn() as jest.MockedFunction<any>,
         dataset: {}
       },
+      pageTranslationDisplayMode: {
+        addEventListener: jest.fn() as jest.MockedFunction<any>,
+        value: 'bilingual',
+        textContent: '',
+        disabled: false,
+        classList: { add: jest.fn() as jest.MockedFunction<any>, remove: jest.fn() as jest.MockedFunction<any> },
+        style: { display: 'block', cssText: '' },
+        querySelector: jest.fn() as jest.MockedFunction<any>,
+        className: '',
+        parentNode: null,
+        remove: jest.fn() as jest.MockedFunction<any>,
+        dataset: {}
+      },
       autoTranslate: { 
         addEventListener: jest.fn() as jest.MockedFunction<any>, 
         checked: false,
@@ -727,6 +740,7 @@ describe('OptionsController', () => {
         return {
           defaultTargetLanguage: 'zh-CN',
           translationProvider: 'google',
+          pageTranslationDisplayMode: 'bilingual',
           autoTranslate: false,
           showFloatingIcon: true,
           learningModeEnabled: true,
@@ -931,6 +945,7 @@ describe('OptionsController', () => {
       const mockSettings = {
         defaultTargetLanguage: 'zh-CN',
         translationProvider: 'google',
+        pageTranslationDisplayMode: 'bilingual',
         autoTranslate: false,
         showFloatingIcon: true,
         learningModeEnabled: true,
@@ -961,6 +976,7 @@ describe('OptionsController', () => {
       
       expect(settings).toHaveProperty('defaultTargetLanguage');
       expect(settings).toHaveProperty('translationProvider');
+      expect(settings).toHaveProperty('pageTranslationDisplayMode');
       expect(settings).toHaveProperty('activeDictionaries');
       expect(settings).toHaveProperty('highlightColors');
     });

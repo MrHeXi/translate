@@ -54,6 +54,7 @@ jest.mock('../components/TranslationOverlay', () => ({
   TranslationOverlay: jest.fn().mockImplementation(() => ({
     addTranslation: jest.fn(),
     removeAllTranslations: jest.fn(),
+    setDisplayMode: jest.fn(),
     showTooltip: jest.fn(),
     showAddToVocabularyOption: jest.fn(),
     showWordDetails: jest.fn(),
@@ -88,6 +89,7 @@ describe('Content Script 页面翻译属性测试', () => {
               data: {
                 defaultTargetLanguage: 'zh-CN',
                 translationProvider: 'google',
+                pageTranslationDisplayMode: 'bilingual',
                 floatingIconPosition: { x: 20, y: 20 },
                 learningModeEnabled: true,
                 activeDictionaries: ['gre'],

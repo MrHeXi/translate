@@ -14,6 +14,11 @@ describe('options UI settings contract', () => {
       <button id="startReview"></button>
       <select id="targetLanguage"><option value="zh-CN" selected>Chinese</option></select>
       <select id="translationProvider"><option value="google" selected>Google</option></select>
+      <select id="pageTranslationDisplayMode">
+        <option value="bilingual" selected>Bilingual</option>
+        <option value="translation-only">Translation only</option>
+        <option value="original-only">Original only</option>
+      </select>
       <select id="iconPosition">
         <option value="top-left" selected>Top left</option>
         <option value="top-right">Top right</option>
@@ -72,6 +77,7 @@ describe('options UI settings contract', () => {
           data: {
             defaultTargetLanguage: 'zh-CN',
             translationProvider: 'google',
+            pageTranslationDisplayMode: 'bilingual',
             autoTranslate: false,
             showFloatingIcon: true,
             floatingIconPosition: { x: 72, y: 96 },
@@ -140,6 +146,83 @@ describe('options UI settings contract', () => {
     );
   });
 
+  it('saves the selected page translation display mode', async () => {
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getSettings') {
+        callback({
+          success: true,
+          data: {
+            defaultTargetLanguage: 'zh-CN',
+            translationProvider: 'google',
+            pageTranslationDisplayMode: 'bilingual',
+            autoTranslate: false,
+            showFloatingIcon: true,
+            floatingIconPosition: { x: 72, y: 96 },
+            learningModeEnabled: false,
+            activeDictionaries: ['gre'],
+            highlightColors: {
+              gre: '#ff6b6b',
+              toefl: '#4ecdc4',
+              ielts: '#45b7d1',
+              cet4: '#96ceb4',
+              cet6: '#feca57'
+            },
+            dailyGoal: 20,
+            reviewInterval: 'spaced',
+            difficultyAdjustment: 'auto'
+          }
+        });
+        return;
+      }
+
+      if (message.action === 'getLearningStats') {
+        callback({
+          success: true,
+          data: {
+            totalWordsLearned: 0,
+            dailyGoal: 20,
+            currentStreak: 0,
+            longestStreak: 0,
+            reviewAccuracy: 0,
+            timeSpentLearning: 0
+          }
+        });
+        return;
+      }
+
+      if (message.action === 'getDictionaryProgress') {
+        callback({ success: true, data: {} });
+        return;
+      }
+
+      callback({ success: true });
+    });
+
+    (global as any).chrome = {
+      runtime: {
+        sendMessage,
+        lastError: null
+      }
+    };
+
+    require('../options');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    const displayMode = document.getElementById('pageTranslationDisplayMode') as HTMLSelectElement;
+    displayMode.value = 'translation-only';
+    document.getElementById('saveSettings')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'updateSettings',
+        data: expect.objectContaining({ pageTranslationDisplayMode: 'translation-only' })
+      }),
+      expect.any(Function)
+    );
+  });
+
   it('saves the selected floating button corner as clampable page coordinates', async () => {
     const sendMessage = jest.fn((message, callback) => {
       if (message.action === 'getSettings') {
@@ -148,6 +231,7 @@ describe('options UI settings contract', () => {
           data: {
             defaultTargetLanguage: 'zh-CN',
             translationProvider: 'google',
+            pageTranslationDisplayMode: 'bilingual',
             autoTranslate: false,
             showFloatingIcon: true,
             floatingIconPosition: { x: 24, y: 24 },
@@ -226,6 +310,7 @@ describe('options UI settings contract', () => {
           data: {
             defaultTargetLanguage: 'es',
             translationProvider: 'deepl',
+            pageTranslationDisplayMode: 'translation-only',
             autoTranslate: false,
             showFloatingIcon: true,
             floatingIconPosition: { x: 9999, y: 9999 },
@@ -282,10 +367,12 @@ describe('options UI settings contract', () => {
 
     const targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement;
     const translationProvider = document.getElementById('translationProvider') as HTMLSelectElement;
+    const displayMode = document.getElementById('pageTranslationDisplayMode') as HTMLSelectElement;
 
     expect(targetLanguage.options.length).toBeGreaterThanOrEqual(100);
     expect(targetLanguage.value).toBe('es');
     expect(Array.from(translationProvider.options).some(option => option.value === 'deepl' && option.disabled)).toBe(true);
     expect(translationProvider.value).toBe('google');
+    expect(displayMode.value).toBe('translation-only');
   });
 });

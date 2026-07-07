@@ -1,7 +1,7 @@
 // StorageManager 属性测试文件
 
 import * as fc from 'fast-check';
-import { StorageManager, UserData } from '../StorageManager';
+import { PageTranslationDisplayMode, StorageManager, UserData } from '../StorageManager';
 
 // 模拟 Chrome Storage API
 const mockChromeStorage = {
@@ -45,6 +45,7 @@ describe('StorageManager', () => {
         settings: {
           defaultTargetLanguage: 'en',
           translationProvider: 'google',
+          pageTranslationDisplayMode: 'bilingual',
           floatingIconPosition: { x: 10, y: 10 },
           learningModeEnabled: true,
           activeDictionaries: ['gre'],
@@ -71,6 +72,7 @@ describe('StorageManager', () => {
             settings: fc.record({
               defaultTargetLanguage: fc.constantFrom('zh-CN', 'en'),
               translationProvider: fc.constantFrom('google', 'microsoft'),
+              pageTranslationDisplayMode: fc.constantFrom<PageTranslationDisplayMode>('bilingual', 'translation-only', 'original-only'),
               floatingIconPosition: fc.record({
                 x: fc.integer({ min: 0, max: 100 }),
                 y: fc.integer({ min: 0, max: 100 })
@@ -120,6 +122,7 @@ describe('StorageManager', () => {
             // 验证核心数据完整性
             expect(loadedData.settings.defaultTargetLanguage).toBe(originalData.settings.defaultTargetLanguage);
             expect(loadedData.settings.translationProvider).toBe(originalData.settings.translationProvider);
+            expect(loadedData.settings.pageTranslationDisplayMode).toBe(originalData.settings.pageTranslationDisplayMode);
             expect(loadedData.settings.learningModeEnabled).toBe(originalData.settings.learningModeEnabled);
             expect(loadedData.vocabulary.length).toBe(originalData.vocabulary.length);
           }
@@ -136,6 +139,7 @@ describe('StorageManager', () => {
             settings: fc.record({
               defaultTargetLanguage: fc.constantFrom('zh-CN', 'en', 'fr'),
               translationProvider: fc.constantFrom('google', 'microsoft', 'baidu'),
+              pageTranslationDisplayMode: fc.constantFrom<PageTranslationDisplayMode>('bilingual', 'translation-only', 'original-only'),
               floatingIconPosition: fc.record({
                 x: fc.integer({ min: 0, max: 200 }),
                 y: fc.integer({ min: 0, max: 200 })
@@ -199,6 +203,7 @@ describe('StorageManager', () => {
             expect(exportedUserData.settings).toEqual(originalData.settings);
             expect(exportedUserData.settings.defaultTargetLanguage).toBe(originalData.settings.defaultTargetLanguage);
             expect(exportedUserData.settings.translationProvider).toBe(originalData.settings.translationProvider);
+            expect(exportedUserData.settings.pageTranslationDisplayMode).toBe(originalData.settings.pageTranslationDisplayMode);
             expect(exportedUserData.settings.floatingIconPosition).toEqual(originalData.settings.floatingIconPosition);
             expect(exportedUserData.settings.learningModeEnabled).toBe(originalData.settings.learningModeEnabled);
             expect(exportedUserData.settings.activeDictionaries).toEqual(originalData.settings.activeDictionaries);
@@ -276,6 +281,7 @@ describe('StorageManager', () => {
             settings: fc.record({
               defaultTargetLanguage: fc.constantFrom('zh-CN', 'en', 'ja'),
               translationProvider: fc.constantFrom('google', 'microsoft'),
+              pageTranslationDisplayMode: fc.constantFrom<PageTranslationDisplayMode>('bilingual', 'translation-only', 'original-only'),
               floatingIconPosition: fc.record({
                 x: fc.integer({ min: 0, max: 150 }),
                 y: fc.integer({ min: 0, max: 150 })
@@ -331,6 +337,7 @@ describe('StorageManager', () => {
             if (deviceAData.settings) {
               expect(deviceBData.settings.defaultTargetLanguage).toBe(deviceAData.settings.defaultTargetLanguage);
               expect(deviceBData.settings.translationProvider).toBe(deviceAData.settings.translationProvider);
+              expect(deviceBData.settings.pageTranslationDisplayMode).toBe(deviceAData.settings.pageTranslationDisplayMode);
               expect(deviceBData.settings.floatingIconPosition).toEqual(deviceAData.settings.floatingIconPosition);
               expect(deviceBData.settings.learningModeEnabled).toBe(deviceAData.settings.learningModeEnabled);
               expect(deviceBData.settings.activeDictionaries).toEqual(deviceAData.settings.activeDictionaries);

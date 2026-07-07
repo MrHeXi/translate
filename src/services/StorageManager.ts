@@ -3,6 +3,7 @@
 export interface UserSettings {
   defaultTargetLanguage: string;
   translationProvider: string;
+  pageTranslationDisplayMode: PageTranslationDisplayMode;
   floatingIconPosition: { x: number; y: number };
   learningModeEnabled: boolean;
   activeDictionaries: string[];
@@ -10,6 +11,8 @@ export interface UserSettings {
   autoTranslate: boolean;
   showFloatingIcon: boolean;
 }
+
+export type PageTranslationDisplayMode = 'bilingual' | 'translation-only' | 'original-only';
 
 export interface UserData {
   settings: UserSettings;
@@ -22,6 +25,7 @@ export class StorageManager {
   private defaultSettings: UserSettings = {
     defaultTargetLanguage: 'zh-CN',
     translationProvider: 'google',
+    pageTranslationDisplayMode: 'bilingual',
     floatingIconPosition: { x: 9999, y: 9999 },
     learningModeEnabled: true,
     activeDictionaries: ['gre', 'toefl'],

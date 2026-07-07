@@ -2,9 +2,12 @@
 
 import { TRANSLATION_LANGUAGES, TRANSLATION_PROVIDERS } from '../services/TranslationProviderRegistry';
 
+type PageTranslationDisplayMode = 'bilingual' | 'translation-only' | 'original-only';
+
 interface UserSettings {
   defaultTargetLanguage: string;
   translationProvider: string;
+  pageTranslationDisplayMode: PageTranslationDisplayMode;
   autoTranslate: boolean;
   showFloatingIcon: boolean;
   floatingIconPosition: { x: number; y: number };
@@ -127,6 +130,9 @@ class OptionsController {
 
     const translationProvider = document.getElementById('translationProvider') as HTMLSelectElement;
     translationProvider?.addEventListener('change', () => this.onSettingChange());
+
+    const pageTranslationDisplayMode = document.getElementById('pageTranslationDisplayMode') as HTMLSelectElement;
+    pageTranslationDisplayMode?.addEventListener('change', () => this.onSettingChange());
 
     const autoTranslate = document.getElementById('autoTranslate') as HTMLInputElement;
     autoTranslate?.addEventListener('change', () => this.onSettingChange());
@@ -274,6 +280,11 @@ class OptionsController {
     const translationProvider = document.getElementById('translationProvider') as HTMLSelectElement;
     if (translationProvider) this.setSelectValue(translationProvider, this.settings.translationProvider, 'google');
 
+    const pageTranslationDisplayMode = document.getElementById('pageTranslationDisplayMode') as HTMLSelectElement;
+    if (pageTranslationDisplayMode) {
+      this.setSelectValue(pageTranslationDisplayMode, this.settings.pageTranslationDisplayMode || 'bilingual', 'bilingual');
+    }
+
     const autoTranslate = document.getElementById('autoTranslate') as HTMLInputElement;
     if (autoTranslate) autoTranslate.checked = this.settings.autoTranslate;
 
@@ -420,6 +431,9 @@ class OptionsController {
   private collectSettingsFromUI(): UserSettings {
     const targetLanguage = (document.getElementById('targetLanguage') as HTMLSelectElement)?.value || 'zh-CN';
     const translationProvider = (document.getElementById('translationProvider') as HTMLSelectElement)?.value || 'google';
+    const pageTranslationDisplayMode = (
+      (document.getElementById('pageTranslationDisplayMode') as HTMLSelectElement)?.value || 'bilingual'
+    ) as PageTranslationDisplayMode;
     const autoTranslate = (document.getElementById('autoTranslate') as HTMLInputElement)?.checked || false;
     const showFloatingIconInput = document.getElementById('showFloatingIcon') as HTMLInputElement | null;
     const showFloatingIcon = showFloatingIconInput ? showFloatingIconInput.checked : true;
@@ -448,6 +462,7 @@ class OptionsController {
     return {
       defaultTargetLanguage: targetLanguage,
       translationProvider: translationProvider,
+      pageTranslationDisplayMode: pageTranslationDisplayMode,
       autoTranslate: autoTranslate,
       showFloatingIcon: showFloatingIcon,
       floatingIconPosition: this.getSelectedFloatingIconPosition(),

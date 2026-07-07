@@ -29,6 +29,7 @@ describe('Content script direct runtime message contract', () => {
               data: {
                 defaultTargetLanguage: 'zh-CN',
                 translationProvider: 'google',
+                pageTranslationDisplayMode: 'bilingual',
                 floatingIconPosition: { x: 20, y: 20 },
                 learningModeEnabled: false,
                 activeDictionaries: ['gre'],
@@ -75,6 +76,7 @@ describe('Content script direct runtime message contract', () => {
       TranslationOverlay: jest.fn().mockImplementation(() => ({
         addTranslation: jest.fn(),
         removeAllTranslations: jest.fn(),
+        setDisplayMode: jest.fn(),
         showTooltip: jest.fn(),
         showAddToVocabularyOption: jest.fn(),
         showWordDetails: jest.fn(),
@@ -176,6 +178,7 @@ describe('Content script direct runtime message contract', () => {
               data: {
                 defaultTargetLanguage: 'zh-CN',
                 translationProvider: 'google',
+                pageTranslationDisplayMode: 'bilingual',
                 floatingIconPosition: { x: 20, y: 20 },
                 learningModeEnabled: false,
                 activeDictionaries: ['gre'],
@@ -222,6 +225,7 @@ describe('Content script direct runtime message contract', () => {
       TranslationOverlay: jest.fn().mockImplementation(() => ({
         addTranslation: jest.fn(),
         removeAllTranslations: jest.fn(),
+        setDisplayMode: jest.fn(),
         showTooltip: jest.fn(),
         showAddToVocabularyOption: jest.fn(),
         showWordDetails: jest.fn(),
@@ -327,6 +331,7 @@ describe('Content script direct runtime message contract', () => {
               data: {
                 defaultTargetLanguage: 'zh-CN',
                 translationProvider: 'google',
+                pageTranslationDisplayMode: 'bilingual',
                 floatingIconPosition: { x: 20, y: 20 },
                 learningModeEnabled: false,
                 activeDictionaries: ['gre'],
@@ -373,6 +378,7 @@ describe('Content script direct runtime message contract', () => {
       TranslationOverlay: jest.fn().mockImplementation(() => ({
         addTranslation: jest.fn(),
         removeAllTranslations: jest.fn(),
+        setDisplayMode: jest.fn(),
         showTooltip: jest.fn(),
         showAddToVocabularyOption: jest.fn(),
         showWordDetails: jest.fn(),

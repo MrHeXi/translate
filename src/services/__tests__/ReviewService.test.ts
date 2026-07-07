@@ -21,6 +21,7 @@ const makeWord = (
 const makeSettings = (activeDictionaries: string[]): UserSettings => ({
   defaultTargetLanguage: 'zh-CN',
   translationProvider: 'google',
+  pageTranslationDisplayMode: 'bilingual',
   floatingIconPosition: { x: 20, y: 20 },
   learningModeEnabled: true,
   activeDictionaries,

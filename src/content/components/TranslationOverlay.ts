@@ -1,19 +1,40 @@
 // 翻译覆盖层组件
 // 负责在原文下方显示译文
 
+export type PageTranslationDisplayMode = 'bilingual' | 'translation-only' | 'original-only';
+
+interface TranslationEntry {
+  wrapper: HTMLElement;
+  originalElement: HTMLElement;
+  translationElement: HTMLElement;
+}
+
 export class TranslationOverlay {
-  private translations: Map<Node, HTMLElement> = new Map();
+  private translations: Map<Node, TranslationEntry> = new Map();
   private tooltipElement: HTMLElement | null = null;
   private wordDetailsModal: HTMLElement | null = null;
+  private displayMode: PageTranslationDisplayMode = 'bilingual';
 
-  addTranslation(textNode: Node, translation: string): void {
+  setDisplayMode(mode: PageTranslationDisplayMode): void {
+    this.displayMode = mode;
+
+    for (const entry of this.translations.values()) {
+      this.applyDisplayMode(entry);
+    }
+  }
+
+  addTranslation(textNode: Node, translation: string, displayMode: PageTranslationDisplayMode = this.displayMode): void {
     // 如果已经有翻译，先移除
     this.removeTranslation(textNode);
+    this.displayMode = displayMode;
 
     // 创建翻译元素
     const translationElement = document.createElement('div');
     translationElement.className = 'translation-overlay';
     translationElement.textContent = translation;
+
+    const originalElement = document.createElement('span');
+    originalElement.className = 'translation-original';
     
     // 设置样式
     this.setTranslationStyles(translationElement);
@@ -30,11 +51,40 @@ export class TranslationOverlay {
       
       // 将原文节点包装起来
       parentElement.insertBefore(wrapper, textNode);
-      wrapper.appendChild(textNode);
+      originalElement.appendChild(textNode);
+      wrapper.appendChild(originalElement);
       wrapper.appendChild(translationElement);
+      const entry = {
+        wrapper,
+        originalElement,
+        translationElement
+      };
+      this.applyDisplayMode(entry);
       
       // 记录翻译映射
-      this.translations.set(textNode, wrapper);
+      this.translations.set(textNode, entry);
+    }
+  }
+
+  private applyDisplayMode(entry: TranslationEntry): void {
+    entry.wrapper.dataset['translationDisplayMode'] = this.displayMode;
+
+    switch (this.displayMode) {
+      case 'translation-only':
+        entry.originalElement.style.display = 'none';
+        entry.translationElement.style.display = 'block';
+        entry.translationElement.style.marginTop = '0';
+        break;
+      case 'original-only':
+        entry.originalElement.style.display = '';
+        entry.translationElement.style.display = 'none';
+        break;
+      case 'bilingual':
+      default:
+        entry.originalElement.style.display = '';
+        entry.translationElement.style.display = 'block';
+        entry.translationElement.style.marginTop = '3px';
+        break;
     }
   }
 
@@ -535,7 +585,8 @@ export class TranslationOverlay {
   }
 
   removeTranslation(textNode: Node): void {
-    const wrapper = this.translations.get(textNode);
+    const entry = this.translations.get(textNode);
+    const wrapper = entry?.wrapper;
     if (wrapper && wrapper.parentNode) {
       // 将原文节点移回原位置
       wrapper.parentNode.insertBefore(textNode, wrapper);
@@ -548,7 +599,8 @@ export class TranslationOverlay {
 
   removeAllTranslations(): void {
     // 移除所有翻译
-    for (const [textNode, wrapper] of this.translations) {
+    for (const [textNode, entry] of this.translations) {
+      const wrapper = entry.wrapper;
       if (wrapper.parentNode) {
         wrapper.parentNode.insertBefore(textNode, wrapper);
         wrapper.parentNode.removeChild(wrapper);

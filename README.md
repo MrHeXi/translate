@@ -25,6 +25,7 @@ It is not marketed as a document layout translator, video subtitle tool, image r
 - Keep translation mode off until the user explicitly enables it.
 - Turn translation mode off immediately to remove added page translations.
 - Show page translation progress without blocking the whole page.
+- Choose page display mode: bilingual, translation only, or original only.
 - Choose from 100+ target language options in settings.
 - Use Google Translate or MyMemory today, with a 20+ provider roadmap tracked for future engine expansion.
 
@@ -76,6 +77,7 @@ The generated test package is `chrome-translation-extension.zip`.
 1. Open a web page.
 2. Click the extension popup or the manual floating button.
 3. Click again to stop translation and restore the page.
+4. In settings, choose whether translated pages show bilingual text, translation only, or original only.
 
 ### Translate a Selection
 

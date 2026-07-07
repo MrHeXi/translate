@@ -321,6 +321,7 @@ class BackgroundService {
         await this.storageManager.saveSettings({
           defaultTargetLanguage: 'zh-CN',
           translationProvider: 'google',
+          pageTranslationDisplayMode: 'bilingual',
           learningModeEnabled: true
         });
       } catch (error) {
@@ -638,6 +639,7 @@ class BackgroundService {
     const defaultSettings = {
       defaultTargetLanguage: 'zh-CN',
       translationProvider: 'google',
+      pageTranslationDisplayMode: 'bilingual' as const,
       autoTranslate: false,
       showFloatingIcon: true,
       floatingIconPosition: { x: 9999, y: 9999 },
@@ -687,6 +689,7 @@ class BackgroundService {
     const defaultSettings = {
       defaultTargetLanguage: 'zh-CN',
       translationProvider: 'google',
+      pageTranslationDisplayMode: 'bilingual' as const,
       autoTranslate: false,
       showFloatingIcon: true,
       floatingIconPosition: { x: 9999, y: 9999 },
