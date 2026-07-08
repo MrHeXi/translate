@@ -202,6 +202,10 @@ select {
   border-radius: 8px;
 }
 
+.document-result-block--layout {
+  border-left: 4px solid #246bfe;
+}
+
 .block-index {
   margin-bottom: 8px;
   color: #617089;

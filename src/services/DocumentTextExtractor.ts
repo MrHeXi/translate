@@ -1,6 +1,16 @@
 export interface DocumentBlock {
   id: number;
   originalText: string;
+  layout?: DocumentBlockLayout;
+}
+
+export interface DocumentBlockLayout {
+  pageNumber: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  source: 'pdf-text' | 'plain-text' | 'subtitle';
 }
 
 export class DocumentTextExtractor {
@@ -11,6 +21,18 @@ export class DocumentTextExtractor {
     }
 
     return file.text();
+  }
+
+  static async extractBlocksFromFile(file: File, maxBlockLength: number = 1200): Promise<DocumentBlock[]> {
+    if (this.isPdfFile(file)) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const layoutBlocks = this.extractLayoutBlocksFromPdfBytes(bytes);
+      if (layoutBlocks.length > 0) return layoutBlocks;
+
+      return this.splitIntoBlocks(this.extractTextFromPdfBytes(bytes), maxBlockLength);
+    }
+
+    return this.splitIntoBlocks(await file.text(), maxBlockLength);
   }
 
   static splitIntoBlocks(text: string, maxBlockLength: number = 1200): DocumentBlock[] {
@@ -31,6 +53,11 @@ export class DocumentTextExtractor {
   }
 
   static extractTextFromPdfBytes(bytes: Uint8Array): string {
+    const layoutBlocks = this.extractLayoutBlocksFromPdfBytes(bytes);
+    if (layoutBlocks.length > 0) {
+      return layoutBlocks.map(block => block.originalText).join('\n').trim();
+    }
+
     const pdfText = this.bytesToBinaryString(bytes);
     const extracted: string[] = [];
 
@@ -53,6 +80,26 @@ export class DocumentTextExtractor {
       .filter(Boolean)
       .join('\n')
       .trim();
+  }
+
+  static extractLayoutBlocksFromPdfBytes(bytes: Uint8Array): DocumentBlock[] {
+    const pdfText = this.bytesToBinaryString(bytes);
+    const streams = this.extractPdfStreams(pdfText);
+    const streamSources = streams.length > 0 ? streams : [{ pageNumber: 1, body: pdfText }];
+    const items = streamSources.flatMap(stream => this.extractPdfLayoutItems(stream.body, stream.pageNumber));
+
+    return items.map((item, index) => ({
+      id: index + 1,
+      originalText: item.text,
+      layout: {
+        pageNumber: item.pageNumber,
+        x: item.x,
+        y: item.y,
+        width: Math.max(48, Math.round(item.text.length * 7)),
+        height: 18,
+        source: 'pdf-text'
+      }
+    }));
   }
 
   private static normalizeText(text: string): string {
@@ -104,6 +151,85 @@ export class DocumentTextExtractor {
 
   private static isPdfFile(file: File): boolean {
     return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+  }
+
+  private static extractPdfStreams(pdfText: string): Array<{ pageNumber: number; body: string }> {
+    const streams: Array<{ pageNumber: number; body: string }> = [];
+    const streamPattern = /stream\r?\n?([\s\S]*?)\r?\n?endstream/g;
+    let pageNumber = 1;
+
+    for (const match of pdfText.matchAll(streamPattern)) {
+      const body = match[1] || '';
+      if (!/BT[\s\S]*ET/.test(body)) continue;
+
+      streams.push({ pageNumber, body });
+      pageNumber++;
+    }
+
+    return streams;
+  }
+
+  private static extractPdfLayoutItems(streamBody: string, pageNumber: number): Array<{ pageNumber: number; text: string; x: number; y: number }> {
+    const items: Array<{ pageNumber: number; text: string; x: number; y: number }> = [];
+    const numberPattern = '[-+]?\\d*\\.?\\d+';
+    const operatorPattern = new RegExp([
+      `(${numberPattern})\\s+(${numberPattern})\\s+(${numberPattern})\\s+(${numberPattern})\\s+(${numberPattern})\\s+(${numberPattern})\\s+Tm`,
+      `(${numberPattern})\\s+(${numberPattern})\\s+T[dD]`,
+      `(\\((?:\\\\.|[^\\\\()])*\\)|<[\\dA-Fa-f\\s]+>)\\s*Tj`,
+      `\\[((?:.|\\r|\\n)*?)\\]\\s*TJ`,
+      'T\\*'
+    ].join('|'), 'g');
+
+    let currentX = 0;
+    let currentY = 0;
+
+    for (const match of streamBody.matchAll(operatorPattern)) {
+      if (match[5] !== undefined && match[6] !== undefined) {
+        currentX = Number(match[5]);
+        currentY = Number(match[6]);
+        continue;
+      }
+
+      if (match[7] !== undefined && match[8] !== undefined) {
+        currentX += Number(match[7]);
+        currentY += Number(match[8]);
+        continue;
+      }
+
+      if (match[9]) {
+        this.pushPdfLayoutItem(items, pageNumber, this.decodePdfTextToken(match[9]), currentX, currentY);
+        continue;
+      }
+
+      if (match[10]) {
+        const tokens = match[10].match(/\((?:\\.|[^\\()])*\)|<[\dA-Fa-f\s]+>/g) || [];
+        const text = tokens.map(token => this.decodePdfTextToken(token)).join('');
+        this.pushPdfLayoutItem(items, pageNumber, text, currentX, currentY);
+        continue;
+      }
+
+      currentY -= 14;
+    }
+
+    return items;
+  }
+
+  private static pushPdfLayoutItem(
+    items: Array<{ pageNumber: number; text: string; x: number; y: number }>,
+    pageNumber: number,
+    text: string,
+    x: number,
+    y: number
+  ): void {
+    const normalizedText = text.replace(/\s+/g, ' ').trim();
+    if (!normalizedText) return;
+
+    items.push({
+      pageNumber,
+      text: normalizedText,
+      x: Math.round(x * 100) / 100,
+      y: Math.round(y * 100) / 100
+    });
   }
 
   private static bytesToBinaryString(bytes: Uint8Array): string {

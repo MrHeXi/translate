@@ -67,7 +67,8 @@ Current batch:
 - Done: detect document URLs and expose a manual document translator entry.
 - Done: support pasted text, text files, Markdown, subtitle files, and simple text-based PDFs.
 - Done: render translated document blocks with bilingual, translation-only, or original-only display.
-- Remaining: layout-preserving PDF rendering and scanned PDF OCR.
+- Done: preserve page and coordinate metadata for simple text-based PDF layout blocks.
+- Remaining: full visual PDF rendering and scanned PDF OCR.
 
 ### Batch E: Video Subtitle Translation
 

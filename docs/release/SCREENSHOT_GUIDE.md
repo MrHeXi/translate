@@ -67,6 +67,7 @@ Capture the document translator page with:
 - Source text or a safe sample document loaded.
 - Bilingual translated blocks visible.
 - Target language, provider, and display mode controls visible.
+- For a text-based PDF sample, page and coordinate metadata visible on translated blocks.
 
 ### Video Subtitles
 

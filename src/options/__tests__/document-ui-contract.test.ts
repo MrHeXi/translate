@@ -115,4 +115,50 @@ describe('document translator page', () => {
     expect(original.style.display).toBe('none');
     expect(translation.style.display).toBe('block');
   });
+
+  it('keeps PDF layout metadata when translating loaded text-based PDFs', async () => {
+    require('../document');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    const pdf = [
+      '%PDF-1.4',
+      'stream',
+      'BT',
+      '1 0 0 1 72 720 Tm',
+      '(PDF heading) Tj',
+      '1 0 0 1 72 690 Tm',
+      '(PDF body) Tj',
+      'ET',
+      'endstream'
+    ].join('\n');
+    const file = new File([pdf], 'layout.pdf', { type: 'application/pdf' });
+    Object.defineProperty(file, 'arrayBuffer', {
+      value: async () => new Uint8Array([...pdf].map(character => character.charCodeAt(0))).buffer,
+      configurable: true
+    });
+    const fileInput = document.getElementById('documentFile') as HTMLInputElement;
+
+    Object.defineProperty(fileInput, 'files', {
+      value: [file],
+      configurable: true
+    });
+
+    fileInput.dispatchEvent(new Event('change'));
+    await flushPromises();
+    await flushPromises();
+
+    expect((document.getElementById('sourceText') as HTMLTextAreaElement).value).toContain('PDF heading');
+    expect(document.getElementById('documentMessage')?.textContent).toBe('layout.pdf loaded with PDF layout blocks');
+
+    document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+    await flushPromises();
+
+    const blocks = document.querySelectorAll('.document-result-block--layout');
+    expect(blocks).toHaveLength(2);
+    expect((blocks[0] as HTMLElement).dataset['page']).toBe('1');
+    expect(blocks[0].querySelector('.block-index')?.textContent).toContain('Page 1 · Block 1 · x 72 · y 720');
+    expect(document.getElementById('translationResults')?.textContent).toContain('translated: PDF heading');
+  });
 });

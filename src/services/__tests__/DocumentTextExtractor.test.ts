@@ -48,4 +48,66 @@ describe('DocumentTextExtractor', () => {
     expect(text).toContain('and array text');
     expect(text).toContain('\u4F60\u597D');
   });
+
+  it('extracts layout blocks from simple PDF text streams', () => {
+    const pdf = [
+      '%PDF-1.4',
+      'stream',
+      'BT',
+      '1 0 0 1 72 720 Tm',
+      '(First page heading) Tj',
+      '1 0 0 1 72 690 Tm',
+      '[(First ) 20 (page body)] TJ',
+      'ET',
+      'endstream',
+      'stream',
+      'BT',
+      '1 0 0 1 64 700 Tm',
+      '(Second page text) Tj',
+      'ET',
+      'endstream'
+    ].join('\n');
+    const bytes = new Uint8Array([...pdf].map(character => character.charCodeAt(0)));
+
+    const blocks = DocumentTextExtractor.extractLayoutBlocksFromPdfBytes(bytes);
+
+    expect(blocks).toEqual([
+      {
+        id: 1,
+        originalText: 'First page heading',
+        layout: {
+          pageNumber: 1,
+          x: 72,
+          y: 720,
+          width: 126,
+          height: 18,
+          source: 'pdf-text'
+        }
+      },
+      {
+        id: 2,
+        originalText: 'First page body',
+        layout: {
+          pageNumber: 1,
+          x: 72,
+          y: 690,
+          width: 105,
+          height: 18,
+          source: 'pdf-text'
+        }
+      },
+      {
+        id: 3,
+        originalText: 'Second page text',
+        layout: {
+          pageNumber: 2,
+          x: 64,
+          y: 700,
+          width: 112,
+          height: 18,
+          source: 'pdf-text'
+        }
+      }
+    ]);
+  });
 });

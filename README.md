@@ -19,7 +19,7 @@ It is best for:
 - Reviewing CET4, CET6, GRE, IELTS, TOEFL vocabulary.
 - Keeping a local-first vocabulary notebook with Chrome storage sync support.
 
-It is not marketed as a layout-preserving PDF translator, automatic whole-page image reader, audio transcription service, or meeting bot that records or joins calls.
+It is not marketed as a full scanned-PDF OCR translator, automatic whole-page image reader, audio transcription service, or meeting bot that records or joins calls.
 
 ## Core Features
 
@@ -50,7 +50,8 @@ It is not marketed as a layout-preserving PDF translator, automatic whole-page i
 - Open the document translator from the popup or from detected document URLs.
 - Paste text or upload `.txt`, `.md`, `.srt`, `.vtt`, or simple text-based `.pdf` files.
 - Translate document blocks manually with bilingual, translation-only, or original-only display.
-- Scanned PDFs and layout-preserving PDF rendering are planned for the OCR/document layout batches.
+- Preserve page and coordinate metadata for simple text-based PDF layout blocks.
+- Scanned PDFs and full PDF visual rendering are planned for later OCR/document layout batches.
 
 ### Video Subtitle Translation
 

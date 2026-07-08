@@ -52,12 +52,13 @@ describe('product packaging contract', () => {
     expect(readme).toContain('Live Caption Translation');
     expect(readme).toContain('Image Text Translation');
     expect(readme).toContain('simple text-based `.pdf` files');
+    expect(readme).toContain('Preserve page and coordinate metadata');
     expect(readme).toContain('without recording audio');
     expect(readme).toContain('100+ target language options');
     expect(readme).toContain('20+ provider roadmap');
     expect(readme).toContain('CET4, CET6, GRE, IELTS, TOEFL');
     expect(readme).not.toMatch(/automatic audio transcription|records calls|joins calls automatically/i);
-    expect(readme).toContain('not marketed as a layout-preserving PDF translator');
+    expect(readme).toContain('not marketed as a full scanned-PDF OCR translator');
 
     const privacy = readProjectFile('PRIVACY.md');
     expect(privacy).toContain('No default telemetry');
@@ -87,6 +88,7 @@ describe('product packaging contract', () => {
     expect(listing).toContain('Control-hover paragraph translation');
     expect(listing).toContain('Input box translation');
     expect(listing).toContain('Text-based document translator');
+    expect(listing).toContain('layout block metadata');
     expect(listing).toContain('Video subtitle translation');
     expect(listing).toContain('Live caption translation');
     expect(listing).toContain('Manual image text translation');
@@ -115,7 +117,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-08');
-    expect(releaseNotes).toContain('32 test suites and 199 tests');
+    expect(releaseNotes).toContain('32 test suites and 201 tests');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');

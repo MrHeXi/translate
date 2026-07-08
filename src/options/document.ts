@@ -26,6 +26,8 @@ class DocumentTranslatorController {
   private progressBar: HTMLElement | null = null;
   private progressText: HTMLElement | null = null;
   private resultsContainer: HTMLElement | null = null;
+  private loadedDocumentBlocks: DocumentBlock[] | null = null;
+  private loadedSourceText = '';
 
   constructor() {
     this.initialize();
@@ -121,15 +123,21 @@ class DocumentTranslatorController {
 
     try {
       this.setBusy(true);
-      const text = await DocumentTextExtractor.extractFromFile(file);
+      const blocks = await DocumentTextExtractor.extractBlocksFromFile(file);
+      const text = blocks.map(block => block.originalText).join('\n\n');
 
       if (!text.trim()) {
+        this.loadedDocumentBlocks = null;
+        this.loadedSourceText = '';
         this.showMessage('No selectable text was found. Scanned PDFs need OCR in a later batch.', 'error');
         return;
       }
 
+      this.loadedDocumentBlocks = blocks;
+      this.loadedSourceText = text;
       this.sourceText.value = text;
-      this.showMessage(`${file.name} loaded`);
+      const hasLayout = blocks.some(block => block.layout);
+      this.showMessage(`${file.name} loaded${hasLayout ? ' with PDF layout blocks' : ''}`);
       this.updateProgress(0, 0);
     } catch (error) {
       this.showMessage(error instanceof Error ? error.message : 'Could not load the document.', 'error');
@@ -145,7 +153,7 @@ class DocumentTranslatorController {
       return;
     }
 
-    const blocks = DocumentTextExtractor.splitIntoBlocks(text);
+    const blocks = this.getCurrentDocumentBlocks(text);
     if (blocks.length === 0) {
       this.showMessage('No translatable document blocks found.', 'error');
       return;
@@ -206,10 +214,14 @@ class DocumentTranslatorController {
     for (const result of results) {
       const block = document.createElement('article');
       block.className = 'document-result-block';
+      if (result.block.layout) {
+        block.classList.add('document-result-block--layout');
+        block.dataset['page'] = String(result.block.layout.pageNumber);
+      }
 
       const index = document.createElement('div');
       index.className = 'block-index';
-      index.textContent = `Block ${result.block.id}`;
+      index.textContent = this.getBlockLabel(result.block);
 
       const original = document.createElement('div');
       original.className = 'document-original';
@@ -243,9 +255,30 @@ class DocumentTranslatorController {
     });
   }
 
+  private getCurrentDocumentBlocks(text: string): DocumentBlock[] {
+    if (this.loadedDocumentBlocks && text === this.loadedSourceText) {
+      return this.loadedDocumentBlocks;
+    }
+
+    return DocumentTextExtractor.splitIntoBlocks(text);
+  }
+
+  private getBlockLabel(block: DocumentBlock): string {
+    if (!block.layout) return `Block ${block.id}`;
+
+    return [
+      `Page ${block.layout.pageNumber}`,
+      `Block ${block.id}`,
+      `x ${block.layout.x}`,
+      `y ${block.layout.y}`
+    ].join(' · ');
+  }
+
   private clearDocument(): void {
     if (this.sourceText) this.sourceText.value = '';
     if (this.fileInput) this.fileInput.value = '';
+    this.loadedDocumentBlocks = null;
+    this.loadedSourceText = '';
     this.renderResults([]);
     this.updateProgress(0, 0);
     this.showMessage('');
