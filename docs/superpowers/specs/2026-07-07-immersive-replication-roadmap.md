@@ -83,6 +83,7 @@ Current batch:
 - Done: extract text through browser TextDetector OCR when available, with SVG text and accessibility text fallbacks.
 - Done: render translated overlays near the selected image target.
 - Done: support manual drag-to-select OCR regions for images and canvases.
+- Done: render separate OCR text-block overlays when the browser returns bounding boxes.
 - Done: keep all OCR-triggering actions explicit.
 - Remaining: full scanned-document OCR and automatic manga panel segmentation.
 

@@ -73,6 +73,7 @@ It is not marketed as a full scanned-PDF OCR translator, automatic whole-page im
 - Click an image, canvas, or SVG to translate extracted text.
 - Drag over an image or canvas to translate only the selected region, useful for comic speech bubbles or dense screenshots.
 - Use browser `TextDetector` OCR when available, with SVG text and image accessibility text as fallbacks.
+- Render separate translation overlays for detected OCR text blocks when the browser provides bounding boxes.
 - Full scanned-document OCR and automatic manga panel segmentation are planned for later batches.
 
 ### Vocabulary Learning

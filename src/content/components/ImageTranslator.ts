@@ -8,6 +8,16 @@ type TranslateText = (text: string) => Promise<string>;
 
 interface DetectedText {
   rawValue?: string;
+  boundingBox?: {
+    x?: number;
+    y?: number;
+    left?: number;
+    top?: number;
+    right?: number;
+    bottom?: number;
+    width?: number;
+    height?: number;
+  };
 }
 
 interface TextDetectorLike {
@@ -30,6 +40,22 @@ interface ImageSelectionState {
   currentY: number;
 }
 
+interface ImageTextBlock {
+  text: string;
+  viewportRect?: DOMRect;
+}
+
+interface ImageBitmapMapping {
+  sourceX: number;
+  sourceY: number;
+  sourceWidth: number;
+  sourceHeight: number;
+  viewportLeft: number;
+  viewportTop: number;
+  viewportWidth: number;
+  viewportHeight: number;
+}
+
 declare global {
   interface Window {
     TextDetector?: new () => TextDetectorLike;
@@ -40,12 +66,14 @@ export class ImageTranslator {
   private isActive = false;
   private translateText: TranslateText | null = null;
   private overlayElement: HTMLElement | null = null;
+  private regionalOverlayElements: HTMLElement[] = [];
   private styleElement: HTMLStyleElement | null = null;
   private selectionElement: HTMLElement | null = null;
   private selectionState: ImageSelectionState | null = null;
   private suppressNextClick = false;
   private lastImageText = '';
   private translationCache: Map<string, string> = new Map();
+  private pendingTranslationCache: Map<string, Promise<string>> = new Map();
   private boundHandleClick = (event: MouseEvent): void => {
     void this.handleImageClick(event);
   };
@@ -100,6 +128,7 @@ export class ImageTranslator {
     document.body.classList.remove('lexibridge-image-translation-mode');
     this.overlayElement?.remove();
     this.overlayElement = null;
+    this.removeRegionalOverlays();
     this.removeSelectionBox();
     this.selectionState = null;
     this.suppressNextClick = false;
@@ -119,6 +148,7 @@ export class ImageTranslator {
   cleanup(): void {
     this.disable();
     this.translationCache.clear();
+    this.pendingTranslationCache.clear();
   }
 
   private async handleImageClick(event: MouseEvent): Promise<void> {
@@ -139,33 +169,14 @@ export class ImageTranslator {
 
     this.renderStatus(target, 'Reading image text...');
 
-    const imageText = await this.extractImageText(target);
-    if (!imageText) {
+    const imageBlocks = await this.extractImageTextBlocks(target);
+    if (imageBlocks.length === 0) {
       this.lastImageText = '';
       this.renderStatus(target, 'No readable image text found');
       return;
     }
 
-    if (imageText === this.lastImageText) return;
-
-    this.lastImageText = imageText;
-    this.renderResult(target, imageText, 'Translating...');
-
-    try {
-      let translatedText = this.translationCache.get(imageText);
-      if (!translatedText) {
-        translatedText = await this.translateText(imageText);
-        this.translationCache.set(imageText, translatedText);
-      }
-
-      if (this.isActive && this.lastImageText === imageText) {
-        this.renderResult(target, imageText, translatedText);
-      }
-    } catch (error) {
-      if (this.isActive && this.lastImageText === imageText) {
-        this.renderResult(target, imageText, 'Image translation failed');
-      }
-    }
+    await this.translateImageBlocks(target, imageBlocks);
   }
 
   private handleMouseDown(event: MouseEvent): void {
@@ -211,33 +222,61 @@ export class ImageTranslator {
 
     this.renderStatus(selectionState.target, 'Reading selected image area...', region);
 
-    const imageText = await this.extractImageText(selectionState.target, region);
-    if (!imageText) {
+    const imageBlocks = await this.extractImageTextBlocks(selectionState.target, region);
+    if (imageBlocks.length === 0) {
       this.lastImageText = '';
       this.renderStatus(selectionState.target, 'No readable text found in selection', region);
       return;
     }
 
+    await this.translateImageBlocks(selectionState.target, imageBlocks, region);
+  }
+
+  private async translateImageBlocks(target: Element, imageBlocks: ImageTextBlock[], region?: ImageSelectionRegion): Promise<void> {
+    if (!this.translateText) return;
+
+    const imageText = this.getImageBlocksSignature(imageBlocks);
     if (imageText === this.lastImageText) return;
 
     this.lastImageText = imageText;
-    this.renderResult(selectionState.target, imageText, 'Translating...', region);
+    this.renderImageBlocks(target, imageBlocks, imageBlocks.map(() => 'Translating...'), region);
 
     try {
-      let translatedText = this.translationCache.get(imageText);
-      if (!translatedText) {
-        translatedText = await this.translateText(imageText);
-        this.translationCache.set(imageText, translatedText);
-      }
+      const translatedBlocks = await Promise.all(
+        imageBlocks.map(block => this.translateCachedImageText(block.text))
+      );
 
       if (this.isActive && this.lastImageText === imageText) {
-        this.renderResult(selectionState.target, imageText, translatedText, region);
+        this.renderImageBlocks(target, imageBlocks, translatedBlocks, region);
       }
     } catch (error) {
       if (this.isActive && this.lastImageText === imageText) {
-        this.renderResult(selectionState.target, imageText, 'Image translation failed', region);
+        this.renderImageBlocks(target, imageBlocks, imageBlocks.map(() => 'Image translation failed'), region);
       }
     }
+  }
+
+  private async translateCachedImageText(text: string): Promise<string> {
+    if (!this.translateText) return '';
+
+    let translatedText = this.translationCache.get(text);
+    if (!translatedText) {
+      let pendingTranslation = this.pendingTranslationCache.get(text);
+      if (!pendingTranslation) {
+        pendingTranslation = this.translateText(text)
+          .then(result => {
+            this.translationCache.set(text, result);
+            return result;
+          })
+          .finally(() => {
+            this.pendingTranslationCache.delete(text);
+          });
+        this.pendingTranslationCache.set(text, pendingTranslation);
+      }
+      translatedText = await pendingTranslation;
+    }
+
+    return translatedText;
   }
 
   private getImageTarget(event: MouseEvent): Element | null {
@@ -258,21 +297,26 @@ export class ImageTranslator {
     return Array.from(document.querySelectorAll('img, canvas, svg, picture'));
   }
 
-  private async extractImageText(element: Element, region?: ImageSelectionRegion): Promise<string> {
-    const detectedText = await this.extractWithTextDetector(element, region);
+  private async extractImageTextBlocks(element: Element, region?: ImageSelectionRegion): Promise<ImageTextBlock[]> {
+    const detectedBlocks = await this.extractWithTextDetector(element, region);
+    if (detectedBlocks.length > 0) {
+      return this.uniqueImageTextBlocks(detectedBlocks);
+    }
+
     const svgText = this.extractSvgText(element);
     const accessibleText = region ? '' : this.extractAccessibleText(element);
 
-    return this.uniqueTextBlocks([detectedText, svgText, accessibleText]).join('\n').trim();
+    return this.uniqueTextBlocks([svgText, accessibleText])
+      .map(text => ({ text }));
   }
 
-  private async extractWithTextDetector(element: Element, region?: ImageSelectionRegion): Promise<string> {
+  private async extractWithTextDetector(element: Element, region?: ImageSelectionRegion): Promise<ImageTextBlock[]> {
     if (!window.TextDetector || typeof window.createImageBitmap !== 'function') {
-      return '';
+      return [];
     }
 
     if (!(element instanceof HTMLImageElement) && !(element instanceof HTMLCanvasElement)) {
-      return '';
+      return [];
     }
 
     try {
@@ -280,28 +324,43 @@ export class ImageTranslator {
         await element.decode();
       }
 
+      const mapping = this.getImageBitmapMapping(element, region);
       const bitmap = region
-        ? await this.createRegionBitmap(element, region)
+        ? await this.createRegionBitmap(element, region, mapping)
         : await window.createImageBitmap(element);
       try {
         const detector = new window.TextDetector();
         const detections = await detector.detect(bitmap);
 
-        return this.normalizeText(
-          detections
-            .map(item => item.rawValue || '')
-            .filter(Boolean)
-            .join('\n')
-        );
+        return detections
+          .map(item => ({
+            text: this.normalizeText(item.rawValue || ''),
+            viewportRect: this.mapDetectedTextBoxToViewport(item.boundingBox, mapping)
+          }))
+          .filter(block => Boolean(block.text));
       } finally {
         bitmap.close();
       }
     } catch (error) {
-      return '';
+      return [];
     }
   }
 
-  private async createRegionBitmap(element: HTMLImageElement | HTMLCanvasElement, region: ImageSelectionRegion): Promise<ImageBitmap> {
+  private async createRegionBitmap(
+    element: HTMLImageElement | HTMLCanvasElement,
+    _region: ImageSelectionRegion,
+    mapping: ImageBitmapMapping
+  ): Promise<ImageBitmap> {
+    return window.createImageBitmap(
+      element,
+      Math.round(mapping.sourceX),
+      Math.round(mapping.sourceY),
+      Math.max(1, Math.round(mapping.sourceWidth)),
+      Math.max(1, Math.round(mapping.sourceHeight))
+    );
+  }
+
+  private getImageBitmapMapping(element: HTMLImageElement | HTMLCanvasElement, region?: ImageSelectionRegion): ImageBitmapMapping {
     const rect = element.getBoundingClientRect();
     const sourceWidth = element instanceof HTMLImageElement
       ? element.naturalWidth || rect.width
@@ -311,12 +370,59 @@ export class ImageTranslator {
       : element.height || rect.height;
     const scaleX = sourceWidth / Math.max(rect.width, 1);
     const scaleY = sourceHeight / Math.max(rect.height, 1);
-    const sx = Math.max(0, Math.round(region.x * scaleX));
-    const sy = Math.max(0, Math.round(region.y * scaleY));
-    const sw = Math.max(1, Math.round(region.width * scaleX));
-    const sh = Math.max(1, Math.round(region.height * scaleY));
 
-    return window.createImageBitmap(element, sx, sy, sw, sh);
+    if (region) {
+      return {
+        sourceX: Math.max(0, region.x * scaleX),
+        sourceY: Math.max(0, region.y * scaleY),
+        sourceWidth: Math.max(1, region.width * scaleX),
+        sourceHeight: Math.max(1, region.height * scaleY),
+        viewportLeft: region.viewportRect.left,
+        viewportTop: region.viewportRect.top,
+        viewportWidth: region.viewportRect.width,
+        viewportHeight: region.viewportRect.height
+      };
+    }
+
+    return {
+      sourceX: 0,
+      sourceY: 0,
+      sourceWidth: Math.max(1, sourceWidth),
+      sourceHeight: Math.max(1, sourceHeight),
+      viewportLeft: rect.left,
+      viewportTop: rect.top,
+      viewportWidth: rect.width,
+      viewportHeight: rect.height
+    };
+  }
+
+  private mapDetectedTextBoxToViewport(
+    boundingBox: DetectedText['boundingBox'],
+    mapping: ImageBitmapMapping
+  ): DOMRect | undefined {
+    if (!boundingBox) return undefined;
+
+    const boxX = boundingBox.x ?? boundingBox.left ?? 0;
+    const boxY = boundingBox.y ?? boundingBox.top ?? 0;
+    const boxWidth = boundingBox.width ?? (
+      boundingBox.right !== undefined && boundingBox.left !== undefined
+        ? boundingBox.right - boundingBox.left
+        : 0
+    );
+    const boxHeight = boundingBox.height ?? (
+      boundingBox.bottom !== undefined && boundingBox.top !== undefined
+        ? boundingBox.bottom - boundingBox.top
+        : 0
+    );
+
+    if (boxWidth <= 0 || boxHeight <= 0) return undefined;
+
+    const left = mapping.viewportLeft + (boxX / mapping.sourceWidth) * mapping.viewportWidth;
+    const top = mapping.viewportTop + (boxY / mapping.sourceHeight) * mapping.viewportHeight;
+    const width = (boxWidth / mapping.sourceWidth) * mapping.viewportWidth;
+    const height = (boxHeight / mapping.sourceHeight) * mapping.viewportHeight;
+
+    return this.createDomRectLike(left, top, width, height);
   }
 
   private extractSvgText(element: Element): string {
@@ -369,6 +475,44 @@ export class ImageTranslator {
       });
   }
 
+  private uniqueImageTextBlocks(blocks: ImageTextBlock[]): ImageTextBlock[] {
+    const seen = new Set<string>();
+
+    return blocks
+      .map(block => ({
+        ...block,
+        text: this.normalizeText(block.text)
+      }))
+      .filter(block => Boolean(block.text))
+      .filter(block => {
+        const key = this.getImageBlockKey(block);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }
+
+  private getImageBlocksSignature(blocks: ImageTextBlock[]): string {
+    return blocks
+      .map(block => this.getImageBlockKey(block))
+      .join('\n')
+      .trim();
+  }
+
+  private getImageBlockKey(block: ImageTextBlock): string {
+    const rect = block.viewportRect;
+    const rectKey = rect
+      ? [
+        Math.round(rect.left),
+        Math.round(rect.top),
+        Math.round(rect.width),
+        Math.round(rect.height)
+      ].join(':')
+      : 'no-rect';
+
+    return `${block.text.toLowerCase()}|${rectKey}`;
+  }
+
   private createStyleElement(): void {
     if (this.styleElement) return;
 
@@ -396,6 +540,21 @@ export class ImageTranslator {
         pointer-events: none;
         border-radius: 4px;
       }
+      .lexibridge-image-region-translation {
+        position: fixed;
+        z-index: 2147482998;
+        min-width: 96px;
+        max-width: min(360px, 90vw);
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: rgba(15, 23, 42, 0.9);
+        color: #ffffff;
+        font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.4;
+        pointer-events: none;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+        white-space: pre-wrap;
+      }
     `;
 
     document.head.appendChild(style);
@@ -403,6 +562,7 @@ export class ImageTranslator {
   }
 
   private renderStatus(target: Element, message: string, region?: ImageSelectionRegion): void {
+    this.removeRegionalOverlays();
     this.createOverlay(target, region);
     if (!this.overlayElement) return;
 
@@ -412,6 +572,7 @@ export class ImageTranslator {
   }
 
   private renderResult(target: Element, originalText: string, translatedText: string, region?: ImageSelectionRegion): void {
+    this.removeRegionalOverlays();
     this.createOverlay(target, region);
     if (!this.overlayElement) return;
 
@@ -430,6 +591,54 @@ export class ImageTranslator {
     translation.style.fontWeight = '600';
 
     this.overlayElement.append(original, translation);
+  }
+
+  private renderImageBlocks(
+    target: Element,
+    originalBlocks: ImageTextBlock[],
+    translatedTexts: string[],
+    region?: ImageSelectionRegion
+  ): void {
+    const regionalBlocks = originalBlocks.filter(block => block.viewportRect);
+    if (regionalBlocks.length === 0) {
+      this.renderResult(
+        target,
+        originalBlocks.map(block => block.text).join('\n'),
+        translatedTexts.join('\n'),
+        region
+      );
+      return;
+    }
+
+    this.overlayElement?.remove();
+    this.overlayElement = null;
+    this.removeRegionalOverlays();
+
+    originalBlocks.forEach((block, index) => {
+      const rect = block.viewportRect || region?.viewportRect || target.getBoundingClientRect();
+      const overlay = document.createElement('div');
+      overlay.className = 'lexibridge-image-region-translation';
+      Object.assign(overlay.style, {
+        left: `${Math.max(8, rect.left)}px`,
+        top: `${Math.max(8, rect.top)}px`,
+        width: `${Math.max(96, Math.min(rect.width, 360))}px`
+      });
+
+      const original = document.createElement('div');
+      original.className = 'lexibridge-image-region-original';
+      original.textContent = block.text;
+      original.style.opacity = '0.86';
+
+      const translation = document.createElement('div');
+      translation.className = 'lexibridge-image-region-result';
+      translation.textContent = translatedTexts[index] || '';
+      translation.style.marginTop = '5px';
+      translation.style.fontWeight = '600';
+
+      overlay.append(original, translation);
+      document.body.appendChild(overlay);
+      this.regionalOverlayElements.push(overlay);
+    });
   }
 
   private createOverlay(target: Element, region?: ImageSelectionRegion): void {
@@ -491,6 +700,11 @@ export class ImageTranslator {
     this.selectionElement = null;
   }
 
+  private removeRegionalOverlays(): void {
+    this.regionalOverlayElements.forEach(overlay => overlay.remove());
+    this.regionalOverlayElements = [];
+  }
+
   private getSelectionRegion(selectionState: ImageSelectionState): ImageSelectionRegion | null {
     const viewportRect = this.getClampedViewportRect(selectionState);
     if (viewportRect.width < 8 || viewportRect.height < 8) return null;
@@ -525,6 +739,13 @@ export class ImageTranslator {
       Math.max(selectionState.startY, selectionState.currentY)
     );
 
+    return this.createDomRectLike(left, top, Math.max(0, right - left), Math.max(0, bottom - top));
+  }
+
+  private createDomRectLike(left: number, top: number, width: number, height: number): DOMRect {
+    const right = left + width;
+    const bottom = top + height;
+
     return {
       x: left,
       y: top,
@@ -532,9 +753,9 @@ export class ImageTranslator {
       top,
       right,
       bottom,
-      width: Math.max(0, right - left),
-      height: Math.max(0, bottom - top),
-      toJSON: () => ({ x: left, y: top, left, top, right, bottom })
+      width,
+      height,
+      toJSON: () => ({ x: left, y: top, left, top, right, bottom, width, height })
     } as DOMRect;
   }
 }

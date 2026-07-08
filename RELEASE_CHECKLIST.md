@@ -22,7 +22,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Name: `LexiBridge Translate`.
 - [ ] Short description explains web translation plus vocabulary review.
 - [ ] Detailed description mentions manual page translation, selection translation, built-in dictionaries, vocabulary notebook, review, import/export, and Chrome storage sync.
-- [ ] Do not claim document layout translation, video subtitles, image reading, meeting translation, or account cloud sync.
+- [ ] Claim only verified, bounded document, video subtitle, live caption, and image text features; do not claim full PDF layout translation, scanned-PDF OCR, automatic manga translation, audio transcription, meeting bots, or account cloud sync.
 - [ ] Include support contact or repository issue link.
 
 ## Screenshots

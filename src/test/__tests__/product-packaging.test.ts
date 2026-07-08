@@ -53,6 +53,7 @@ describe('product packaging contract', () => {
     expect(readme).toContain('Image Text Translation');
     expect(readme).toContain('simple text-based `.pdf` files');
     expect(readme).toContain('Preserve page and coordinate metadata');
+    expect(readme).toContain('separate translation overlays for detected OCR text blocks');
     expect(readme).toContain('without recording audio');
     expect(readme).toContain('100+ target language options');
     expect(readme).toContain('20+ provider roadmap');
@@ -93,6 +94,7 @@ describe('product packaging contract', () => {
     expect(listing).toContain('Live caption translation');
     expect(listing).toContain('Manual image text translation');
     expect(listing).toContain('OCR depends on browser support');
+    expect(listing).toContain('separate OCR block overlays');
     expect(listing).toContain('does not record audio');
     expect(listing).toContain('does not record audio, join calls, or create meeting transcripts');
     expect(listing).toContain('100+ target language choices');
@@ -117,7 +119,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-08');
-    expect(releaseNotes).toContain('32 test suites and 202 tests');
+    expect(releaseNotes).toContain('32 test suites and 204 tests');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -132,6 +134,7 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('Video Subtitles');
     expect(screenshotGuide).toContain('Live Captions');
     expect(screenshotGuide).toContain('Image Text');
+    expect(screenshotGuide).toContain('separate region overlays');
     expect(screenshotGuide).toContain('Vocabulary Notebook');
     expect(screenshotGuide).toContain('Review Page');
     expect(screenshotGuide).toContain('Options');
@@ -149,6 +152,7 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('Video subtitle translation');
     expect(roadmap).toContain('Meeting subtitle translation');
     expect(roadmap).toContain('Image, manga, and OCR translation');
+    expect(roadmap).toContain('separate OCR text-block overlays');
     expect(roadmap).toContain('Multiple translation engines');
     expect(roadmap).toContain('Do not auto-translate a page on load');
   });

@@ -90,6 +90,7 @@ Capture a safe sample page where captions are already visible after manually sta
 Capture a safe sample image or SVG after manually starting Image text from the popup and clicking the image or dragging over a region:
 
 - The image text translation overlay visible.
+- If the browser OCR sample provides bounding boxes, separate region overlays visible on detected text blocks.
 - The source image, canvas, or SVG visible enough to show the user-triggered click or selected region target.
 - No claim that every scanned document, manga page, or image can be OCR-translated automatically.
 

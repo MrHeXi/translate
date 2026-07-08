@@ -116,6 +116,114 @@ describe('ImageTranslator', () => {
     expect(overlay?.textContent).toContain('Translated: OCR detected line');
   });
 
+  it('renders separate overlays for OCR blocks with bounding boxes', async () => {
+    document.body.innerHTML = '<img id="target" src="comic.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    const close = jest.fn();
+    const detect = jest.fn(async () => [
+      {
+        rawValue: 'First bubble',
+        boundingBox: { x: 20, y: 10, width: 80, height: 30 }
+      },
+      {
+        rawValue: 'Second bubble',
+        boundingBox: { x: 120, y: 60, width: 90, height: 35 }
+      }
+    ]);
+    const createImageBitmap = jest.fn(async () => ({ close }));
+
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 400, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 200, configurable: true });
+    Object.defineProperty(image, 'getBoundingClientRect', {
+      value: () => ({
+        x: 10,
+        y: 20,
+        left: 10,
+        top: 20,
+        right: 210,
+        bottom: 120,
+        width: 200,
+        height: 100,
+        toJSON: () => ({})
+      }),
+      configurable: true
+    });
+    Object.defineProperty(window, 'createImageBitmap', {
+      value: createImageBitmap,
+      configurable: true
+    });
+    (window as any).TextDetector = jest.fn(() => ({ detect }));
+
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    translator.enable(translateText);
+    click(image);
+    await flushPromises();
+
+    const regionOverlays = document.querySelectorAll('.lexibridge-image-region-translation');
+    expect(regionOverlays).toHaveLength(2);
+    expect(document.getElementById('lexibridge-image-translation-overlay')).toBeNull();
+    expect(translateText).toHaveBeenCalledWith('First bubble');
+    expect(translateText).toHaveBeenCalledWith('Second bubble');
+    expect(regionOverlays[0].textContent).toContain('Translated: First bubble');
+    expect(regionOverlays[1].textContent).toContain('Translated: Second bubble');
+    expect((regionOverlays[0] as HTMLElement).style.left).toBe('20px');
+    expect((regionOverlays[0] as HTMLElement).style.top).toBe('25px');
+  });
+
+  it('keeps duplicate OCR text when the bounding boxes are different', async () => {
+    document.body.innerHTML = '<img id="target" src="comic.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    const close = jest.fn();
+    const detect = jest.fn(async () => [
+      {
+        rawValue: 'Yes',
+        boundingBox: { x: 20, y: 10, width: 60, height: 24 }
+      },
+      {
+        rawValue: 'Yes',
+        boundingBox: { x: 140, y: 60, width: 60, height: 24 }
+      }
+    ]);
+    const createImageBitmap = jest.fn(async () => ({ close }));
+
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 400, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 200, configurable: true });
+    Object.defineProperty(image, 'getBoundingClientRect', {
+      value: () => ({
+        x: 10,
+        y: 20,
+        left: 10,
+        top: 20,
+        right: 210,
+        bottom: 120,
+        width: 200,
+        height: 100,
+        toJSON: () => ({})
+      }),
+      configurable: true
+    });
+    Object.defineProperty(window, 'createImageBitmap', {
+      value: createImageBitmap,
+      configurable: true
+    });
+    (window as any).TextDetector = jest.fn(() => ({ detect }));
+
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    translator.enable(translateText);
+    click(image);
+    await flushPromises();
+
+    const regionOverlays = document.querySelectorAll('.lexibridge-image-region-translation');
+    expect(regionOverlays).toHaveLength(2);
+    expect(translateText).toHaveBeenCalledTimes(1);
+    expect(regionOverlays[0].textContent).toContain('Translated: Yes');
+    expect(regionOverlays[1].textContent).toContain('Translated: Yes');
+  });
+
   it('translates a dragged image region with browser OCR', async () => {
     document.body.innerHTML = '<img id="target" src="comic.png">';
     const image = document.getElementById('target') as HTMLImageElement;
