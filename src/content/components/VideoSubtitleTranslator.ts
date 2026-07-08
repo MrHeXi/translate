@@ -35,6 +35,7 @@ export class VideoSubtitleTranslator {
   private previousTrackMode: TextTrackMode | null = null;
   private scanTimer: number | null = null;
   private lastCueText = '';
+  private hasDomSubtitleSource = false;
   private translationCache: Map<string, string> = new Map();
   private translatedCues: TranslatedSubtitleCue[] = [];
   private translatedCueKeys: Set<string> = new Set();
@@ -59,17 +60,15 @@ export class VideoSubtitleTranslator {
     this.isActive = true;
     this.translateText = translateText;
     this.createOverlay();
-    const hasTrack = this.attachToBestTrack();
+    const hasTrack = this.scanForSubtitleSource();
 
     if (!this.scanTimer) {
       this.scanTimer = window.setInterval(() => {
         if (this.isActive) {
-          this.attachToBestTrack();
+          this.scanForSubtitleSource();
         }
-      }, 1000);
+      }, 500);
     }
-
-    this.showStatus(hasTrack ? 'Waiting for subtitles...' : 'No caption track found');
 
     return {
       isActive: true,
@@ -91,12 +90,13 @@ export class VideoSubtitleTranslator {
     this.overlayElement = null;
     this.currentVideo = null;
     this.lastCueText = '';
+    this.hasDomSubtitleSource = false;
   }
 
   getStatus(): VideoSubtitleTranslatorState {
     return {
       isActive: this.isActive,
-      hasTrack: Boolean(this.currentTrack),
+      hasTrack: Boolean(this.currentTrack) || this.hasDomSubtitleSource,
       message: this.isActive ? 'Video subtitle translation active' : 'Video subtitle translation stopped'
     };
   }
@@ -130,7 +130,6 @@ export class VideoSubtitleTranslator {
     const trackInfo = this.findBestTrack();
     if (!trackInfo) {
       this.detachTrack();
-      this.showStatus('No caption track found');
       return false;
     }
 
@@ -146,6 +145,23 @@ export class VideoSubtitleTranslator {
     this.currentTrack.addEventListener('cuechange', this.boundHandleCueChange);
     void this.handleCueChange();
     return true;
+  }
+
+  private scanForSubtitleSource(): boolean {
+    const hasTrack = this.attachToBestTrack();
+    if (hasTrack) {
+      this.hasDomSubtitleSource = false;
+      return true;
+    }
+
+    this.hasDomSubtitleSource = this.hasDomSubtitleRoot();
+    if (this.hasDomSubtitleSource) {
+      void this.handleDomCueChange();
+      return true;
+    }
+
+    this.showStatus('No caption track found');
+    return false;
   }
 
   private detachTrack(): void {
@@ -217,6 +233,40 @@ export class VideoSubtitleTranslator {
     }
   }
 
+  private async handleDomCueChange(): Promise<void> {
+    if (!this.isActive || this.currentTrack || !this.translateText) return;
+
+    const activeCue = this.getActiveDomCue();
+    if (!activeCue) {
+      this.showStatus('Waiting for subtitles...');
+      this.lastCueText = '';
+      return;
+    }
+
+    const cueText = activeCue.text;
+    if (cueText === this.lastCueText) return;
+
+    this.lastCueText = cueText;
+    this.renderSubtitle(cueText, 'Translating...');
+
+    try {
+      let translatedText = this.translationCache.get(cueText);
+      if (!translatedText) {
+        translatedText = await this.translateText(cueText);
+        this.translationCache.set(cueText, translatedText);
+      }
+
+      if (this.isActive && !this.currentTrack && this.lastCueText === cueText) {
+        this.recordTranslatedCue(activeCue, translatedText);
+        this.renderSubtitle(cueText, translatedText);
+      }
+    } catch {
+      if (this.isActive && !this.currentTrack && this.lastCueText === cueText) {
+        this.renderSubtitle(cueText, 'Subtitle translation failed');
+      }
+    }
+  }
+
   private getActiveCue(track: TextTrack): ActiveSubtitleCue | null {
     const activeCues = Array.from(track.activeCues || []) as Array<TextTrackCue & { text?: string }>;
     const text = activeCues
@@ -236,6 +286,118 @@ export class VideoSubtitleTranslator {
       : undefined;
 
     return { text, startTime, endTime };
+  }
+
+  private getActiveDomCue(): ActiveSubtitleCue | null {
+    const text = this.getDomSubtitleText();
+    if (!text) return null;
+
+    const videoTime = this.getActiveVideoTime();
+    return {
+      text,
+      startTime: videoTime,
+      endTime: Number.isFinite(videoTime) ? videoTime! + 2 : undefined
+    };
+  }
+
+  private hasDomSubtitleRoot(): boolean {
+    return this.getDomSubtitleRoots().length > 0;
+  }
+
+  private getDomSubtitleText(): string {
+    const roots = this.getDomSubtitleRoots();
+
+    for (const root of roots) {
+      const text = this.readDomSubtitleText(root);
+      if (text) return text;
+    }
+
+    return '';
+  }
+
+  private getDomSubtitleRoots(): HTMLElement[] {
+    if (document.querySelectorAll('video').length === 0) return [];
+
+    const selectors = [
+      '.ytp-caption-window-container',
+      '.player-timedtext',
+      '.player-timedtext-text-container',
+      '[data-testid="captions-container"]',
+      '[aria-live="polite"][class*="caption"]',
+      '[aria-live="assertive"][class*="caption"]',
+      '[class*="subtitle"], [class*="Subtitle"], [class*="caption"], [class*="Caption"]'
+    ];
+    const roots: HTMLElement[] = [];
+    const seen = new Set<HTMLElement>();
+
+    for (const selector of selectors) {
+      document.querySelectorAll<HTMLElement>(selector).forEach(element => {
+        if (!(element instanceof HTMLElement)) return;
+        if (seen.has(element) || this.isExtensionNode(element) || !this.isPotentialCaptionElement(element)) return;
+
+        seen.add(element);
+        roots.push(element);
+      });
+    }
+
+    return roots;
+  }
+
+  private readDomSubtitleText(root: HTMLElement): string {
+    const segmentSelectors = [
+      '.ytp-caption-segment',
+      '.caption-visual-line',
+      '[data-testid="caption-segment"]',
+      'span',
+      'div'
+    ];
+    const segments: HTMLElement[] = [];
+    const seen = new Set<HTMLElement>();
+
+    for (const selector of segmentSelectors) {
+      root.querySelectorAll<HTMLElement>(selector).forEach(element => {
+        if (seen.has(element) || this.isExtensionNode(element) || !this.isPotentialCaptionElement(element)) return;
+
+        seen.add(element);
+        segments.push(element);
+      });
+    }
+
+    const textSources = segments.length > 0 ? segments : [root];
+    return textSources
+      .map(element => (element.textContent || '').replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .filter((text, index, allText) => allText.indexOf(text) === index)
+      .join('\n')
+      .trim();
+  }
+
+  private isPotentialCaptionElement(element: HTMLElement): boolean {
+    if (element.closest('#lexibridge-video-subtitle-overlay')) return false;
+    if (element.getAttribute('aria-hidden') === 'true') return false;
+
+    const style = window.getComputedStyle(element);
+    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+  }
+
+  private isExtensionNode(element: Element): boolean {
+    const id = element.id || '';
+    const classList = element.classList ? Array.from(element.classList) : [];
+    const closestExtensionNode = typeof element.closest === 'function'
+      ? element.closest('[id^="lexibridge-"], [class*="lexibridge-"]')
+      : null;
+
+    return id.startsWith('lexibridge-') ||
+      classList.some(className => className.startsWith('lexibridge-')) ||
+      Boolean(closestExtensionNode);
+  }
+
+  private getActiveVideoTime(): number | undefined {
+    const videos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
+    const activeVideo = videos.find(video => !video.paused && Number.isFinite(video.currentTime)) ||
+      videos.find(video => Number.isFinite(video.currentTime));
+
+    return activeVideo ? activeVideo.currentTime : undefined;
   }
 
   private createOverlay(): void {

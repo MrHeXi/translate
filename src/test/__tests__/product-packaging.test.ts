@@ -50,6 +50,7 @@ describe('product packaging contract', () => {
     expect(readme).toContain('Document Translation');
     expect(readme).toContain('Video Subtitle Translation');
     expect(readme).toContain('Export translated subtitle cues from the current session as an `.srt` file');
+    expect(readme).toContain('common DOM-rendered captions');
     expect(readme).toContain('Live Caption Translation');
     expect(readme).toContain('Image Text Translation');
     expect(readme).toContain('`.html`, `.htm`');
@@ -105,6 +106,7 @@ describe('product packaging contract', () => {
     expect(listing).toContain('skipping scripts, styles, and markup');
     expect(listing).toContain('layout block metadata');
     expect(listing).toContain('Video subtitle translation');
+    expect(listing).toContain('common DOM-rendered captions');
     expect(listing).toContain('SRT export for translated cues from the current session');
     expect(listing).toContain('Live caption translation');
     expect(listing).toContain('Manual image text translation');
@@ -134,7 +136,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-08');
-    expect(releaseNotes).toContain('34 test suites and 225 tests');
+    expect(releaseNotes).toContain('34 test suites and 227 tests');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -174,6 +176,7 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('DOCX paragraph text and EPUB spine text extraction');
     expect(roadmap).toContain('Timing-preserving subtitle file export');
     expect(roadmap).toContain('Video subtitle translation');
+    expect(roadmap).toContain('DOM-rendered video caption adapters');
     expect(roadmap).toContain('SRT export for translated subtitle cues');
     expect(roadmap).toContain('Meeting subtitle translation');
     expect(roadmap).toContain('Image, manga, and OCR translation');

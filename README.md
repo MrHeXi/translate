@@ -12,7 +12,7 @@ It is best for:
 
 - Reading English web pages, technical articles, documentation, and study material.
 - Translating pasted or uploaded text documents, HTML files, JSON files, DOCX files, EPUB files, subtitle files, and simple text-based PDFs.
-- Translating video captions when the page exposes subtitle or caption tracks.
+- Translating video captions when the page exposes subtitle/caption tracks or common DOM-rendered captions.
 - Translating live caption text that is already visible in a page.
 - Translating text from selected images, SVGs, and canvases when readable text or browser OCR is available.
 - Collecting useful words from real context.
@@ -60,10 +60,10 @@ It is not marketed as a full scanned-PDF OCR translator, layout-preserving Offic
 ### Video Subtitle Translation
 
 - Start or stop video subtitle translation manually from the popup.
-- Translate active caption or subtitle cues when the current video exposes browser text tracks.
+- Translate active caption or subtitle cues when the current video exposes browser text tracks or common DOM-rendered captions.
 - Render a bilingual subtitle overlay without recording audio or blocking playback.
 - Export translated subtitle cues from the current session as an `.srt` file.
-- Site-specific video support, AI subtitle generation, and richer timing controls are planned for later batches.
+- Deeper site-specific video support, AI subtitle generation, and richer timing controls are planned for later batches.
 
 ### Live Caption Translation
 

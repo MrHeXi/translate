@@ -75,7 +75,7 @@ Capture the document translator page with:
 
 ### Video Subtitles
 
-Capture a regular video page with available captions after manually starting Video subtitles from the popup:
+Capture a regular video page with available text-track or DOM-rendered captions after manually starting Video subtitles from the popup:
 
 - The bilingual subtitle overlay visible.
 - The Export SRT control visible if the current session has translated subtitle cues to demonstrate local subtitle export.

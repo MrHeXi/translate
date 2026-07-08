@@ -79,6 +79,17 @@ describe('VideoSubtitleTranslator', () => {
     expect(track.addEventListener).not.toHaveBeenCalled();
   });
 
+  it('does not translate DOM-rendered captions before manual enablement', () => {
+    document.body.innerHTML = [
+      '<video></video>',
+      '<div class="ytp-caption-window-container">',
+      '<span class="ytp-caption-segment">DOM captions still need a manual start.</span>',
+      '</div>'
+    ].join('');
+
+    expect(document.getElementById('lexibridge-video-subtitle-overlay')).toBeNull();
+  });
+
   it('translates active subtitle cues after manual enablement', async () => {
     const track = createTextTrack('showing');
     mockVideoTracks([track]);
@@ -102,6 +113,39 @@ describe('VideoSubtitleTranslator', () => {
     expect(translateText).toHaveBeenCalledWith('Hello from captions.');
     expect(overlay?.textContent).toContain('Hello from captions.');
     expect(overlay?.textContent).toContain('Translated: Hello from captions.');
+  });
+
+  it('translates DOM-rendered video captions after manual enablement', async () => {
+    document.body.innerHTML = [
+      '<video></video>',
+      '<div class="ytp-caption-window-container">',
+      '<span class="ytp-caption-segment">Hello from DOM captions.</span>',
+      '</div>'
+    ].join('');
+    const video = document.querySelector('video') as HTMLVideoElement;
+    Object.defineProperty(video, 'currentTime', {
+      value: 12.5,
+      configurable: true
+    });
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    const state = translator.enable(translateText);
+    await flushPromises();
+
+    expect(state).toEqual({
+      isActive: true,
+      hasTrack: true,
+      message: 'Video subtitle translation started'
+    });
+    expect(translateText).toHaveBeenCalledWith('Hello from DOM captions.');
+    const overlay = document.getElementById('lexibridge-video-subtitle-overlay');
+    expect(overlay?.textContent).toContain('Hello from DOM captions.');
+    expect(overlay?.textContent).toContain('Translated: Hello from DOM captions.');
+
+    const exported = translator.exportSubtitles();
+    expect(exported.cueCount).toBe(1);
+    expect(exported.content).toContain('00:00:12,500 --> 00:00:14,500');
+    expect(exported.content).toContain('Translated: Hello from DOM captions.');
   });
 
   it('removes the overlay and restores the original track mode when disabled', async () => {
