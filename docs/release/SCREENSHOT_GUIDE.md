@@ -84,6 +84,14 @@ Capture a safe sample page where captions are already visible after manually sta
 - The original caption text visible on the page or clearly represented in the sample.
 - No private names, meeting details, audio recording indicator, or transcript export claim.
 
+### Image Text
+
+Capture a safe sample image or SVG after manually starting Image text from the popup and clicking the image:
+
+- The image text translation overlay visible.
+- The source image, canvas, or SVG visible enough to show the user-triggered click target.
+- No claim that every scanned document, manga page, or image can be OCR-translated automatically.
+
 ### Vocabulary Notebook
 
 Capture the vocabulary page with:
@@ -113,7 +121,7 @@ Capture the options page with:
 - Private browsing data or account details.
 - Any claim that translation starts automatically.
 - Unsupported feature claims beyond web page translation, text-based document translation, selected-text translation, vocabulary collection, review, import/export, and Chrome storage sync.
-- Claims for scanned PDF OCR or layout-preserving PDF translation.
+- Claims for full scanned PDF OCR, automatic manga segmentation, or layout-preserving PDF translation.
 - Claims for audio transcription, meeting translation, or guaranteed support for every video site.
 - Console errors, developer tools, or local file explorer windows.
 

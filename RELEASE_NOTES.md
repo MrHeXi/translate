@@ -15,6 +15,7 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Text-based document translator for pasted text, text files, subtitle files, and simple PDFs.
 - Video subtitle translation for pages that expose caption or subtitle text tracks.
 - Live caption translation for caption text already visible in the page DOM.
+- Manual image text translation for selected images, canvases, and SVGs, using browser OCR when available.
 - 100+ target language choices in settings.
 - Provider registry with Google Translate and MyMemory available today plus a 20+ provider expansion roadmap.
 - Built-in CET4, CET6, GRE, IELTS, and TOEFL vocabulary dictionaries.
@@ -28,7 +29,7 @@ Verified on 2026-07-08:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 31 test suites and 194 tests.
+- `jest --runInBand --silent`: passed, 32 test suites and 199 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 

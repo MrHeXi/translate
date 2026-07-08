@@ -22,9 +22,11 @@ class PopupController {
   private isTranslationActive: boolean = false;
   private isVideoSubtitleActive: boolean = false;
   private isLiveCaptionActive: boolean = false;
+  private isImageTranslationActive: boolean = false;
   private isTogglingTranslation: boolean = false;
   private isTogglingVideoSubtitles: boolean = false;
   private isTogglingLiveCaptions: boolean = false;
+  private isTogglingImageTranslation: boolean = false;
 
   constructor() {
     this.initialize();
@@ -55,6 +57,9 @@ class PopupController {
 
     const toggleLiveCaptions = document.getElementById('toggleLiveCaptions') as HTMLButtonElement;
     toggleLiveCaptions?.addEventListener('click', () => this.toggleLiveCaptionMode());
+
+    const toggleImageTranslation = document.getElementById('toggleImageTranslation') as HTMLButtonElement;
+    toggleImageTranslation?.addEventListener('click', () => this.toggleImageTranslationMode());
 
     // 快速翻译
     const translateBtn = document.getElementById('translateBtn') as HTMLButtonElement;
@@ -116,18 +121,26 @@ class PopupController {
           this.isLiveCaptionActive = isLiveCaptionMode;
         }
 
+        const isImageTranslationMode = response?.isImageTranslationMode ?? response?.data?.isImageTranslationMode;
+        if (typeof isImageTranslationMode === 'boolean') {
+          this.isImageTranslationActive = isImageTranslationMode;
+        }
+
         this.updateTranslationStatusUI();
         this.updateVideoSubtitleStatusUI();
         this.updateLiveCaptionStatusUI();
+        this.updateImageTranslationStatusUI();
       }
     } catch (error) {
       if (this.isMissingContentScriptReceiverError(error)) {
         this.isTranslationActive = false;
         this.isVideoSubtitleActive = false;
         this.isLiveCaptionActive = false;
+        this.isImageTranslationActive = false;
         this.updateTranslationStatusUI();
         this.updateVideoSubtitleStatusUI();
         this.updateLiveCaptionStatusUI();
+        this.updateImageTranslationStatusUI();
         return;
       }
 
@@ -213,6 +226,33 @@ class PopupController {
       this.showError(error instanceof Error ? error.message : 'Could not toggle live captions.');
     } finally {
       this.setLiveCaptionToggleBusy(false);
+    }
+  }
+
+  private async toggleImageTranslationMode(): Promise<void> {
+    if (this.isTogglingImageTranslation) return;
+
+    this.setImageTranslationToggleBusy(true);
+
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id) {
+        const response = await this.sendMessageToTabWithInjection(tab, { action: 'toggleImageTranslation' });
+        if (response?.success) {
+          const isActive = response.isActive ?? response.data?.isActive;
+          this.isImageTranslationActive = Boolean(isActive);
+          this.updateImageTranslationStatusUI();
+        } else {
+          this.showError(response?.error || 'Could not toggle image translation.');
+        }
+      } else {
+        this.showError('No active page found.');
+      }
+    } catch (error) {
+      console.error('Could not toggle image translation:', error);
+      this.showError(error instanceof Error ? error.message : 'Could not toggle image translation.');
+    } finally {
+      this.setImageTranslationToggleBusy(false);
     }
   }
 
@@ -389,6 +429,24 @@ class PopupController {
       }
     }
   }
+
+  private updateImageTranslationStatusUI(): void {
+    const statusElement = document.getElementById('imageTranslationStatus');
+    const toggleBtn = document.getElementById('toggleImageTranslation') as HTMLButtonElement;
+
+    if (statusElement && toggleBtn) {
+      if (this.isImageTranslationActive) {
+        statusElement.textContent = 'On';
+        toggleBtn.textContent = 'Stop';
+        toggleBtn.classList.add('active');
+      } else {
+        statusElement.textContent = 'Off';
+        toggleBtn.textContent = 'Start';
+        toggleBtn.classList.remove('active');
+      }
+    }
+  }
+
 
   private updateActiveDictionarySummary(count: number): void {
     const summary = document.getElementById('activeDictionarySummary');
@@ -612,6 +670,15 @@ class PopupController {
     this.isTogglingLiveCaptions = isBusy;
 
     const toggleBtn = document.getElementById('toggleLiveCaptions') as HTMLButtonElement;
+    if (toggleBtn) {
+      toggleBtn.disabled = isBusy;
+    }
+  }
+
+  private setImageTranslationToggleBusy(isBusy: boolean): void {
+    this.isTogglingImageTranslation = isBusy;
+
+    const toggleBtn = document.getElementById('toggleImageTranslation') as HTMLButtonElement;
     if (toggleBtn) {
       toggleBtn.disabled = isBusy;
     }

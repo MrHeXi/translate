@@ -50,6 +50,7 @@ describe('product packaging contract', () => {
     expect(readme).toContain('Document Translation');
     expect(readme).toContain('Video Subtitle Translation');
     expect(readme).toContain('Live Caption Translation');
+    expect(readme).toContain('Image Text Translation');
     expect(readme).toContain('simple text-based `.pdf` files');
     expect(readme).toContain('without recording audio');
     expect(readme).toContain('100+ target language options');
@@ -88,6 +89,8 @@ describe('product packaging contract', () => {
     expect(listing).toContain('Text-based document translator');
     expect(listing).toContain('Video subtitle translation');
     expect(listing).toContain('Live caption translation');
+    expect(listing).toContain('Manual image text translation');
+    expect(listing).toContain('OCR depends on browser support');
     expect(listing).toContain('does not record audio');
     expect(listing).toContain('does not record audio, join calls, or create meeting transcripts');
     expect(listing).toContain('100+ target language choices');
@@ -104,7 +107,7 @@ describe('product packaging contract', () => {
     expect(listing).toContain('No default telemetry');
     expect(listing).toContain('Translate page');
     expect(listing).toContain('bottom-right');
-    expect(listing).not.toMatch(/PDF layout translator|OCR\/image reader|meeting translator|account-based cloud/i);
+    expect(listing).not.toMatch(/PDF layout translator|automatic manga panel translation included|meeting translator|account-based cloud/i);
   });
 
   it('records release verification and screenshot capture guidance', () => {
@@ -112,7 +115,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-08');
-    expect(releaseNotes).toContain('31 test suites and 194 tests');
+    expect(releaseNotes).toContain('32 test suites and 199 tests');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -126,6 +129,7 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('Document Translator');
     expect(screenshotGuide).toContain('Video Subtitles');
     expect(screenshotGuide).toContain('Live Captions');
+    expect(screenshotGuide).toContain('Image Text');
     expect(screenshotGuide).toContain('Vocabulary Notebook');
     expect(screenshotGuide).toContain('Review Page');
     expect(screenshotGuide).toContain('Options');

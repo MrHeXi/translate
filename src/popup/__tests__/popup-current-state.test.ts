@@ -11,6 +11,7 @@ const setupPopupDom = (): void => {
     <button id="toggleTranslation"></button>
     <button id="toggleVideoSubtitles"></button>
     <button id="toggleLiveCaptions"></button>
+    <button id="toggleImageTranslation"></button>
     <button id="translateBtn"></button>
     <button id="vocabularyBtn"></button>
     <button id="reviewBtn"></button>
@@ -19,6 +20,7 @@ const setupPopupDom = (): void => {
     <span id="translationStatus"></span>
     <span id="videoSubtitleStatus"></span>
     <span id="liveCaptionStatus"></span>
+    <span id="imageTranslationStatus"></span>
     <textarea id="inputText"></textarea>
     <div id="translateResult"><div class="result-text"></div></div>
     <span id="totalWords"></span>
@@ -127,6 +129,9 @@ describe('Popup current tab state', () => {
     expect(document.getElementById('liveCaptionStatus')?.textContent).toBe('Off');
     expect(document.getElementById('toggleLiveCaptions')?.textContent).toBe('Start');
     expect(document.getElementById('toggleLiveCaptions')?.classList.contains('active')).toBe(false);
+    expect(document.getElementById('imageTranslationStatus')?.textContent).toBe('Off');
+    expect(document.getElementById('toggleImageTranslation')?.textContent).toBe('Start');
+    expect(document.getElementById('toggleImageTranslation')?.classList.contains('active')).toBe(false);
     expect(document.getElementById('activeDictionarySummary')?.textContent).toBe('1 enabled');
     expect(document.querySelectorAll('#recentWords li')).toHaveLength(2);
     expect(document.getElementById('recentWords')?.textContent).toContain('ability');

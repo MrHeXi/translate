@@ -39,6 +39,7 @@ Current batch:
 - Manual document entry prompt on detected document URLs.
 - Manual video subtitle translation for pages that expose caption or subtitle text tracks.
 - Manual live caption translation for caption text already visible in the page DOM.
+- Manual image text translation for selected images, canvases, and SVGs.
 
 ## Planned Batches
 
@@ -77,10 +78,11 @@ Current batch:
 
 ### Batch F: Image, Manga, and OCR Translation
 
-- Add user-triggered image selection.
-- Extract text through OCR.
-- Render translated overlays.
-- Keep all OCR-triggering actions explicit.
+- Done: add user-triggered image, canvas, and SVG selection from the popup.
+- Done: extract text through browser TextDetector OCR when available, with SVG text and accessibility text fallbacks.
+- Done: render translated overlays near the selected image target.
+- Done: keep all OCR-triggering actions explicit.
+- Remaining: full scanned-document OCR, automatic manga panel segmentation, and image-region selection.
 
 ### Batch G: Meeting Subtitle Translation
 

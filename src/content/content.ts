@@ -9,6 +9,7 @@ import { InputBoxTranslator } from './components/InputBoxTranslator';
 import { DocumentPagePrompt } from './components/DocumentPagePrompt';
 import { VideoSubtitleTranslator } from './components/VideoSubtitleTranslator';
 import { LiveCaptionTranslator } from './components/LiveCaptionTranslator';
+import { ImageTranslator } from './components/ImageTranslator';
 import { messageManager } from '../services/MessageManager';
 import { performanceManager } from '../services/PerformanceManager';
 import { errorHandler, ErrorType, ErrorSeverity } from '../services/ErrorHandler';
@@ -46,6 +47,7 @@ class ContentScript {
   private documentPagePrompt: DocumentPagePrompt;
   private videoSubtitleTranslator: VideoSubtitleTranslator;
   private liveCaptionTranslator: LiveCaptionTranslator;
+  private imageTranslator: ImageTranslator;
   private isTranslationMode: boolean = false;
   private isLearningMode: boolean = false;
   private userSettings: UserSettings | null = null;
@@ -64,6 +66,7 @@ class ContentScript {
     this.documentPagePrompt = new DocumentPagePrompt();
     this.videoSubtitleTranslator = new VideoSubtitleTranslator();
     this.liveCaptionTranslator = new LiveCaptionTranslator();
+    this.imageTranslator = new ImageTranslator();
     
     this.initialize();
   }
@@ -165,6 +168,10 @@ class ContentScript {
         const state = await this.toggleLiveCaptionTranslation();
         return { success: true, data: state };
       },
+      'toggleImageTranslation': async () => {
+        const state = await this.toggleImageTranslation();
+        return { success: true, data: state };
+      },
       'updateSettings': async (request) => {
         this.userSettings = { ...this.userSettings, ...request.data };
         await this.applySettingsChanges();
@@ -185,7 +192,8 @@ class ContentScript {
             isActive: this.isTranslationMode,
             isLearningMode: this.isLearningMode,
             isVideoSubtitleMode: this.videoSubtitleTranslator.getStatus().isActive,
-            isLiveCaptionMode: this.liveCaptionTranslator.getStatus().isActive
+            isLiveCaptionMode: this.liveCaptionTranslator.getStatus().isActive,
+            isImageTranslationMode: this.imageTranslator.getStatus().isActive
           } 
         };
       }
@@ -241,6 +249,12 @@ class ContentScript {
           sendResponse({ success: true, ...state });
           break;
         }
+
+        case 'toggleImageTranslation': {
+          const state = await this.toggleImageTranslation();
+          sendResponse({ success: true, ...state });
+          break;
+        }
         
         case 'updateSettings':
           this.userSettings = { ...this.userSettings, ...request.data };
@@ -265,7 +279,8 @@ class ContentScript {
             isActive: this.isTranslationMode,
             isLearningMode: this.isLearningMode,
             isVideoSubtitleMode: this.videoSubtitleTranslator.getStatus().isActive,
-            isLiveCaptionMode: this.liveCaptionTranslator.getStatus().isActive
+            isLiveCaptionMode: this.liveCaptionTranslator.getStatus().isActive,
+            isImageTranslationMode: this.imageTranslator.getStatus().isActive
           });
           break;
         
@@ -327,6 +342,10 @@ class ContentScript {
 
   private async toggleLiveCaptionTranslation(): Promise<{ isActive: boolean; hasCaption: boolean; message: string }> {
     return this.liveCaptionTranslator.toggle((text) => this.translateInteractiveText(text));
+  }
+
+  private async toggleImageTranslation(): Promise<{ isActive: boolean; hasImage: boolean; message: string }> {
+    return this.imageTranslator.toggle((text) => this.translateInteractiveText(text));
   }
 
   private async initializeLearningMode(): Promise<void> {
@@ -834,7 +853,8 @@ class ContentScript {
       isTranslationMode: this.isTranslationMode,
       isLearningMode: this.isLearningMode,
       isVideoSubtitleMode: this.videoSubtitleTranslator.getStatus().isActive,
-      isLiveCaptionMode: this.liveCaptionTranslator.getStatus().isActive
+      isLiveCaptionMode: this.liveCaptionTranslator.getStatus().isActive,
+      isImageTranslationMode: this.imageTranslator.getStatus().isActive
     };
   }
 
@@ -851,6 +871,7 @@ class ContentScript {
     this.documentPagePrompt.cleanup();
     this.videoSubtitleTranslator.cleanup();
     this.liveCaptionTranslator.cleanup();
+    this.imageTranslator.cleanup();
   }
 }
 

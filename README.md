@@ -14,11 +14,12 @@ It is best for:
 - Translating pasted or uploaded text documents, subtitle files, and simple text-based PDFs.
 - Translating video captions when the page exposes subtitle or caption tracks.
 - Translating live caption text that is already visible in a page.
+- Translating text from selected images, SVGs, and canvases when readable text or browser OCR is available.
 - Collecting useful words from real context.
 - Reviewing CET4, CET6, GRE, IELTS, TOEFL vocabulary.
 - Keeping a local-first vocabulary notebook with Chrome storage sync support.
 
-It is not marketed as a layout-preserving PDF translator, scanned-document OCR reader, image reader, audio transcription service, or meeting bot that records or joins calls.
+It is not marketed as a layout-preserving PDF translator, automatic whole-page image reader, audio transcription service, or meeting bot that records or joins calls.
 
 ## Core Features
 
@@ -64,6 +65,13 @@ It is not marketed as a layout-preserving PDF translator, scanned-document OCR r
 - Translate caption text that is already present in the page DOM, such as browser or meeting-page live captions.
 - Render a bilingual overlay without recording audio, joining calls, or creating transcripts.
 - Site-specific meeting caption adapters are planned for later batches.
+
+### Image Text Translation
+
+- Start or stop image text translation manually from the popup.
+- Click an image, canvas, or SVG to translate extracted text.
+- Use browser `TextDetector` OCR when available, with SVG text and image accessibility text as fallbacks.
+- Full scanned-document OCR and manga panel segmentation are planned for later batches.
 
 ### Vocabulary Learning
 
@@ -133,6 +141,13 @@ The generated test package is `chrome-translation-extension.zip`.
 2. Open the extension popup.
 3. Click Start in Live captions.
 4. Click the same control again to remove the overlay and stop live caption translation.
+
+### Translate Image Text
+
+1. Open the extension popup.
+2. Click Start in Image text.
+3. Click an image, canvas, or SVG that contains readable text.
+4. Click the same control again to exit image text translation mode.
 
 ### Study Vocabulary
 

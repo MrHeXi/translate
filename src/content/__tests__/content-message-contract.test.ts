@@ -153,7 +153,8 @@ describe('Content script direct runtime message contract', () => {
       isActive: true,
       isLearningMode: false,
       isVideoSubtitleMode: false,
-      isLiveCaptionMode: false
+      isLiveCaptionMode: false,
+      isImageTranslationMode: false
     });
   });
 
@@ -305,7 +306,8 @@ describe('Content script direct runtime message contract', () => {
       isActive: false,
       isLearningMode: false,
       isVideoSubtitleMode: false,
-      isLiveCaptionMode: false
+      isLiveCaptionMode: false,
+      isImageTranslationMode: false
     });
   });
 
@@ -449,13 +451,14 @@ describe('Content script direct runtime message contract', () => {
       isActive: false,
       isLearningMode: false,
       isVideoSubtitleMode: false,
-      isLiveCaptionMode: false
+      isLiveCaptionMode: false,
+      isImageTranslationMode: false
     });
 
     warnSpy.mockRestore();
   });
 
-  it('toggles subtitle and live-caption translation through the direct runtime message contract', async () => {
+  it('toggles subtitle, live-caption, and image translation through the direct runtime message contract', async () => {
     const listeners: Array<(request: any, sender: any, sendResponse: (response: any) => void) => boolean> = [];
     const addListener = jest.fn((listener) => {
       listeners.push(listener);
@@ -597,7 +600,8 @@ describe('Content script direct runtime message contract', () => {
       isActive: false,
       isLearningMode: false,
       isVideoSubtitleMode: true,
-      isLiveCaptionMode: false
+      isLiveCaptionMode: false,
+      isImageTranslationMode: false
     });
 
     const stopResponse = await sendDirectMessage({ action: 'toggleVideoSubtitleTranslation' });
@@ -622,7 +626,8 @@ describe('Content script direct runtime message contract', () => {
       isActive: false,
       isLearningMode: false,
       isVideoSubtitleMode: false,
-      isLiveCaptionMode: true
+      isLiveCaptionMode: true,
+      isImageTranslationMode: false
     });
 
     const liveCaptionStopResponse = await sendDirectMessage({ action: 'toggleLiveCaptionTranslation' });
@@ -631,6 +636,32 @@ describe('Content script direct runtime message contract', () => {
       isActive: false,
       hasCaption: false,
       message: 'Live caption translation stopped'
+    });
+
+    const imageStartResponse = await sendDirectMessage({ action: 'toggleImageTranslation' });
+    expect(imageStartResponse).toEqual({
+      success: true,
+      isActive: true,
+      hasImage: false,
+      message: 'No image found'
+    });
+
+    const imageStatusResponse = await sendDirectMessage({ action: 'getTranslationStatus' });
+    expect(imageStatusResponse).toEqual({
+      success: true,
+      isActive: false,
+      isLearningMode: false,
+      isVideoSubtitleMode: false,
+      isLiveCaptionMode: false,
+      isImageTranslationMode: true
+    });
+
+    const imageStopResponse = await sendDirectMessage({ action: 'toggleImageTranslation' });
+    expect(imageStopResponse).toEqual({
+      success: true,
+      isActive: false,
+      hasImage: false,
+      message: 'Image translation stopped'
     });
   });
 });
