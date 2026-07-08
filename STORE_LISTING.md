@@ -14,7 +14,7 @@ Translate web pages on demand, save unknown words, and review CET, GRE, IELTS, a
 
 LexiBridge Translate helps you read real web pages and text-based documents in another language while turning unknown words into review material.
 
-Page translation is always user-triggered. Start from the extension popup or the floating page button, then stop translation with the same control to restore the page. LexiBridge also supports selected-text translation, Control-hover paragraph translation, a deliberate input-box shortcut, video subtitle translation when a page exposes browser caption tracks or common DOM-rendered captions, SRT export for translated subtitle cues from the current session, live caption translation for caption text already visible on a page, and manual image text translation for selected images or selected image regions.
+Page translation is always user-triggered. Start from the extension popup or the floating page button, then stop translation with the same control to restore the page. LexiBridge also supports selected-text translation, Control-hover paragraph translation, a deliberate input-box shortcut, video subtitle translation when a page exposes browser caption tracks or common DOM-rendered captions, SRT export for translated subtitle cues from the current session, live caption translation for caption text already visible on a page with Google Meet, Zoom, and Teams-style speaker label handling, and manual image text translation for selected images or selected image regions.
 
 The document translator supports pasted text, text files, Markdown, HTML files, JSON string values, DOCX paragraph text, EPUB spine documents, subtitle files, and simple text-based PDFs with page and coordinate metadata for detected PDF text blocks. Subtitle files can be exported after translation as `.srt` or `.vtt` files with their original cue timing preserved. HTML files are reduced to readable body text blocks before translation, skipping scripts, styles, and markup. Image text translation can use browser OCR when available, plus SVG and accessibility text fallbacks, and it can place separate translation overlays on OCR text blocks when the browser provides bounding boxes. Full scanned-PDF OCR, full PDF visual rendering, structure-preserving JSON rewrite, layout-preserving DOCX/EPUB rewrite, automatic manga panel segmentation, audio transcription, and meeting bots are not included yet.
 
@@ -28,7 +28,7 @@ Core features:
 - Input box translation by typing three trailing spaces.
 - Text-based document translator for pasted text, text files, Markdown, HTML files, JSON string values, DOCX paragraph text, EPUB spine documents, subtitle files with timing-preserving export, and simple PDFs with layout block metadata.
 - Video subtitle translation when caption/subtitle tracks or common DOM-rendered captions are available, with SRT export for translated cues from the current session.
-- Live caption translation for caption text already visible in the page.
+- Live caption translation for caption text already visible in the page, including common meeting speaker labels.
 - Manual image text translation using browser OCR when available, plus SVG and accessibility text fallbacks, with drag-to-select image regions and separate OCR block overlays when coordinates are available.
 - 100+ target language choices in settings.
 - Google Translate and MyMemory are available today, with 20+ provider definitions prepared for future engine expansion.
@@ -101,6 +101,6 @@ Common support answers:
 - Type three trailing spaces in a supported input box to translate the typed text.
 - The document translator handles text-based documents, HTML body text extraction, JSON string value extraction, DOCX paragraph text, EPUB spine documents, subtitle file timing-preserving export, and simple text-based PDFs. Scanned PDFs, structure-preserving JSON rewrite, layout-preserving DOCX/EPUB rewrite, and full visual PDF rendering need later batches.
 - Video subtitle translation works only when the current video exposes captions or subtitles to the browser, including common DOM-rendered caption containers. Export SRT saves only subtitle cues translated during the current session. It does not record audio, generate subtitles for videos without captions, or transcribe meetings.
-- Live caption translation works only with caption text already visible in the page. It does not record audio, join calls, or create meeting transcripts.
+- Live caption translation works only with caption text already visible in the page. Common Google Meet, Zoom, and Teams-style caption containers keep speaker labels when available. It does not record audio, join calls, or create meeting transcripts.
 - Image text translation starts only after the user enables Image text and clicks an image, canvas, or SVG, or drags over a specific image region. OCR depends on browser support and readable image content; separate region overlays require OCR bounding boxes.
 - Vocabulary and review data are stored in Chrome storage. Chrome may sync the data if browser sync is enabled.

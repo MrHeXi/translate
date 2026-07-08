@@ -44,6 +44,7 @@ Current batch:
 - DOM-rendered video caption adapters for common caption containers.
 - SRT export for translated subtitle cues collected during the current video session.
 - Manual live caption translation for caption text already visible in the page DOM.
+- Google Meet, Zoom, and Teams-style meeting caption adapters with speaker-label preservation.
 - Manual image text translation for selected images, canvases, and SVGs.
 
 ## Planned Batches
@@ -101,9 +102,10 @@ Current batch:
 ### Batch G: Meeting Subtitle Translation
 
 - Done: detect live captions when available in the page DOM.
+- Done: preserve common meeting speaker labels while translating Google Meet, Zoom, and Teams-style caption containers.
 - Done: translate visible caption text in near real time after the user starts Live captions from the popup.
 - Done: avoid recording, joining calls, storing audio, or generating meeting transcripts.
-- Remaining: site-specific meeting caption adapters and richer speaker/timing handling.
+- Remaining: deeper meeting timing, transcript workflows, and broader site-specific caption adapters.
 
 ## Non-Negotiable Product Rules
 

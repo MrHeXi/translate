@@ -6,6 +6,92 @@ export interface LiveCaptionTranslatorState {
 
 type TranslateText = (text: string) => Promise<string>;
 
+interface LiveCaptionCandidate {
+  speaker?: string;
+  text: string;
+  source: string;
+  priority: number;
+}
+
+interface MeetingCaptionAdapter {
+  source: string;
+  priority: number;
+  rootSelectors: string[];
+  speakerSelectors: string[];
+  textSelectors: string[];
+}
+
+const MEETING_CAPTION_ADAPTERS: MeetingCaptionAdapter[] = [
+  {
+    source: 'Google Meet',
+    priority: 100,
+    rootSelectors: [
+      '[data-lexibridge-live-caption-source="google-meet"]',
+      '.a4cQT',
+      '[class*="a4cQT"]'
+    ],
+    speakerSelectors: [
+      '[data-lexibridge-caption-speaker]',
+      '.iTTPOb',
+      '[class*="speaker"]',
+      '[class*="Speaker"]'
+    ],
+    textSelectors: [
+      '[data-lexibridge-caption-text]',
+      '.TBMuR',
+      '[class*="caption-text"]',
+      '[class*="CaptionText"]'
+    ]
+  },
+  {
+    source: 'Zoom',
+    priority: 90,
+    rootSelectors: [
+      '[data-lexibridge-live-caption-source="zoom"]',
+      '.closed-caption',
+      '.caption-window',
+      '[class*="closed-caption"]'
+    ],
+    speakerSelectors: [
+      '[data-lexibridge-caption-speaker]',
+      '.caption-name',
+      '.speaker-name',
+      '[class*="speaker"]',
+      '[class*="name"]'
+    ],
+    textSelectors: [
+      '[data-lexibridge-caption-text]',
+      '.caption-text',
+      '.captions-text',
+      '[class*="caption-text"]',
+      '[class*="CaptionText"]'
+    ]
+  },
+  {
+    source: 'Microsoft Teams',
+    priority: 90,
+    rootSelectors: [
+      '[data-lexibridge-live-caption-source="teams"]',
+      '[data-tid*="closed-caption"]',
+      '[data-tid*="caption"]',
+      '[class*="closedCaption"]'
+    ],
+    speakerSelectors: [
+      '[data-lexibridge-caption-speaker]',
+      '[data-tid*="speaker"]',
+      '[class*="speaker"]',
+      '[class*="Speaker"]'
+    ],
+    textSelectors: [
+      '[data-lexibridge-caption-text]',
+      '[data-tid*="caption-text"]',
+      '[data-tid*="closed-caption-text"]',
+      '[class*="captionText"]',
+      '[class*="CaptionText"]'
+    ]
+  }
+];
+
 const LIVE_CAPTION_SELECTORS = [
   '[data-lexibridge-live-caption-source]',
   '[aria-live="polite"]',
@@ -57,14 +143,14 @@ export class LiveCaptionTranslator {
     this.createOverlay();
     this.startWatching();
 
-    const captionText = this.findCaptionText();
-    this.showStatus(captionText ? 'Translating live captions...' : 'Waiting for live captions...');
+    const caption = this.findCaptionCandidate();
+    this.showStatus(caption ? 'Translating live captions...' : 'Waiting for live captions...');
     void this.handleCaptionChange();
 
     return {
       isActive: true,
-      hasCaption: Boolean(captionText),
-      message: captionText ? 'Live caption translation started' : 'Waiting for live captions'
+      hasCaption: Boolean(caption),
+      message: caption ? 'Live caption translation started' : 'Waiting for live captions'
     };
   }
 
@@ -89,7 +175,7 @@ export class LiveCaptionTranslator {
   getStatus(): LiveCaptionTranslatorState {
     return {
       isActive: this.isActive,
-      hasCaption: Boolean(this.findCaptionText()),
+      hasCaption: Boolean(this.findCaptionCandidate()),
       message: this.isActive ? 'Live caption translation active' : 'Live caption translation stopped'
     };
   }
@@ -126,48 +212,114 @@ export class LiveCaptionTranslator {
   private async handleCaptionChange(): Promise<void> {
     if (!this.isActive || !this.translateText) return;
 
-    const captionText = this.findCaptionText();
-    if (!captionText) {
+    const caption = this.findCaptionCandidate();
+    if (!caption) {
       this.showStatus('Waiting for live captions...');
       this.lastCaptionText = '';
       return;
     }
 
-    if (captionText === this.lastCaptionText) return;
+    const captionKey = this.formatCaptionForDisplay(caption);
+    if (captionKey === this.lastCaptionText) return;
 
-    this.lastCaptionText = captionText;
-    this.renderCaption(captionText, 'Translating...');
+    this.lastCaptionText = captionKey;
+    this.renderCaption(caption, 'Translating...');
 
     try {
-      let translatedText = this.translationCache.get(captionText);
+      let translatedText = this.translationCache.get(caption.text);
       if (!translatedText) {
-        translatedText = await this.translateText(captionText);
-        this.translationCache.set(captionText, translatedText);
+        translatedText = await this.translateText(caption.text);
+        this.translationCache.set(caption.text, translatedText);
       }
 
-      if (this.isActive && this.lastCaptionText === captionText) {
-        this.renderCaption(captionText, translatedText);
+      if (this.isActive && this.lastCaptionText === captionKey) {
+        this.renderCaption(caption, translatedText);
       }
     } catch (error) {
-      if (this.isActive && this.lastCaptionText === captionText) {
-        this.renderCaption(captionText, 'Live caption translation failed');
+      if (this.isActive && this.lastCaptionText === captionKey) {
+        this.renderCaption(caption, 'Live caption translation failed');
       }
     }
   }
 
   private findCaptionText(): string {
-    const candidates = LIVE_CAPTION_SELECTORS
+    return this.findCaptionCandidate()?.text || '';
+  }
+
+  private findCaptionCandidate(): LiveCaptionCandidate | null {
+    const candidates = [
+      ...this.findMeetingCaptionCandidates(),
+      ...this.findGenericCaptionCandidates()
+    ].filter(candidate => candidate.text.length >= 2 && candidate.text.length <= 600);
+
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    return candidates.reduce((best, current) => {
+      if (current.priority !== best.priority) return current.priority > best.priority ? current : best;
+      if (Boolean(current.speaker) !== Boolean(best.speaker)) return current.speaker ? current : best;
+      return current.text.length >= best.text.length ? current : best;
+    });
+  }
+
+  private findMeetingCaptionCandidates(): LiveCaptionCandidate[] {
+    return MEETING_CAPTION_ADAPTERS.flatMap(adapter => {
+      const roots = adapter.rootSelectors
+        .flatMap(selector => Array.from(document.querySelectorAll(selector)) as HTMLElement[])
+        .filter((element, index, elements) => elements.indexOf(element) === index)
+        .filter(element => this.isUsableCaptionElement(element));
+
+      return roots
+        .map(root => this.extractMeetingCaptionCandidate(root, adapter))
+        .filter((candidate): candidate is LiveCaptionCandidate => Boolean(candidate));
+    });
+  }
+
+  private extractMeetingCaptionCandidate(root: HTMLElement, adapter: MeetingCaptionAdapter): LiveCaptionCandidate | null {
+    const speaker = this.findFirstText(root, adapter.speakerSelectors);
+    const captionText = this.findFirstText(root, adapter.textSelectors);
+    const fallbackText = this.normalizeCaptionText(root.textContent || '');
+    const text = captionText || (speaker ? this.removeLeadingSpeaker(fallbackText, speaker) : fallbackText);
+
+    if (!text || text === speaker) return null;
+
+    return {
+      speaker: speaker || undefined,
+      text,
+      source: adapter.source,
+      priority: adapter.priority
+    };
+  }
+
+  private findGenericCaptionCandidates(): LiveCaptionCandidate[] {
+    return LIVE_CAPTION_SELECTORS
       .flatMap(selector => Array.from(document.querySelectorAll(selector)) as HTMLElement[])
       .filter((element, index, elements) => elements.indexOf(element) === index)
       .filter(element => this.isUsableCaptionElement(element))
-      .map(element => this.normalizeCaptionText(element.textContent || ''))
-      .filter(text => text.length >= 2 && text.length <= 600);
+      .map(element => ({
+        text: this.normalizeCaptionText(element.textContent || ''),
+        source: 'Generic live caption',
+        priority: 10
+      }));
+  }
 
-    if (candidates.length === 0) {
-      return '';
+  private findFirstText(root: HTMLElement, selectors: string[]): string {
+    for (const selector of selectors) {
+      const element = root.querySelector(selector) as HTMLElement | null;
+      if (!element || !this.isUsableCaptionElement(element)) continue;
+
+      const text = this.normalizeCaptionText(element.textContent || '');
+      if (text) return text;
     }
 
-    return candidates.reduce((best, current) => current.length >= best.length ? current : best, '');
+    return '';
+  }
+
+  private removeLeadingSpeaker(text: string, speaker: string): string {
+    return text
+      .replace(new RegExp(`^${this.escapeRegExp(speaker)}\\s*[:：-]?\\s*`), '')
+      .trim();
   }
 
   private isUsableCaptionElement(element: HTMLElement): boolean {
@@ -191,6 +343,15 @@ export class LiveCaptionTranslator {
     return text
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  private formatCaptionForDisplay(caption: LiveCaptionCandidate, translatedText?: string): string {
+    const text = translatedText || caption.text;
+    return caption.speaker ? `${caption.speaker}: ${text}` : text;
+  }
+
+  private escapeRegExp(text: string): string {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   private createOverlay(): void {
@@ -228,7 +389,7 @@ export class LiveCaptionTranslator {
     this.overlayElement.style.opacity = '0.82';
   }
 
-  private renderCaption(originalText: string, translatedText: string): void {
+  private renderCaption(caption: LiveCaptionCandidate, translatedText: string): void {
     if (!this.overlayElement) return;
 
     this.overlayElement.replaceChildren();
@@ -236,12 +397,12 @@ export class LiveCaptionTranslator {
 
     const original = document.createElement('div');
     original.className = 'lexibridge-live-caption-original';
-    original.textContent = originalText;
+    original.textContent = this.formatCaptionForDisplay(caption);
     original.style.opacity = '0.88';
 
     const translation = document.createElement('div');
     translation.className = 'lexibridge-live-caption-translation';
-    translation.textContent = translatedText;
+    translation.textContent = this.formatCaptionForDisplay(caption, translatedText);
     translation.style.marginTop = '5px';
     translation.style.fontWeight = '600';
 

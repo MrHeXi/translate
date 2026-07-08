@@ -87,7 +87,7 @@ Capture a regular video page with available text-track or DOM-rendered captions 
 Capture a safe sample page where captions are already visible after manually starting Live captions from the popup:
 
 - The bilingual live caption overlay visible.
-- The original caption text visible on the page or clearly represented in the sample.
+- The original caption text visible on the page or clearly represented in the sample, with a safe speaker label if demonstrating meeting captions.
 - No private names, meeting details, audio recording indicator, or transcript export claim.
 
 ### Image Text

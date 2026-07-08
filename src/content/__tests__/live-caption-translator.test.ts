@@ -48,6 +48,33 @@ describe('LiveCaptionTranslator', () => {
     expect(overlay?.textContent).toContain('Translated: Speaker says hello to everyone.');
   });
 
+  it.each([
+    [
+      'Google Meet',
+      '<div class="a4cQT"><span class="iTTPOb">Mina</span><span class="TBMuR">Can everyone see my screen?</span></div>'
+    ],
+    [
+      'Zoom',
+      '<div class="closed-caption"><span class="caption-name">Jon</span><span class="caption-text">The demo starts now.</span></div>'
+    ],
+    [
+      'Microsoft Teams',
+      '<div data-tid="closed-caption-renderer"><span data-tid="closed-caption-speaker">Ava</span><span data-tid="closed-caption-text">Please check the agenda.</span></div>'
+    ]
+  ])('preserves the speaker label while translating %s caption text', async (_source, markup) => {
+    document.body.innerHTML = markup;
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    translator.enable(translateText);
+    await flushPromises();
+
+    const overlay = document.getElementById('lexibridge-live-caption-overlay');
+    expect(translateText).toHaveBeenCalledTimes(1);
+    expect(translateText).toHaveBeenCalledWith(expect.not.stringMatching(/Mina|Jon|Ava/));
+    expect(overlay?.textContent).toMatch(/Mina:|Jon:|Ava:/);
+    expect(overlay?.textContent).toContain('Translated:');
+  });
+
   it('updates the overlay when live caption text changes', async () => {
     document.body.innerHTML = '<div id="caption" aria-live="polite">First caption line.</div>';
     const caption = document.getElementById('caption') as HTMLElement;

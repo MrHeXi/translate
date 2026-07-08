@@ -69,8 +69,9 @@ It is not marketed as a full scanned-PDF OCR translator, layout-preserving Offic
 
 - Start or stop live caption translation manually from the popup.
 - Translate caption text that is already present in the page DOM, such as browser or meeting-page live captions.
+- Preserve common meeting speaker labels while translating Google Meet, Zoom, and Teams-style caption containers.
 - Render a bilingual overlay without recording audio, joining calls, or creating transcripts.
-- Site-specific meeting caption adapters are planned for later batches.
+- Deeper meeting caption timing and transcript workflows are planned for later batches.
 
 ### Image Text Translation
 

@@ -52,6 +52,7 @@ describe('product packaging contract', () => {
     expect(readme).toContain('Export translated subtitle cues from the current session as an `.srt` file');
     expect(readme).toContain('common DOM-rendered captions');
     expect(readme).toContain('Live Caption Translation');
+    expect(readme).toContain('Google Meet, Zoom, and Teams-style caption containers');
     expect(readme).toContain('Image Text Translation');
     expect(readme).toContain('`.html`, `.htm`');
     expect(readme).toContain('`.json`');
@@ -109,6 +110,7 @@ describe('product packaging contract', () => {
     expect(listing).toContain('common DOM-rendered captions');
     expect(listing).toContain('SRT export for translated cues from the current session');
     expect(listing).toContain('Live caption translation');
+    expect(listing).toContain('common meeting speaker labels');
     expect(listing).toContain('Manual image text translation');
     expect(listing).toContain('OCR depends on browser support');
     expect(listing).toContain('separate OCR block overlays');
@@ -136,7 +138,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-08');
-    expect(releaseNotes).toContain('34 test suites and 227 tests');
+    expect(releaseNotes).toContain('34 test suites and 230 tests');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -179,6 +181,7 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('DOM-rendered video caption adapters');
     expect(roadmap).toContain('SRT export for translated subtitle cues');
     expect(roadmap).toContain('Meeting subtitle translation');
+    expect(roadmap).toContain('meeting caption adapters with speaker-label preservation');
     expect(roadmap).toContain('Image, manga, and OCR translation');
     expect(roadmap).toContain('separate OCR text-block overlays');
     expect(roadmap).toContain('Multiple translation engines');
