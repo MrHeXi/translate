@@ -10,7 +10,7 @@ export interface DocumentBlockLayout {
   y: number;
   width: number;
   height: number;
-  source: 'pdf-text' | 'plain-text' | 'subtitle' | 'html';
+  source: 'pdf-text' | 'plain-text' | 'subtitle' | 'html' | 'json';
 }
 
 export class DocumentTextExtractor {
@@ -23,6 +23,10 @@ export class DocumentTextExtractor {
     const text = await file.text();
     if (this.isHtmlFile(file)) {
       return this.extractTextFromHtml(text);
+    }
+
+    if (this.isJsonFile(file)) {
+      return this.extractTextFromJson(text);
     }
 
     return text;
@@ -40,6 +44,10 @@ export class DocumentTextExtractor {
     const text = await file.text();
     if (this.isHtmlFile(file)) {
       return this.extractBlocksFromHtml(text, maxBlockLength);
+    }
+
+    if (this.isJsonFile(file)) {
+      return this.extractBlocksFromJson(text, maxBlockLength);
     }
 
     return this.splitIntoBlocks(text, maxBlockLength);
@@ -99,6 +107,20 @@ export class DocumentTextExtractor {
   static extractBlocksFromHtml(html: string, maxBlockLength: number = 1200): DocumentBlock[] {
     const htmlBlocks = this.extractHtmlTextBlocks(html);
     const chunks = htmlBlocks.flatMap(block => this.chunkBlock(block, maxBlockLength));
+
+    return chunks.map((originalText, index) => ({
+      id: index + 1,
+      originalText
+    }));
+  }
+
+  static extractTextFromJson(json: string): string {
+    return this.extractJsonTextBlocks(json).join('\n\n').trim();
+  }
+
+  static extractBlocksFromJson(json: string, maxBlockLength: number = 1200): DocumentBlock[] {
+    const jsonBlocks = this.extractJsonTextBlocks(json);
+    const chunks = jsonBlocks.flatMap(block => this.chunkBlock(block, maxBlockLength));
 
     return chunks.map((originalText, index) => ({
       id: index + 1,
@@ -200,6 +222,12 @@ export class DocumentTextExtractor {
       lowerName.endsWith('.xhtml');
   }
 
+  private static isJsonFile(file: File): boolean {
+    return file.type === 'application/json' ||
+      file.type === 'text/json' ||
+      file.name.toLowerCase().endsWith('.json');
+  }
+
   private static extractHtmlTextBlocks(html: string): string[] {
     if (typeof DOMParser === 'undefined') {
       return this.splitHtmlTextWithoutParser(html);
@@ -289,6 +317,44 @@ export class DocumentTextExtractor {
       .replace(/&#39;|&apos;/gi, "'")
       .replace(/&#(\d+);/g, (_match, code: string) => String.fromCodePoint(Number(code)))
       .replace(/&#x([\da-f]+);/gi, (_match, code: string) => String.fromCodePoint(parseInt(code, 16)));
+  }
+
+  private static extractJsonTextBlocks(json: string): string[] {
+    try {
+      const parsed = JSON.parse(json) as unknown;
+      const blocks: string[] = [];
+      this.collectJsonStrings(parsed, blocks);
+      return blocks
+        .map(block => this.normalizeJsonText(block))
+        .filter(Boolean);
+    } catch {
+      return this.splitIntoBlocks(json).map(block => block.originalText);
+    }
+  }
+
+  private static collectJsonStrings(value: unknown, blocks: string[]): void {
+    if (typeof value === 'string') {
+      blocks.push(value);
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach(item => this.collectJsonStrings(item, blocks));
+      return;
+    }
+
+    if (value && typeof value === 'object') {
+      Object.values(value as Record<string, unknown>).forEach(item => this.collectJsonStrings(item, blocks));
+    }
+  }
+
+  private static normalizeJsonText(text: string): string {
+    return text
+      .replace(/^\uFEFF/, '')
+      .replace(/\r\n?/g, '\n')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
   }
 
   private static extractPdfStreams(pdfText: string): Array<{ pageNumber: number; body: string }> {

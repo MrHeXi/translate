@@ -49,7 +49,9 @@ describe('first-run and empty-state copy', () => {
     expect(documentHtml).toContain('Choose file');
     expect(documentHtml).toContain('Translate document');
     expect(documentHtml).toContain('.html,.htm');
+    expect(documentHtml).toContain('.json');
     expect(documentHtml).toContain('HTML file');
+    expect(documentHtml).toContain('JSON file');
     expect(documentHtml).toContain('Bilingual');
   });
 

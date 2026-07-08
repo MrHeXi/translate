@@ -161,4 +161,56 @@ describe('document translator page', () => {
     expect(blocks[0].querySelector('.block-index')?.textContent).toContain('Page 1 · Block 1 · x 72 · y 720');
     expect(document.getElementById('translationResults')?.textContent).toContain('translated: PDF heading');
   });
+
+  it('loads JSON files as readable string blocks without auto-translating', async () => {
+    require('../document');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    const json = JSON.stringify({
+      title: 'Product tour',
+      steps: [
+        'Open the extension popup.',
+        'Click Start to translate manually.'
+      ],
+      nested: {
+        note: 'Export learning data from settings.'
+      }
+    });
+    const file = new File([json], 'guide.json', { type: 'application/json' });
+    Object.defineProperty(file, 'text', {
+      value: async () => json,
+      configurable: true
+    });
+    const fileInput = document.getElementById('documentFile') as HTMLInputElement;
+
+    Object.defineProperty(fileInput, 'files', {
+      value: [file],
+      configurable: true
+    });
+
+    fileInput.dispatchEvent(new Event('change'));
+    await flushPromises();
+    await flushPromises();
+
+    const sourceText = document.getElementById('sourceText') as HTMLTextAreaElement;
+    expect(sourceText.value).toContain('Product tour');
+    expect(sourceText.value).toContain('Click Start to translate manually.');
+    expect(sourceText.value).toContain('Export learning data from settings.');
+    expect(sourceText.value).not.toContain('"steps"');
+    expect(document.getElementById('documentMessage')?.textContent).toBe('guide.json loaded');
+    expect((global as any).chrome.runtime.sendMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'translate' }),
+      expect.any(Function)
+    );
+
+    document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+    await flushPromises();
+
+    const blocks = document.querySelectorAll('.document-result-block');
+    expect(blocks).toHaveLength(4);
+    expect(document.getElementById('translationResults')?.textContent).toContain('translated: Product tour');
+    expect(document.getElementById('translationResults')?.textContent).toContain('translated: Export learning data from settings.');
+  });
 });

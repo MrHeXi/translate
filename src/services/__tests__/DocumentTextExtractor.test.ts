@@ -86,6 +86,45 @@ describe('DocumentTextExtractor', () => {
     ]);
   });
 
+  it('extracts readable string values from JSON documents', () => {
+    const json = JSON.stringify({
+      title: 'Quick start',
+      metadata: {
+        version: 1,
+        published: true
+      },
+      sections: [
+        {
+          heading: 'Install the extension',
+          body: 'Open Chrome extensions and load the unpacked folder.'
+        },
+        {
+          heading: 'Translate manually',
+          body: 'Click Start only when you want page translation.'
+        }
+      ]
+    });
+
+    const blocks = DocumentTextExtractor.extractBlocksFromJson(json);
+
+    expect(blocks.map(block => block.originalText)).toEqual([
+      'Quick start',
+      'Install the extension',
+      'Open Chrome extensions and load the unpacked folder.',
+      'Translate manually',
+      'Click Start only when you want page translation.'
+    ]);
+  });
+
+  it('falls back to plain text blocks when JSON parsing fails', () => {
+    const blocks = DocumentTextExtractor.extractBlocksFromJson('{"title": "Broken"\n\nSecond fallback block.');
+
+    expect(blocks.map(block => block.originalText)).toEqual([
+      '{"title": "Broken"',
+      'Second fallback block.'
+    ]);
+  });
+
   it('extracts text from simple text-based PDF operators', () => {
     const pdf = [
       '%PDF-1.4',

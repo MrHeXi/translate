@@ -15,6 +15,7 @@ const setupPopupDom = (): void => {
     <button id="translateBtn"></button>
     <button id="vocabularyBtn"></button>
     <button id="reviewBtn"></button>
+    <button id="documentTranslatorBtn"></button>
     <button id="settingsBtn"></button>
     <button id="optionsBtn"></button>
     <span id="translationStatus"></span>
@@ -139,5 +140,22 @@ describe('Popup current tab state', () => {
     expect(document.getElementById('recentWordsEmpty')?.style.display).toBe('none');
 
     errorSpy.mockRestore();
+  });
+
+  it('passes JSON document URLs through to the document translator', async () => {
+    (global as any).chrome.tabs.query = jest.fn().mockResolvedValue([
+      { id: 1, url: 'https://example.com/locale.json?download=1' }
+    ]);
+
+    require('../popup');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    document.getElementById('documentTranslatorBtn')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    expect((global as any).chrome.tabs.create).toHaveBeenCalledWith({
+      url: 'chrome-extension://test/document.html?sourceUrl=https%3A%2F%2Fexample.com%2Flocale.json%3Fdownload%3D1'
+    });
   });
 });

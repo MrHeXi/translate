@@ -51,4 +51,13 @@ describe('DocumentPagePrompt', () => {
 
     expect(document.getElementById('lexibridge-document-translator-button')).not.toBeNull();
   });
+
+  it('shows the entry on JSON document URLs', () => {
+    window.history.replaceState({}, '', '/locale.json?download=1');
+    const prompt = new DocumentPagePrompt();
+
+    prompt.initialize();
+
+    expect(document.getElementById('lexibridge-document-translator-button')).not.toBeNull();
+  });
 });

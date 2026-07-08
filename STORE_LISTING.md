@@ -16,7 +16,7 @@ LexiBridge Translate helps you read real web pages and text-based documents in a
 
 Page translation is always user-triggered. Start from the extension popup or the floating page button, then stop translation with the same control to restore the page. LexiBridge also supports selected-text translation, Control-hover paragraph translation, a deliberate input-box shortcut, video subtitle translation when a page exposes browser caption tracks, SRT export for translated subtitle cues from the current session, live caption translation for caption text already visible on a page, and manual image text translation for selected images or selected image regions.
 
-The document translator supports pasted text, text files, Markdown, HTML files, subtitle files, and simple text-based PDFs with page and coordinate metadata for detected PDF text blocks. HTML files are reduced to readable body text blocks before translation, skipping scripts, styles, and markup. Image text translation can use browser OCR when available, plus SVG and accessibility text fallbacks, and it can place separate translation overlays on OCR text blocks when the browser provides bounding boxes. Full scanned-PDF OCR, full PDF visual rendering, automatic manga panel segmentation, audio transcription, and meeting bots are not included yet.
+The document translator supports pasted text, text files, Markdown, HTML files, JSON string values, subtitle files, and simple text-based PDFs with page and coordinate metadata for detected PDF text blocks. HTML files are reduced to readable body text blocks before translation, skipping scripts, styles, and markup. Image text translation can use browser OCR when available, plus SVG and accessibility text fallbacks, and it can place separate translation overlays on OCR text blocks when the browser provides bounding boxes. Full scanned-PDF OCR, full PDF visual rendering, structure-preserving JSON rewrite, automatic manga panel segmentation, audio transcription, and meeting bots are not included yet.
 
 The extension includes built-in CET4, CET6, GRE, IELTS, and TOEFL vocabulary sets. Enable the dictionaries you care about, collect useful words from the pages you read, and review saved or due words from the review page.
 
@@ -26,7 +26,7 @@ Core features:
 - Selection translation tooltip for quick lookups.
 - Control-hover paragraph translation for quick in-page reading help.
 - Input box translation by typing three trailing spaces.
-- Text-based document translator for pasted text, text files, Markdown, HTML files, subtitle files, and simple PDFs with layout block metadata.
+- Text-based document translator for pasted text, text files, Markdown, HTML files, JSON string values, subtitle files, and simple PDFs with layout block metadata.
 - Video subtitle translation when caption or subtitle tracks are available, with SRT export for translated cues from the current session.
 - Live caption translation for caption text already visible in the page.
 - Manual image text translation using browser OCR when available, plus SVG and accessibility text fallbacks, with drag-to-select image regions and separate OCR block overlays when coordinates are available.
@@ -99,7 +99,7 @@ Common support answers:
 - Click the same Start/Stop control again to stop translation and restore the page.
 - Hold Control while hovering over a paragraph to translate that paragraph only.
 - Type three trailing spaces in a supported input box to translate the typed text.
-- The document translator handles text-based documents, HTML body text extraction, and simple text-based PDFs. Scanned PDFs and full visual PDF rendering need later OCR/layout batches.
+- The document translator handles text-based documents, HTML body text extraction, JSON string value extraction, and simple text-based PDFs. Scanned PDFs, structure-preserving JSON rewrite, and full visual PDF rendering need later batches.
 - Video subtitle translation works only when the current video exposes captions or subtitles to the browser. Export SRT saves only subtitle cues translated during the current session. It does not record audio, generate subtitles for videos without captions, or transcribe meetings.
 - Live caption translation works only with caption text already visible in the page. It does not record audio, join calls, or create meeting transcripts.
 - Image text translation starts only after the user enables Image text and clicks an image, canvas, or SVG, or drags over a specific image region. OCR depends on browser support and readable image content; separate region overlays require OCR bounding boxes.
