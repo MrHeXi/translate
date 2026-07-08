@@ -67,7 +67,8 @@ body {
 
 /* 翻译状态 */
 .translation-status,
-.video-subtitle-status {
+.video-subtitle-status,
+.live-caption-status {
   padding: 12px;
   background-color: #f8f9fa;
   border-radius: 8px;

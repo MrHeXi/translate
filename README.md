@@ -13,11 +13,12 @@ It is best for:
 - Reading English web pages, technical articles, documentation, and study material.
 - Translating pasted or uploaded text documents, subtitle files, and simple text-based PDFs.
 - Translating video captions when the page exposes subtitle or caption tracks.
+- Translating live caption text that is already visible in a page.
 - Collecting useful words from real context.
 - Reviewing CET4, CET6, GRE, IELTS, TOEFL vocabulary.
 - Keeping a local-first vocabulary notebook with Chrome storage sync support.
 
-It is not marketed as a layout-preserving PDF translator, scanned-document OCR reader, image reader, audio transcription tool, or meeting assistant.
+It is not marketed as a layout-preserving PDF translator, scanned-document OCR reader, image reader, audio transcription service, or meeting bot that records or joins calls.
 
 ## Core Features
 
@@ -56,6 +57,13 @@ It is not marketed as a layout-preserving PDF translator, scanned-document OCR r
 - Translate active caption or subtitle cues when the current video exposes browser text tracks.
 - Render a bilingual subtitle overlay without recording audio or blocking playback.
 - Site-specific video support and subtitle export are planned for later batches.
+
+### Live Caption Translation
+
+- Start or stop live caption translation manually from the popup.
+- Translate caption text that is already present in the page DOM, such as browser or meeting-page live captions.
+- Render a bilingual overlay without recording audio, joining calls, or creating transcripts.
+- Site-specific meeting caption adapters are planned for later batches.
 
 ### Vocabulary Learning
 
@@ -118,6 +126,13 @@ The generated test package is `chrome-translation-extension.zip`.
 2. Open the extension popup.
 3. Click Start in Video subtitles.
 4. Click the same control again to remove the overlay and stop subtitle translation.
+
+### Translate Live Captions
+
+1. Open a page that is already showing live captions.
+2. Open the extension popup.
+3. Click Start in Live captions.
+4. Click the same control again to remove the overlay and stop live caption translation.
 
 ### Study Vocabulary
 

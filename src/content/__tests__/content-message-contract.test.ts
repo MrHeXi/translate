@@ -152,7 +152,8 @@ describe('Content script direct runtime message contract', () => {
       success: true,
       isActive: true,
       isLearningMode: false,
-      isVideoSubtitleMode: false
+      isVideoSubtitleMode: false,
+      isLiveCaptionMode: false
     });
   });
 
@@ -303,7 +304,8 @@ describe('Content script direct runtime message contract', () => {
       success: true,
       isActive: false,
       isLearningMode: false,
-      isVideoSubtitleMode: false
+      isVideoSubtitleMode: false,
+      isLiveCaptionMode: false
     });
   });
 
@@ -446,13 +448,14 @@ describe('Content script direct runtime message contract', () => {
       success: true,
       isActive: false,
       isLearningMode: false,
-      isVideoSubtitleMode: false
+      isVideoSubtitleMode: false,
+      isLiveCaptionMode: false
     });
 
     warnSpy.mockRestore();
   });
 
-  it('toggles video subtitle translation through the direct runtime message contract', async () => {
+  it('toggles subtitle and live-caption translation through the direct runtime message contract', async () => {
     const listeners: Array<(request: any, sender: any, sendResponse: (response: any) => void) => boolean> = [];
     const addListener = jest.fn((listener) => {
       listeners.push(listener);
@@ -593,7 +596,8 @@ describe('Content script direct runtime message contract', () => {
       success: true,
       isActive: false,
       isLearningMode: false,
-      isVideoSubtitleMode: true
+      isVideoSubtitleMode: true,
+      isLiveCaptionMode: false
     });
 
     const stopResponse = await sendDirectMessage({ action: 'toggleVideoSubtitleTranslation' });
@@ -602,6 +606,31 @@ describe('Content script direct runtime message contract', () => {
       isActive: false,
       hasTrack: false,
       message: 'Video subtitle translation stopped'
+    });
+
+    const liveCaptionStartResponse = await sendDirectMessage({ action: 'toggleLiveCaptionTranslation' });
+    expect(liveCaptionStartResponse).toEqual({
+      success: true,
+      isActive: true,
+      hasCaption: false,
+      message: 'Waiting for live captions'
+    });
+
+    const liveCaptionStatusResponse = await sendDirectMessage({ action: 'getTranslationStatus' });
+    expect(liveCaptionStatusResponse).toEqual({
+      success: true,
+      isActive: false,
+      isLearningMode: false,
+      isVideoSubtitleMode: false,
+      isLiveCaptionMode: true
+    });
+
+    const liveCaptionStopResponse = await sendDirectMessage({ action: 'toggleLiveCaptionTranslation' });
+    expect(liveCaptionStopResponse).toEqual({
+      success: true,
+      isActive: false,
+      hasCaption: false,
+      message: 'Live caption translation stopped'
     });
   });
 });

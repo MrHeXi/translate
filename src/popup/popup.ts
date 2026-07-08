@@ -21,8 +21,10 @@ interface VocabularyPreview {
 class PopupController {
   private isTranslationActive: boolean = false;
   private isVideoSubtitleActive: boolean = false;
+  private isLiveCaptionActive: boolean = false;
   private isTogglingTranslation: boolean = false;
   private isTogglingVideoSubtitles: boolean = false;
+  private isTogglingLiveCaptions: boolean = false;
 
   constructor() {
     this.initialize();
@@ -50,6 +52,9 @@ class PopupController {
 
     const toggleVideoSubtitles = document.getElementById('toggleVideoSubtitles') as HTMLButtonElement;
     toggleVideoSubtitles?.addEventListener('click', () => this.toggleVideoSubtitleMode());
+
+    const toggleLiveCaptions = document.getElementById('toggleLiveCaptions') as HTMLButtonElement;
+    toggleLiveCaptions?.addEventListener('click', () => this.toggleLiveCaptionMode());
 
     // 快速翻译
     const translateBtn = document.getElementById('translateBtn') as HTMLButtonElement;
@@ -106,15 +111,23 @@ class PopupController {
           this.isVideoSubtitleActive = isVideoSubtitleMode;
         }
 
+        const isLiveCaptionMode = response?.isLiveCaptionMode ?? response?.data?.isLiveCaptionMode;
+        if (typeof isLiveCaptionMode === 'boolean') {
+          this.isLiveCaptionActive = isLiveCaptionMode;
+        }
+
         this.updateTranslationStatusUI();
         this.updateVideoSubtitleStatusUI();
+        this.updateLiveCaptionStatusUI();
       }
     } catch (error) {
       if (this.isMissingContentScriptReceiverError(error)) {
         this.isTranslationActive = false;
         this.isVideoSubtitleActive = false;
+        this.isLiveCaptionActive = false;
         this.updateTranslationStatusUI();
         this.updateVideoSubtitleStatusUI();
+        this.updateLiveCaptionStatusUI();
         return;
       }
 
@@ -173,6 +186,33 @@ class PopupController {
       this.showError(error instanceof Error ? error.message : 'Could not toggle video subtitles.');
     } finally {
       this.setVideoSubtitleToggleBusy(false);
+    }
+  }
+
+  private async toggleLiveCaptionMode(): Promise<void> {
+    if (this.isTogglingLiveCaptions) return;
+
+    this.setLiveCaptionToggleBusy(true);
+
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id) {
+        const response = await this.sendMessageToTabWithInjection(tab, { action: 'toggleLiveCaptionTranslation' });
+        if (response?.success) {
+          const isActive = response.isActive ?? response.data?.isActive;
+          this.isLiveCaptionActive = Boolean(isActive);
+          this.updateLiveCaptionStatusUI();
+        } else {
+          this.showError(response?.error || 'Could not toggle live captions.');
+        }
+      } else {
+        this.showError('No active page found.');
+      }
+    } catch (error) {
+      console.error('Could not toggle live captions:', error);
+      this.showError(error instanceof Error ? error.message : 'Could not toggle live captions.');
+    } finally {
+      this.setLiveCaptionToggleBusy(false);
     }
   }
 
@@ -322,6 +362,23 @@ class PopupController {
 
     if (statusElement && toggleBtn) {
       if (this.isVideoSubtitleActive) {
+        statusElement.textContent = 'On';
+        toggleBtn.textContent = 'Stop';
+        toggleBtn.classList.add('active');
+      } else {
+        statusElement.textContent = 'Off';
+        toggleBtn.textContent = 'Start';
+        toggleBtn.classList.remove('active');
+      }
+    }
+  }
+
+  private updateLiveCaptionStatusUI(): void {
+    const statusElement = document.getElementById('liveCaptionStatus');
+    const toggleBtn = document.getElementById('toggleLiveCaptions') as HTMLButtonElement;
+
+    if (statusElement && toggleBtn) {
+      if (this.isLiveCaptionActive) {
         statusElement.textContent = 'On';
         toggleBtn.textContent = 'Stop';
         toggleBtn.classList.add('active');
@@ -546,6 +603,15 @@ class PopupController {
     this.isTogglingVideoSubtitles = isBusy;
 
     const toggleBtn = document.getElementById('toggleVideoSubtitles') as HTMLButtonElement;
+    if (toggleBtn) {
+      toggleBtn.disabled = isBusy;
+    }
+  }
+
+  private setLiveCaptionToggleBusy(isBusy: boolean): void {
+    this.isTogglingLiveCaptions = isBusy;
+
+    const toggleBtn = document.getElementById('toggleLiveCaptions') as HTMLButtonElement;
     if (toggleBtn) {
       toggleBtn.disabled = isBusy;
     }

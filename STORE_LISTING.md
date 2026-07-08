@@ -14,9 +14,9 @@ Translate web pages on demand, save unknown words, and review CET, GRE, IELTS, a
 
 LexiBridge Translate helps you read real web pages and text-based documents in another language while turning unknown words into review material.
 
-Page translation is always user-triggered. Start from the extension popup or the floating page button, then stop translation with the same control to restore the page. LexiBridge also supports selected-text translation, Control-hover paragraph translation, a deliberate input-box shortcut, and video subtitle translation when a page exposes browser caption tracks.
+Page translation is always user-triggered. Start from the extension popup or the floating page button, then stop translation with the same control to restore the page. LexiBridge also supports selected-text translation, Control-hover paragraph translation, a deliberate input-box shortcut, video subtitle translation when a page exposes browser caption tracks, and live caption translation for caption text already visible on a page.
 
-The document translator supports pasted text, text files, Markdown, subtitle files, and simple text-based PDFs. Scanned PDFs, OCR, layout-preserving PDF rendering, audio transcription, and meeting translation are not included yet.
+The document translator supports pasted text, text files, Markdown, subtitle files, and simple text-based PDFs. Scanned PDFs, OCR, layout-preserving PDF rendering, audio transcription, and meeting bots are not included yet.
 
 The extension includes built-in CET4, CET6, GRE, IELTS, and TOEFL vocabulary sets. Enable the dictionaries you care about, collect useful words from the pages you read, and review saved or due words from the review page.
 
@@ -28,6 +28,7 @@ Core features:
 - Input box translation by typing three trailing spaces.
 - Text-based document translator for pasted text, text files, subtitle files, and simple PDFs.
 - Video subtitle translation when caption or subtitle tracks are available.
+- Live caption translation for caption text already visible in the page.
 - 100+ target language choices in settings.
 - Google Translate and MyMemory are available today, with 20+ provider definitions prepared for future engine expansion.
 - Vocabulary notebook for saved words, translations, examples, mastery level, and review schedule.
@@ -38,7 +39,7 @@ Core features:
 
 Privacy summary:
 
-- Translation requests are sent only after the user asks LexiBridge to translate selected text, a page, a document, or available video subtitles.
+- Translation requests are sent only after the user asks LexiBridge to translate selected text, a page, a document, available video subtitles, or visible live captions.
 - Settings, vocabulary, review progress, and learning stats are stored in Chrome storage.
 - LexiBridge does not run its own account server.
 - No default telemetry is collected.
@@ -59,9 +60,10 @@ translation, page translation, document translation, vocabulary, English learnin
 6. Input box translation shortcut before and after state.
 7. Document translator with bilingual translated blocks.
 8. Video subtitle overlay on a sample page with available captions.
-9. Vocabulary notebook with saved words and review metadata.
-10. Review page showing a due word card.
-11. Options page showing dictionary selection and translation settings.
+9. Live caption overlay on a safe sample page where captions are already visible.
+10. Vocabulary notebook with saved words and review metadata.
+11. Review page showing a due word card.
+12. Options page showing dictionary selection and translation settings.
 
 ## Permission Justifications
 
@@ -74,7 +76,7 @@ translation, page translation, document translation, vocabulary, English learnin
 
 ## Privacy Questionnaire Notes
 
-- Single purpose: user-triggered web and document text translation, selected-text translation, vocabulary collection, and vocabulary review.
+- Single purpose: user-triggered web and document text translation, selected-text translation, available subtitle/live-caption text translation, vocabulary collection, and vocabulary review.
 - Personal or sensitive user data: no account credentials, payment data, health data, financial data, or personal communications are collected by the extension.
 - Website and document content: only the text needed for the user-requested translation is sent to the selected translation provider.
 - User activity: learning progress and review stats are stored for product functionality, not default analytics.
@@ -97,4 +99,5 @@ Common support answers:
 - Type three trailing spaces in a supported input box to translate the typed text.
 - The document translator handles text-based documents. Scanned PDFs need the planned OCR batch.
 - Video subtitle translation works only when the current video exposes captions or subtitles to the browser. It does not record audio or transcribe meetings.
+- Live caption translation works only with caption text already visible in the page. It does not record audio, join calls, or create meeting transcripts.
 - Vocabulary and review data are stored in Chrome storage. Chrome may sync the data if browser sync is enabled.

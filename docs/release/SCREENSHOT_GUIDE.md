@@ -76,6 +76,14 @@ Capture a regular video page with available captions after manually starting Vid
 - Playback controls or the video context visible enough to show this is a video subtitle flow.
 - No claim or visual implication that LexiBridge records audio or transcribes meetings.
 
+### Live Captions
+
+Capture a safe sample page where captions are already visible after manually starting Live captions from the popup:
+
+- The bilingual live caption overlay visible.
+- The original caption text visible on the page or clearly represented in the sample.
+- No private names, meeting details, audio recording indicator, or transcript export claim.
+
 ### Vocabulary Notebook
 
 Capture the vocabulary page with:

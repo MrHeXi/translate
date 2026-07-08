@@ -38,6 +38,7 @@ Current batch:
 - Document translator page for pasted/uploaded text, subtitle files, and simple text-based PDFs.
 - Manual document entry prompt on detected document URLs.
 - Manual video subtitle translation for pages that expose caption or subtitle text tracks.
+- Manual live caption translation for caption text already visible in the page DOM.
 
 ## Planned Batches
 
@@ -83,9 +84,10 @@ Current batch:
 
 ### Batch G: Meeting Subtitle Translation
 
-- Detect live captions when available in the page DOM.
-- Translate caption text in near real time.
-- Avoid recording or storing meeting audio.
+- Done: detect live captions when available in the page DOM.
+- Done: translate visible caption text in near real time after the user starts Live captions from the popup.
+- Done: avoid recording, joining calls, storing audio, or generating meeting transcripts.
+- Remaining: site-specific meeting caption adapters and richer speaker/timing handling.
 
 ## Non-Negotiable Product Rules
 

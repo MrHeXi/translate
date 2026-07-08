@@ -1,6 +1,6 @@
 # LexiBridge Translate Release Notes
 
-## 1.0.0 - 2026-07-07
+## 1.0.0 - 2026-07-08
 
 Initial productized release candidate for local testing and Chrome Web Store preparation.
 
@@ -14,6 +14,7 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Input box translation by typing three trailing spaces.
 - Text-based document translator for pasted text, text files, subtitle files, and simple PDFs.
 - Video subtitle translation for pages that expose caption or subtitle text tracks.
+- Live caption translation for caption text already visible in the page DOM.
 - 100+ target language choices in settings.
 - Provider registry with Google Translate and MyMemory available today plus a 20+ provider expansion roadmap.
 - Built-in CET4, CET6, GRE, IELTS, and TOEFL vocabulary dictionaries.
@@ -23,11 +24,11 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 
 ### Verification
 
-Verified on 2026-07-07:
+Verified on 2026-07-08:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 30 test suites and 190 tests.
+- `jest --runInBand --silent`: passed, 31 test suites and 194 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 
