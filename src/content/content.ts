@@ -164,6 +164,9 @@ class ContentScript {
         const state = await this.toggleVideoSubtitleTranslation();
         return { success: true, data: state };
       },
+      'exportVideoSubtitles': async () => {
+        return { success: true, data: this.exportVideoSubtitles() };
+      },
       'toggleLiveCaptionTranslation': async () => {
         const state = await this.toggleLiveCaptionTranslation();
         return { success: true, data: state };
@@ -243,6 +246,10 @@ class ContentScript {
           sendResponse({ success: true, ...state });
           break;
         }
+
+        case 'exportVideoSubtitles':
+          sendResponse({ success: true, ...this.exportVideoSubtitles() });
+          break;
 
         case 'toggleLiveCaptionTranslation': {
           const state = await this.toggleLiveCaptionTranslation();
@@ -338,6 +345,10 @@ class ContentScript {
 
   private async toggleVideoSubtitleTranslation(): Promise<{ isActive: boolean; hasTrack: boolean; message: string }> {
     return this.videoSubtitleTranslator.toggle((text) => this.translateInteractiveText(text));
+  }
+
+  private exportVideoSubtitles(): { cueCount: number; filename: string; content: string; message: string } {
+    return this.videoSubtitleTranslator.exportSubtitles();
   }
 
   private async toggleLiveCaptionTranslation(): Promise<{ isActive: boolean; hasCaption: boolean; message: string }> {

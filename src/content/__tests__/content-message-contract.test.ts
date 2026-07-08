@@ -612,6 +612,15 @@ describe('Content script direct runtime message contract', () => {
       message: 'Video subtitle translation stopped'
     });
 
+    const emptySubtitleExportResponse = await sendDirectMessage({ action: 'exportVideoSubtitles' });
+    expect(emptySubtitleExportResponse).toEqual({
+      success: true,
+      cueCount: 0,
+      filename: expect.stringMatching(/lexibridge\.srt$/),
+      content: '',
+      message: 'No translated subtitles to export yet'
+    });
+
     const liveCaptionStartResponse = await sendDirectMessage({ action: 'toggleLiveCaptionTranslation' });
     expect(liveCaptionStartResponse).toEqual({
       success: true,

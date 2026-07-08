@@ -8,6 +8,7 @@ const flushPromises = async (): Promise<void> => {
 
 type TestTrack = TextTrack & {
   setActiveText: (text: string) => void;
+  setActiveCue: (text: string, startTime: number, endTime: number) => void;
   fireCueChange: () => void;
 };
 
@@ -17,7 +18,7 @@ const createTextTrack = (initialMode: TextTrackMode = 'showing'): TestTrack => {
   const track = {
     kind: 'subtitles' as TextTrackKind,
     mode: initialMode,
-    activeCues: [] as Array<{ text: string }>,
+    activeCues: [] as Array<{ text: string; startTime?: number; endTime?: number }>,
     addEventListener: jest.fn((type: string, listener: EventListenerOrEventListenerObject) => {
       if (type !== 'cuechange') return;
 
@@ -32,6 +33,9 @@ const createTextTrack = (initialMode: TextTrackMode = 'showing'): TestTrack => {
     }),
     setActiveText(text: string) {
       this.activeCues = text ? [{ text }] : [];
+    },
+    setActiveCue(text: string, startTime: number, endTime: number) {
+      this.activeCues = text ? [{ text, startTime, endTime }] : [];
     },
     fireCueChange() {
       cueChangeListener?.();
@@ -129,5 +133,37 @@ describe('VideoSubtitleTranslator', () => {
       message: 'No caption track found'
     });
     expect(document.getElementById('lexibridge-video-subtitle-overlay')?.textContent).toBe('No caption track found');
+  });
+
+  it('exports translated subtitle cues as SRT after manual subtitle translation', async () => {
+    document.title = 'Sample / Video';
+    const track = createTextTrack('showing');
+    mockVideoTracks([track]);
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    translator.enable(translateText);
+    track.setActiveCue('<i>Hello from captions.</i>', 1.234, 3.5);
+    track.fireCueChange();
+    await flushPromises();
+
+    const exported = translator.exportSubtitles();
+
+    expect(exported.cueCount).toBe(1);
+    expect(exported.filename).toBe('Sample-Video-lexibridge.srt');
+    expect(exported.content).toContain('1');
+    expect(exported.content).toContain('00:00:01,234 --> 00:00:03,500');
+    expect(exported.content).toContain('Hello from captions.');
+    expect(exported.content).toContain('Translated: Hello from captions.');
+  });
+
+  it('reports an empty export before any subtitle cue is translated', () => {
+    const exported = translator.exportSubtitles();
+
+    expect(exported).toEqual({
+      cueCount: 0,
+      filename: expect.stringMatching(/lexibridge\.srt$/),
+      content: '',
+      message: 'No translated subtitles to export yet'
+    });
   });
 });

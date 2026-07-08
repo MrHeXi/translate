@@ -27,6 +27,7 @@ class PopupController {
   private isTogglingVideoSubtitles: boolean = false;
   private isTogglingLiveCaptions: boolean = false;
   private isTogglingImageTranslation: boolean = false;
+  private isExportingVideoSubtitles: boolean = false;
 
   constructor() {
     this.initialize();
@@ -54,6 +55,9 @@ class PopupController {
 
     const toggleVideoSubtitles = document.getElementById('toggleVideoSubtitles') as HTMLButtonElement;
     toggleVideoSubtitles?.addEventListener('click', () => this.toggleVideoSubtitleMode());
+
+    const exportVideoSubtitles = document.getElementById('exportVideoSubtitles') as HTMLButtonElement;
+    exportVideoSubtitles?.addEventListener('click', () => this.exportVideoSubtitles());
 
     const toggleLiveCaptions = document.getElementById('toggleLiveCaptions') as HTMLButtonElement;
     toggleLiveCaptions?.addEventListener('click', () => this.toggleLiveCaptionMode());
@@ -199,6 +203,36 @@ class PopupController {
       this.showError(error instanceof Error ? error.message : 'Could not toggle video subtitles.');
     } finally {
       this.setVideoSubtitleToggleBusy(false);
+    }
+  }
+
+  private async exportVideoSubtitles(): Promise<void> {
+    if (this.isExportingVideoSubtitles) return;
+
+    this.setVideoSubtitleExportBusy(true);
+
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) {
+        this.showError('No active page found.');
+        return;
+      }
+
+      const response = await this.sendMessageToTabWithInjection(tab, { action: 'exportVideoSubtitles' });
+      const exportData = response?.data || response;
+      const content = typeof exportData?.content === 'string' ? exportData.content : '';
+
+      if (!response?.success || !content.trim()) {
+        this.showError(exportData?.message || response?.error || 'No translated subtitles to export yet.');
+        return;
+      }
+
+      this.downloadTextFile(content, exportData.filename || 'lexibridge-subtitles.srt', 'application/x-subrip;charset=utf-8');
+    } catch (error) {
+      console.error('Could not export video subtitles:', error);
+      this.showError(error instanceof Error ? error.message : 'Could not export video subtitles.');
+    } finally {
+      this.setVideoSubtitleExportBusy(false);
     }
   }
 
@@ -666,6 +700,16 @@ class PopupController {
     }
   }
 
+  private setVideoSubtitleExportBusy(isBusy: boolean): void {
+    this.isExportingVideoSubtitles = isBusy;
+
+    const exportBtn = document.getElementById('exportVideoSubtitles') as HTMLButtonElement;
+    if (exportBtn) {
+      exportBtn.disabled = isBusy;
+      exportBtn.textContent = isBusy ? 'Exporting...' : 'Export SRT';
+    }
+  }
+
   private setLiveCaptionToggleBusy(isBusy: boolean): void {
     this.isTogglingLiveCaptions = isBusy;
 
@@ -725,6 +769,19 @@ class PopupController {
         errorElement.parentNode.removeChild(errorElement);
       }
     }, 3000);
+  }
+
+  private downloadTextFile(content: string, filename: string, mimeType: string): void {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 }
 

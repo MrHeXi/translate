@@ -110,6 +110,26 @@ body {
   border-color: #34a853;
 }
 
+.export-btn {
+  padding: 4px 8px;
+  border: 1px solid #cfd8e3;
+  border-radius: 4px;
+  background-color: #fff;
+  color: #246bfe;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.export-btn:hover {
+  background-color: #eef4ff;
+}
+
+.export-btn:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
 /* 快速翻译 */
 .quick-translate h3 {
   font-size: 16px;

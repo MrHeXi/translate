@@ -4,7 +4,27 @@ export interface VideoSubtitleTranslatorState {
   message: string;
 }
 
+export interface VideoSubtitleExport {
+  cueCount: number;
+  filename: string;
+  content: string;
+  message: string;
+}
+
 type TranslateText = (text: string) => Promise<string>;
+
+interface ActiveSubtitleCue {
+  text: string;
+  startTime?: number;
+  endTime?: number;
+}
+
+interface TranslatedSubtitleCue {
+  originalText: string;
+  translatedText: string;
+  startTime: number;
+  endTime: number;
+}
 
 export class VideoSubtitleTranslator {
   private isActive = false;
@@ -16,6 +36,8 @@ export class VideoSubtitleTranslator {
   private scanTimer: number | null = null;
   private lastCueText = '';
   private translationCache: Map<string, string> = new Map();
+  private translatedCues: TranslatedSubtitleCue[] = [];
+  private translatedCueKeys: Set<string> = new Set();
   private boundHandleCueChange = (): void => {
     void this.handleCueChange();
   };
@@ -82,6 +104,26 @@ export class VideoSubtitleTranslator {
   cleanup(): void {
     this.disable();
     this.translationCache.clear();
+    this.translatedCues = [];
+    this.translatedCueKeys.clear();
+  }
+
+  exportSubtitles(): VideoSubtitleExport {
+    if (this.translatedCues.length === 0) {
+      return {
+        cueCount: 0,
+        filename: this.createExportFilename(),
+        content: '',
+        message: 'No translated subtitles to export yet'
+      };
+    }
+
+    return {
+      cueCount: this.translatedCues.length,
+      filename: this.createExportFilename(),
+      content: this.renderSrt(this.translatedCues),
+      message: `Exported ${this.translatedCues.length} subtitle cues`
+    };
   }
 
   private attachToBestTrack(): boolean {
@@ -144,13 +186,14 @@ export class VideoSubtitleTranslator {
   private async handleCueChange(): Promise<void> {
     if (!this.isActive || !this.currentTrack || !this.translateText) return;
 
-    const cueText = this.getActiveCueText(this.currentTrack);
-    if (!cueText) {
+    const activeCue = this.getActiveCue(this.currentTrack);
+    if (!activeCue) {
       this.showStatus('Waiting for subtitles...');
       this.lastCueText = '';
       return;
     }
 
+    const cueText = activeCue.text;
     if (cueText === this.lastCueText) return;
 
     this.lastCueText = cueText;
@@ -164,6 +207,7 @@ export class VideoSubtitleTranslator {
       }
 
       if (this.isActive && this.lastCueText === cueText) {
+        this.recordTranslatedCue(activeCue, translatedText);
         this.renderSubtitle(cueText, translatedText);
       }
     } catch (error) {
@@ -173,14 +217,25 @@ export class VideoSubtitleTranslator {
     }
   }
 
-  private getActiveCueText(track: TextTrack): string {
+  private getActiveCue(track: TextTrack): ActiveSubtitleCue | null {
     const activeCues = Array.from(track.activeCues || []) as Array<TextTrackCue & { text?: string }>;
-
-    return activeCues
+    const text = activeCues
       .map(cue => (cue.text || '').replace(/<[^>]+>/g, '').trim())
       .filter(Boolean)
       .join('\n')
       .trim();
+
+    if (!text) return null;
+
+    const timedCues = activeCues.filter(cue => Number.isFinite(cue.startTime) && Number.isFinite(cue.endTime));
+    const startTime = timedCues.length > 0
+      ? Math.min(...timedCues.map(cue => cue.startTime))
+      : undefined;
+    const endTime = timedCues.length > 0
+      ? Math.max(...timedCues.map(cue => cue.endTime))
+      : undefined;
+
+    return { text, startTime, endTime };
   }
 
   private createOverlay(): void {
@@ -236,5 +291,67 @@ export class VideoSubtitleTranslator {
     translation.style.fontWeight = '600';
 
     this.overlayElement.append(original, translation);
+  }
+
+  private recordTranslatedCue(activeCue: ActiveSubtitleCue, translatedText: string): void {
+    const fallbackStartTime = this.translatedCues.length * 2;
+    const startTime = Number.isFinite(activeCue.startTime) ? activeCue.startTime! : fallbackStartTime;
+    const rawEndTime = Number.isFinite(activeCue.endTime) ? activeCue.endTime! : startTime + 2;
+    const endTime = rawEndTime > startTime ? rawEndTime : startTime + 2;
+    const key = [
+      activeCue.text,
+      translatedText,
+      Math.round(startTime * 1000),
+      Math.round(endTime * 1000)
+    ].join('|');
+
+    if (this.translatedCueKeys.has(key)) return;
+
+    this.translatedCueKeys.add(key);
+    this.translatedCues.push({
+      originalText: activeCue.text,
+      translatedText,
+      startTime,
+      endTime
+    });
+  }
+
+  private renderSrt(cues: TranslatedSubtitleCue[]): string {
+    return cues
+      .map((cue, index) => [
+        String(index + 1),
+        `${this.formatSrtTime(cue.startTime)} --> ${this.formatSrtTime(cue.endTime)}`,
+        cue.originalText,
+        cue.translatedText
+      ].join('\n'))
+      .join('\n\n');
+  }
+
+  private formatSrtTime(timeInSeconds: number): string {
+    const safeTime = Math.max(0, timeInSeconds);
+    const totalMilliseconds = Math.round(safeTime * 1000);
+    const milliseconds = totalMilliseconds % 1000;
+    const totalSeconds = Math.floor(totalMilliseconds / 1000);
+    const seconds = totalSeconds % 60;
+    const totalMinutes = Math.floor(totalSeconds / 60);
+    const minutes = totalMinutes % 60;
+    const hours = Math.floor(totalMinutes / 60);
+
+    return [
+      String(hours).padStart(2, '0'),
+      String(minutes).padStart(2, '0'),
+      String(seconds).padStart(2, '0')
+    ].join(':') + `,${String(milliseconds).padStart(3, '0')}`;
+  }
+
+  private createExportFilename(): string {
+    const safeTitle = (document.title || 'video-subtitles')
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 60) || 'video-subtitles';
+
+    return `${safeTitle}-lexibridge.srt`;
   }
 }

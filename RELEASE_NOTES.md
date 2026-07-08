@@ -14,6 +14,7 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Input box translation by typing three trailing spaces.
 - Text-based document translator for pasted text, text files, HTML files, subtitle files, and simple PDFs, including page/coordinate metadata for simple text-based PDF blocks.
 - Video subtitle translation for pages that expose caption or subtitle text tracks.
+- SRT export for translated video subtitle cues from the current session.
 - Live caption translation for caption text already visible in the page DOM.
 - Manual image text translation for selected images, canvases, SVGs, and dragged image regions, using browser OCR when available, including separate OCR block overlays when bounding boxes are available.
 - 100+ target language choices in settings.
@@ -29,7 +30,7 @@ Verified on 2026-07-08:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 33 test suites and 208 tests.
+- `jest --runInBand --silent`: passed, 34 test suites and 212 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 

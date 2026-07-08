@@ -59,7 +59,8 @@ It is not marketed as a full scanned-PDF OCR translator, automatic whole-page im
 - Start or stop video subtitle translation manually from the popup.
 - Translate active caption or subtitle cues when the current video exposes browser text tracks.
 - Render a bilingual subtitle overlay without recording audio or blocking playback.
-- Site-specific video support and subtitle export are planned for later batches.
+- Export translated subtitle cues from the current session as an `.srt` file.
+- Site-specific video support, AI subtitle generation, and richer timing controls are planned for later batches.
 
 ### Live Caption Translation
 
@@ -138,6 +139,7 @@ The generated test package is `chrome-translation-extension.zip`.
 2. Open the extension popup.
 3. Click Start in Video subtitles.
 4. Click the same control again to remove the overlay and stop subtitle translation.
+5. Click Export SRT to download subtitle cues that were translated during the current session.
 
 ### Translate Live Captions
 

@@ -75,6 +75,7 @@ Capture the document translator page with:
 Capture a regular video page with available captions after manually starting Video subtitles from the popup:
 
 - The bilingual subtitle overlay visible.
+- The Export SRT control visible if the current session has translated subtitle cues to demonstrate local subtitle export.
 - Playback controls or the video context visible enough to show this is a video subtitle flow.
 - No claim or visual implication that LexiBridge records audio or transcribes meetings.
 
@@ -125,7 +126,7 @@ Capture the options page with:
 - Any claim that translation starts automatically.
 - Unsupported feature claims beyond web page translation, text-based document translation, selected-text translation, vocabulary collection, review, import/export, and Chrome storage sync.
 - Claims for full scanned PDF OCR, automatic manga segmentation, or layout-preserving PDF translation.
-- Claims for audio transcription, meeting translation, or guaranteed support for every video site.
+- Claims for audio transcription, automatic subtitle generation, meeting translation, or guaranteed support for every video site.
 - Console errors, developer tools, or local file explorer windows.
 
 ## Final Check

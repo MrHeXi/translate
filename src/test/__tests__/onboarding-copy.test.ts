@@ -30,6 +30,7 @@ describe('first-run and empty-state copy', () => {
     expect(popupHtml).toContain('Translate while you read. Save words you want to review.');
     expect(popupHtml).toContain('Page translation');
     expect(popupHtml).toContain('Video subtitles');
+    expect(popupHtml).toContain('Export SRT');
     expect(popupHtml).toContain('Live captions');
     expect(popupHtml).toContain('Image text');
     expect(popupHtml).toContain('manual floating button');
