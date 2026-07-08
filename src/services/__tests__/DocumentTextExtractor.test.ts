@@ -87,7 +87,7 @@ describe('DocumentTextExtractor', () => {
     ]);
   });
 
-  it('extracts subtitle cue text without indexes or timestamps', () => {
+  it('extracts SRT subtitle cue text while preserving timing metadata', () => {
     const blocks = DocumentTextExtractor.splitIntoBlocks([
       '1',
       '00:00:01,000 --> 00:00:03,000',
@@ -98,9 +98,62 @@ describe('DocumentTextExtractor', () => {
       'This part should be translated.'
     ].join('\n'));
 
-    expect(blocks.map(block => block.originalText)).toEqual([
+    expect(blocks).toEqual([
+      {
+        id: 1,
+        originalText: 'Welcome to the lecture.',
+        subtitle: {
+          format: 'srt',
+          index: '1',
+          timing: '00:00:01,000 --> 00:00:03,000',
+          textLines: ['Welcome to the lecture.']
+        }
+      },
+      {
+        id: 2,
+        originalText: 'This part should be translated.',
+        subtitle: {
+          format: 'srt',
+          index: '2',
+          timing: '00:00:04,000 --> 00:00:06,000',
+          textLines: ['This part should be translated.']
+        }
+      }
+    ]);
+  });
+
+  it('extracts VTT subtitle cue text while preserving identifiers and timing settings', () => {
+    const blocks = DocumentTextExtractor.extractBlocksFromSubtitleText([
+      'WEBVTT',
+      '',
+      'intro-cue',
+      '00:00:01.000 --> 00:00:03.000 align:start position:10%',
       'Welcome to the lecture.',
+      '',
+      '00:00:04.000 --> 00:00:06.000',
       'This part should be translated.'
+    ].join('\n'));
+
+    expect(blocks).toEqual([
+      {
+        id: 1,
+        originalText: 'Welcome to the lecture.',
+        subtitle: {
+          format: 'vtt',
+          identifier: 'intro-cue',
+          timing: '00:00:01.000 --> 00:00:03.000 align:start position:10%',
+          textLines: ['Welcome to the lecture.']
+        }
+      },
+      {
+        id: 2,
+        originalText: 'This part should be translated.',
+        subtitle: {
+          format: 'vtt',
+          timing: '00:00:04.000 --> 00:00:06.000',
+          textLines: ['This part should be translated.']
+        }
+      }
     ]);
   });
 

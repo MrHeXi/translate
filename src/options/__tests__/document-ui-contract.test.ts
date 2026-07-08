@@ -4,6 +4,13 @@ const flushPromises = async (): Promise<void> => {
   await new Promise(resolve => setTimeout(resolve, 0));
 };
 
+const readBlobText = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result || ''));
+  reader.onerror = () => reject(reader.error);
+  reader.readAsText(blob);
+});
+
 export {};
 
 const setupDocumentDom = (): void => {
@@ -19,6 +26,7 @@ const setupDocumentDom = (): void => {
     </select>
     <input id="documentFile" type="file">
     <button id="translateDocument"></button>
+    <button id="exportSubtitleFile" disabled></button>
     <button id="clearDocument"></button>
     <textarea id="sourceText"></textarea>
     <p id="documentMessage"></p>
@@ -212,5 +220,87 @@ describe('document translator page', () => {
     expect(blocks).toHaveLength(4);
     expect(document.getElementById('translationResults')?.textContent).toContain('translated: Product tour');
     expect(document.getElementById('translationResults')?.textContent).toContain('translated: Export learning data from settings.');
+  });
+
+  it('exports translated subtitle files with the original timing preserved', async () => {
+    let exportedBlob: Blob | null = null;
+    const createObjectURL = jest.fn((blob: Blob) => {
+      exportedBlob = blob;
+      return 'blob:translated-subtitles';
+    });
+    const revokeObjectURL = jest.fn();
+    const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: createObjectURL,
+      configurable: true
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      value: revokeObjectURL,
+      configurable: true
+    });
+
+    try {
+      require('../document');
+      document.dispatchEvent(new Event('DOMContentLoaded'));
+      await flushPromises();
+
+      const srt = [
+        '1',
+        '00:00:01,000 --> 00:00:03,000',
+        'First caption line.',
+        '',
+        '2',
+        '00:00:04,000 --> 00:00:06,000',
+        'Second caption line.'
+      ].join('\n');
+      const file = new File([srt], 'lesson.srt', { type: 'application/x-subrip' });
+      Object.defineProperty(file, 'text', {
+        value: async () => srt,
+        configurable: true
+      });
+      const fileInput = document.getElementById('documentFile') as HTMLInputElement;
+
+      Object.defineProperty(fileInput, 'files', {
+        value: [file],
+        configurable: true
+      });
+
+      fileInput.dispatchEvent(new Event('change'));
+      await flushPromises();
+      await flushPromises();
+
+      expect((document.getElementById('exportSubtitleFile') as HTMLButtonElement).disabled).toBe(true);
+      expect((global as any).chrome.runtime.sendMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'translate' }),
+        expect.any(Function)
+      );
+
+      document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      expect((document.getElementById('exportSubtitleFile') as HTMLButtonElement).disabled).toBe(false);
+
+      document.getElementById('exportSubtitleFile')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+
+      expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+      expect(exportedBlob).not.toBeNull();
+      await expect(readBlobText(exportedBlob!)).resolves.toBe([
+        '1',
+        '00:00:01,000 --> 00:00:03,000',
+        'translated: First caption line.',
+        '',
+        '2',
+        '00:00:04,000 --> 00:00:06,000',
+        'translated: Second caption line.',
+        ''
+      ].join('\n'));
+      expect(clickSpy).toHaveBeenCalled();
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:translated-subtitles');
+      expect(document.getElementById('documentMessage')?.textContent).toBe('Exported 2 translated subtitle cues');
+    } finally {
+      clickSpy.mockRestore();
+    }
   });
 });

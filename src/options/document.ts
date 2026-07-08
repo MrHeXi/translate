@@ -18,6 +18,7 @@ class DocumentTranslatorController {
   private sourceText: HTMLTextAreaElement | null = null;
   private fileInput: HTMLInputElement | null = null;
   private translateButton: HTMLButtonElement | null = null;
+  private exportSubtitleButton: HTMLButtonElement | null = null;
   private clearButton: HTMLButtonElement | null = null;
   private targetLanguage: HTMLSelectElement | null = null;
   private translationProvider: HTMLSelectElement | null = null;
@@ -28,6 +29,8 @@ class DocumentTranslatorController {
   private resultsContainer: HTMLElement | null = null;
   private loadedDocumentBlocks: DocumentBlock[] | null = null;
   private loadedSourceText = '';
+  private loadedFileName = '';
+  private currentResults: TranslationResult[] = [];
 
   constructor() {
     this.initialize();
@@ -37,6 +40,7 @@ class DocumentTranslatorController {
     this.sourceText = document.getElementById('sourceText') as HTMLTextAreaElement | null;
     this.fileInput = document.getElementById('documentFile') as HTMLInputElement | null;
     this.translateButton = document.getElementById('translateDocument') as HTMLButtonElement | null;
+    this.exportSubtitleButton = document.getElementById('exportSubtitleFile') as HTMLButtonElement | null;
     this.clearButton = document.getElementById('clearDocument') as HTMLButtonElement | null;
     this.targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement | null;
     this.translationProvider = document.getElementById('translationProvider') as HTMLSelectElement | null;
@@ -51,6 +55,7 @@ class DocumentTranslatorController {
     this.applySourceUrl();
     this.bindEvents();
     this.renderResults([]);
+    this.updateSubtitleExportButton();
   }
 
   private populateControls(): void {
@@ -110,6 +115,7 @@ class DocumentTranslatorController {
   private bindEvents(): void {
     this.fileInput?.addEventListener('change', () => this.loadSelectedFile());
     this.translateButton?.addEventListener('click', () => this.translateDocument());
+    this.exportSubtitleButton?.addEventListener('click', () => this.exportTranslatedSubtitles());
     this.clearButton?.addEventListener('click', () => this.clearDocument());
     this.displayMode?.addEventListener('change', () => this.applyDisplayMode());
 
@@ -129,16 +135,23 @@ class DocumentTranslatorController {
       if (!text.trim()) {
         this.loadedDocumentBlocks = null;
         this.loadedSourceText = '';
+        this.loadedFileName = '';
+        this.currentResults = [];
+        this.updateSubtitleExportButton();
         this.showMessage('No selectable text was found. Scanned PDFs and image-only documents need OCR in a later batch.', 'error');
         return;
       }
 
       this.loadedDocumentBlocks = blocks;
       this.loadedSourceText = text;
+      this.loadedFileName = file.name;
+      this.currentResults = [];
       this.sourceText.value = text;
       const hasLayout = blocks.some(block => block.layout);
       this.showMessage(`${file.name} loaded${hasLayout ? ' with PDF layout blocks' : ''}`);
       this.updateProgress(0, 0);
+      this.renderResults([]);
+      this.updateSubtitleExportButton();
     } catch (error) {
       this.showMessage(error instanceof Error ? error.message : 'Could not load the document.', 'error');
     } finally {
@@ -160,7 +173,9 @@ class DocumentTranslatorController {
     }
 
     const results: TranslationResult[] = [];
+    this.currentResults = results;
     this.renderResults(results);
+    this.updateSubtitleExportButton();
     this.setBusy(true);
     this.updateProgress(0, blocks.length);
     this.showMessage(`Translating ${blocks.length} blocks`);
@@ -169,7 +184,9 @@ class DocumentTranslatorController {
       for (const block of blocks) {
         const translatedText = await this.translateBlock(block.originalText);
         results.push({ block, translatedText });
+        this.currentResults = results;
         this.renderResults(results);
+        this.updateSubtitleExportButton();
         this.updateProgress(results.length, blocks.length);
       }
 
@@ -238,6 +255,59 @@ class DocumentTranslatorController {
     this.applyDisplayMode();
   }
 
+  private exportTranslatedSubtitles(): void {
+    const subtitleResults = this.currentResults.filter(result => result.block.subtitle && result.translatedText.trim());
+    if (subtitleResults.length === 0) {
+      this.showMessage('Translate a subtitle file before exporting.', 'error');
+      return;
+    }
+
+    const format = subtitleResults[0]!.block.subtitle!.format;
+    const content = this.renderTranslatedSubtitleFile(subtitleResults, format);
+    const extension = format === 'vtt' ? 'vtt' : 'srt';
+    const filename = this.createSubtitleExportFilename(extension);
+
+    this.downloadTextFile(content, filename, `text/${format === 'vtt' ? 'vtt' : 'plain'};charset=utf-8`);
+    this.showMessage(`Exported ${subtitleResults.length} translated subtitle cues`);
+  }
+
+  private renderTranslatedSubtitleFile(results: TranslationResult[], format: 'srt' | 'vtt'): string {
+    const cues = results.map((result, index) => {
+      const cue = result.block.subtitle!;
+      const translatedText = result.translatedText.trim();
+
+      if (format === 'vtt') {
+        return [
+          cue.identifier,
+          cue.timing,
+          translatedText
+        ].filter(Boolean).join('\n');
+      }
+
+      return [
+        cue.index || String(index + 1),
+        cue.timing,
+        translatedText
+      ].join('\n');
+    });
+
+    return format === 'vtt'
+      ? `WEBVTT\n\n${cues.join('\n\n')}\n`
+      : `${cues.join('\n\n')}\n`;
+  }
+
+  private createSubtitleExportFilename(extension: 'srt' | 'vtt'): string {
+    const baseName = (this.loadedFileName || 'translated-subtitles')
+      .replace(/\.[^.]+$/, '')
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 80) || 'translated-subtitles';
+
+    return `${baseName}.translated.${extension}`;
+  }
+
   private applyDisplayMode(): void {
     const mode = (this.displayMode?.value || 'bilingual') as DisplayMode;
     const originals = document.querySelectorAll<HTMLElement>('.document-original');
@@ -279,8 +349,11 @@ class DocumentTranslatorController {
     if (this.fileInput) this.fileInput.value = '';
     this.loadedDocumentBlocks = null;
     this.loadedSourceText = '';
+    this.loadedFileName = '';
+    this.currentResults = [];
     this.renderResults([]);
     this.updateProgress(0, 0);
+    this.updateSubtitleExportButton();
     this.showMessage('');
   }
 
@@ -292,6 +365,14 @@ class DocumentTranslatorController {
 
   private setBusy(isBusy: boolean): void {
     if (this.translateButton) this.translateButton.disabled = isBusy;
+    this.updateSubtitleExportButton(isBusy);
+  }
+
+  private updateSubtitleExportButton(isBusy: boolean = false): void {
+    if (!this.exportSubtitleButton) return;
+
+    const hasTranslatedSubtitles = this.currentResults.some(result => result.block.subtitle && result.translatedText.trim());
+    this.exportSubtitleButton.disabled = isBusy || !hasTranslatedSubtitles;
   }
 
   private showMessage(message: string, type: 'info' | 'error' = 'info'): void {
@@ -311,6 +392,19 @@ class DocumentTranslatorController {
         }
       });
     });
+  }
+
+  private downloadTextFile(content: string, filename: string, mimeType: string): void {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 }
 

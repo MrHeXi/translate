@@ -53,6 +53,7 @@ It is not marketed as a full scanned-PDF OCR translator, layout-preserving Offic
 - Extract readable HTML body blocks while skipping scripts, styles, and markup.
 - Extract readable string values from JSON files.
 - Extract readable text from DOCX paragraphs and EPUB spine documents.
+- Export translated `.srt` and `.vtt` subtitle files with their original timing preserved.
 - Preserve page and coordinate metadata for simple text-based PDF layout blocks.
 - Scanned PDFs, source-document rewrite, and full PDF visual rendering are planned for later OCR/document layout batches.
 
@@ -142,6 +143,13 @@ The generated test package is `chrome-translation-extension.zip`.
 3. Click Start in Video subtitles.
 4. Click the same control again to remove the overlay and stop subtitle translation.
 5. Click Export SRT to download subtitle cues that were translated during the current session.
+
+### Translate Subtitle Files
+
+1. Open the document translator.
+2. Choose a `.srt` or `.vtt` subtitle file.
+3. Click Translate document.
+4. Click Export subtitles to download a translated subtitle file with the original cue timing.
 
 ### Translate Live Captions
 

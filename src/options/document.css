@@ -94,7 +94,7 @@ select {
 
 .input-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr 92px;
+  grid-template-columns: 1fr 1fr minmax(132px, auto) 92px;
   gap: 8px;
 }
 
@@ -117,6 +117,11 @@ select {
 .primary-btn:disabled {
   border-color: #9fb5d8;
   background: #9fb5d8;
+  cursor: not-allowed;
+}
+
+.secondary-btn:disabled {
+  color: #8a9ab1;
   cursor: not-allowed;
 }
 

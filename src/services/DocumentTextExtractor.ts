@@ -2,6 +2,7 @@ export interface DocumentBlock {
   id: number;
   originalText: string;
   layout?: DocumentBlockLayout;
+  subtitle?: DocumentSubtitleCue;
 }
 
 export interface DocumentBlockLayout {
@@ -11,6 +12,14 @@ export interface DocumentBlockLayout {
   width: number;
   height: number;
   source: 'pdf-text' | 'plain-text' | 'subtitle' | 'html' | 'json';
+}
+
+export interface DocumentSubtitleCue {
+  format: 'srt' | 'vtt';
+  index?: string;
+  identifier?: string;
+  timing: string;
+  textLines: string[];
 }
 
 interface ZipCentralEntry {
@@ -84,10 +93,10 @@ export class DocumentTextExtractor {
     const normalizedText = this.normalizeText(text);
     if (!normalizedText) return [];
 
-    const subtitleBlocks = this.extractSubtitleBlocks(normalizedText);
-    const rawBlocks = subtitleBlocks.length > 0
-      ? subtitleBlocks
-      : normalizedText.split(/\n{2,}/).map(block => block.trim()).filter(Boolean);
+    const subtitleBlocks = this.extractBlocksFromSubtitleText(normalizedText);
+    if (subtitleBlocks.length > 0) return subtitleBlocks;
+
+    const rawBlocks = normalizedText.split(/\n{2,}/).map(block => block.trim()).filter(Boolean);
 
     const chunks = rawBlocks.flatMap(block => this.chunkBlock(block, maxBlockLength));
 
@@ -95,6 +104,51 @@ export class DocumentTextExtractor {
       id: index + 1,
       originalText
     }));
+  }
+
+  static extractBlocksFromSubtitleText(text: string, preferredFormat?: 'srt' | 'vtt'): DocumentBlock[] {
+    const normalizedText = this.normalizeText(text);
+    if (!normalizedText || !/-->/.test(normalizedText)) return [];
+
+    const format = preferredFormat || (normalizedText.trimStart().startsWith('WEBVTT') ? 'vtt' : 'srt');
+    const cueBlocks = normalizedText
+      .split(/\n{2,}/)
+      .map(block => block.split('\n').map(line => line.trim()))
+      .filter(lines => lines.length > 0);
+    const documentBlocks: DocumentBlock[] = [];
+
+    for (const lines of cueBlocks) {
+      const firstLine = lines[0] || '';
+      if (/^WEBVTT\b/i.test(firstLine) || /^NOTE\b/i.test(firstLine) || /^STYLE\b/i.test(firstLine) || /^REGION\b/i.test(firstLine)) {
+        continue;
+      }
+
+      const timingIndex = lines.findIndex(line => /-->\s*\d{2}:\d{2}/.test(line) || /\d{2}:\d{2}:\d{2}[,.]\d{3}\s*-->/.test(line));
+      if (timingIndex < 0) continue;
+
+      const leadingLines = lines.slice(0, timingIndex).filter(Boolean);
+      const index = leadingLines.length === 1 && /^\d+$/.test(leadingLines[0]!) ? leadingLines[0] : undefined;
+      const identifier = leadingLines.length > 0 && !index ? leadingLines.join('\n') : undefined;
+      const textLines = lines.slice(timingIndex + 1).filter(Boolean);
+      if (textLines.length === 0) continue;
+
+      const subtitle: DocumentSubtitleCue = {
+        format,
+        timing: lines[timingIndex]!,
+        textLines
+      };
+
+      if (index) subtitle.index = index;
+      if (identifier) subtitle.identifier = identifier;
+
+      documentBlocks.push({
+        id: documentBlocks.length + 1,
+        originalText: textLines.join('\n'),
+        subtitle
+      });
+    }
+
+    return documentBlocks;
   }
 
   static extractTextFromPdfBytes(bytes: Uint8Array): string {
@@ -223,23 +277,6 @@ export class DocumentTextExtractor {
         seen.add(key);
         return true;
       });
-  }
-
-  private static extractSubtitleBlocks(text: string): string[] {
-    if (!/-->\s*\d{2}:\d{2}|\d{2}:\d{2}:\d{2}[,.]\d{3}\s*-->/.test(text)) {
-      return [];
-    }
-
-    return text
-      .split(/\n{2,}/)
-      .map(cue => cue
-        .split('\n')
-        .map(line => line.trim())
-        .filter(line => line && !/^\d+$/.test(line) && !/-->/.test(line))
-        .join(' ')
-        .trim()
-      )
-      .filter(Boolean);
   }
 
   private static chunkBlock(block: string, maxBlockLength: number): string[] {

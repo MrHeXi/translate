@@ -70,6 +70,7 @@ Capture the document translator page with:
 - For an HTML sample, readable body text blocks visible without raw tags or script/style content.
 - For a JSON sample, readable string values visible without implying structure-preserving JSON rewrite.
 - For a DOCX or EPUB sample, extracted readable text blocks visible without implying source-file layout rewrite.
+- For a subtitle sample, translated cues visible with the Export subtitles control after translation.
 - For a text-based PDF sample, page and coordinate metadata visible on translated blocks.
 
 ### Video Subtitles

@@ -48,6 +48,7 @@ describe('first-run and empty-state copy', () => {
     expect(documentHtml).toContain('Document Translator');
     expect(documentHtml).toContain('Choose file');
     expect(documentHtml).toContain('Translate document');
+    expect(documentHtml).toContain('Export subtitles');
     expect(documentHtml).toContain('.html,.htm');
     expect(documentHtml).toContain('.json');
     expect(documentHtml).toContain('.docx,.epub');
