@@ -14,7 +14,7 @@ Translate web pages on demand, save unknown words, and review CET, GRE, IELTS, a
 
 LexiBridge Translate helps you read real web pages and text-based documents in another language while turning unknown words into review material.
 
-Page translation is always user-triggered. Start from the extension popup or the floating page button, then stop translation with the same control to restore the page. LexiBridge also supports selected-text translation, Control-hover paragraph translation, a deliberate input-box shortcut, video subtitle translation when a page exposes browser caption tracks, live caption translation for caption text already visible on a page, and manual image text translation for selected images.
+Page translation is always user-triggered. Start from the extension popup or the floating page button, then stop translation with the same control to restore the page. LexiBridge also supports selected-text translation, Control-hover paragraph translation, a deliberate input-box shortcut, video subtitle translation when a page exposes browser caption tracks, live caption translation for caption text already visible on a page, and manual image text translation for selected images or selected image regions.
 
 The document translator supports pasted text, text files, Markdown, subtitle files, and simple text-based PDFs with page and coordinate metadata for detected PDF text blocks. Image text translation can use browser OCR when available, plus SVG and accessibility text fallbacks. Full scanned-PDF OCR, full PDF visual rendering, automatic manga panel segmentation, audio transcription, and meeting bots are not included yet.
 
@@ -29,7 +29,7 @@ Core features:
 - Text-based document translator for pasted text, text files, subtitle files, and simple PDFs with layout block metadata.
 - Video subtitle translation when caption or subtitle tracks are available.
 - Live caption translation for caption text already visible in the page.
-- Manual image text translation using browser OCR when available, plus SVG and accessibility text fallbacks.
+- Manual image text translation using browser OCR when available, plus SVG and accessibility text fallbacks, with drag-to-select image regions.
 - 100+ target language choices in settings.
 - Google Translate and MyMemory are available today, with 20+ provider definitions prepared for future engine expansion.
 - Vocabulary notebook for saved words, translations, examples, mastery level, and review schedule.
@@ -62,7 +62,7 @@ translation, page translation, document translation, vocabulary, English learnin
 7. Document translator with bilingual translated blocks.
 8. Video subtitle overlay on a sample page with available captions.
 9. Live caption overlay on a safe sample page where captions are already visible.
-10. Image text translation overlay after clicking a safe sample image or SVG.
+10. Image text translation overlay after clicking a safe sample image or dragging over a specific image region.
 11. Vocabulary notebook with saved words and review metadata.
 12. Review page showing a due word card.
 13. Options page showing dictionary selection and translation settings.
@@ -102,5 +102,5 @@ Common support answers:
 - The document translator handles text-based documents and simple text-based PDFs. Scanned PDFs and full visual PDF rendering need later OCR/layout batches.
 - Video subtitle translation works only when the current video exposes captions or subtitles to the browser. It does not record audio or transcribe meetings.
 - Live caption translation works only with caption text already visible in the page. It does not record audio, join calls, or create meeting transcripts.
-- Image text translation starts only after the user enables Image text and clicks an image, canvas, or SVG. OCR depends on browser support and readable image content.
+- Image text translation starts only after the user enables Image text and clicks an image, canvas, or SVG, or drags over a specific image region. OCR depends on browser support and readable image content.
 - Vocabulary and review data are stored in Chrome storage. Chrome may sync the data if browser sync is enabled.

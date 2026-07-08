@@ -19,14 +19,14 @@ Chrome storage may sync data through the user's browser profile if Chrome sync i
 
 Translation provider requests happen only after the user asks LexiBridge to translate selected text, document text, selected image text, available video subtitle text, visible live caption text, or a page.
 
-When the user translates selected text, starts page translation, translates a document in the document translator, manually starts image text translation and clicks an image, manually starts video subtitle translation for a page with available caption tracks, or manually starts live caption translation for caption text already visible on a page, LexiBridge sends the requested text to the selected translation provider.
+When the user translates selected text, starts page translation, translates a document in the document translator, manually starts image text translation and clicks an image or drags over an image region, manually starts video subtitle translation for a page with available caption tracks, or manually starts live caption translation for caption text already visible on a page, LexiBridge sends the requested text to the selected translation provider.
 
 Current provider hosts:
 
 - `translate.googleapis.com`
 - `api.mymemory.translated.net`
 
-The extension sends the text needed for the requested translation and the selected target language. Uploaded document files are read locally in the browser; the extension sends only the extracted text blocks that the user asks to translate. For simple text-based PDFs, page and coordinate metadata may be used locally to render layout-aware blocks, but the translation request sends the extracted text. Image text translation extracts text locally from browser OCR when available, SVG text, or image accessibility text, then sends only the extracted text after the user clicks the image. Video subtitle and live caption translation send caption text only after the user turns the feature on, and LexiBridge does not record audio, join calls, or create meeting transcripts for these features. Translation provider handling is governed by the provider's own terms and privacy practices.
+The extension sends the text needed for the requested translation and the selected target language. Uploaded document files are read locally in the browser; the extension sends only the extracted text blocks that the user asks to translate. For simple text-based PDFs, page and coordinate metadata may be used locally to render layout-aware blocks, but the translation request sends the extracted text. Image text translation extracts text locally from browser OCR when available, SVG text, or image accessibility text, then sends only the extracted text after the user clicks the image or selects a region. Video subtitle and live caption translation send caption text only after the user turns the feature on, and LexiBridge does not record audio, join calls, or create meeting transcripts for these features. Translation provider handling is governed by the provider's own terms and privacy practices.
 
 ## No Default Telemetry
 

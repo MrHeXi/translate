@@ -82,8 +82,9 @@ Current batch:
 - Done: add user-triggered image, canvas, and SVG selection from the popup.
 - Done: extract text through browser TextDetector OCR when available, with SVG text and accessibility text fallbacks.
 - Done: render translated overlays near the selected image target.
+- Done: support manual drag-to-select OCR regions for images and canvases.
 - Done: keep all OCR-triggering actions explicit.
-- Remaining: full scanned-document OCR, automatic manga panel segmentation, and image-region selection.
+- Remaining: full scanned-document OCR and automatic manga panel segmentation.
 
 ### Batch G: Meeting Subtitle Translation
 

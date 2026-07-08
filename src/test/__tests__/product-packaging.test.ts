@@ -117,7 +117,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-08');
-    expect(releaseNotes).toContain('32 test suites and 201 tests');
+    expect(releaseNotes).toContain('32 test suites and 202 tests');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');

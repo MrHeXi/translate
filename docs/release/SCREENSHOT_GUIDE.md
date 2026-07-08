@@ -87,10 +87,10 @@ Capture a safe sample page where captions are already visible after manually sta
 
 ### Image Text
 
-Capture a safe sample image or SVG after manually starting Image text from the popup and clicking the image:
+Capture a safe sample image or SVG after manually starting Image text from the popup and clicking the image or dragging over a region:
 
 - The image text translation overlay visible.
-- The source image, canvas, or SVG visible enough to show the user-triggered click target.
+- The source image, canvas, or SVG visible enough to show the user-triggered click or selected region target.
 - No claim that every scanned document, manga page, or image can be OCR-translated automatically.
 
 ### Vocabulary Notebook

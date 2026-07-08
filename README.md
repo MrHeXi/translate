@@ -71,8 +71,9 @@ It is not marketed as a full scanned-PDF OCR translator, automatic whole-page im
 
 - Start or stop image text translation manually from the popup.
 - Click an image, canvas, or SVG to translate extracted text.
+- Drag over an image or canvas to translate only the selected region, useful for comic speech bubbles or dense screenshots.
 - Use browser `TextDetector` OCR when available, with SVG text and image accessibility text as fallbacks.
-- Full scanned-document OCR and manga panel segmentation are planned for later batches.
+- Full scanned-document OCR and automatic manga panel segmentation are planned for later batches.
 
 ### Vocabulary Learning
 
@@ -147,7 +148,7 @@ The generated test package is `chrome-translation-extension.zip`.
 
 1. Open the extension popup.
 2. Click Start in Image text.
-3. Click an image, canvas, or SVG that contains readable text.
+3. Click an image, canvas, or SVG that contains readable text, or drag over a specific image region.
 4. Click the same control again to exit image text translation mode.
 
 ### Study Vocabulary

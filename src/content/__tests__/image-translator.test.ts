@@ -10,6 +10,16 @@ const click = (element: Element): void => {
   element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 };
 
+const mouse = (target: EventTarget, type: string, clientX: number, clientY: number): void => {
+  target.dispatchEvent(new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    button: 0,
+    clientX,
+    clientY
+  }));
+};
+
 describe('ImageTranslator', () => {
   let translator: ImageTranslator;
 
@@ -104,6 +114,53 @@ describe('ImageTranslator', () => {
     expect(translateText).toHaveBeenCalledWith('OCR detected line');
     expect(overlay?.textContent).toContain('OCR detected line');
     expect(overlay?.textContent).toContain('Translated: OCR detected line');
+  });
+
+  it('translates a dragged image region with browser OCR', async () => {
+    document.body.innerHTML = '<img id="target" src="comic.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    const close = jest.fn();
+    const detect = jest.fn(async () => [{ rawValue: 'Selected bubble text' }]);
+    const createImageBitmap = jest.fn(async () => ({ close }));
+
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 400, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 200, configurable: true });
+    Object.defineProperty(image, 'getBoundingClientRect', {
+      value: () => ({
+        x: 10,
+        y: 20,
+        left: 10,
+        top: 20,
+        right: 210,
+        bottom: 120,
+        width: 200,
+        height: 100,
+        toJSON: () => ({})
+      }),
+      configurable: true
+    });
+    Object.defineProperty(window, 'createImageBitmap', {
+      value: createImageBitmap,
+      configurable: true
+    });
+    (window as any).TextDetector = jest.fn(() => ({ detect }));
+
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    translator.enable(translateText);
+    mouse(image, 'mousedown', 30, 40);
+    mouse(document, 'mousemove', 90, 80);
+    mouse(document, 'mouseup', 90, 80);
+    await flushPromises();
+
+    const overlay = document.getElementById('lexibridge-image-translation-overlay');
+    expect(createImageBitmap).toHaveBeenCalledWith(image, 40, 40, 120, 80);
+    expect(detect).toHaveBeenCalled();
+    expect(close).toHaveBeenCalled();
+    expect(translateText).toHaveBeenCalledWith('Selected bubble text');
+    expect(overlay?.textContent).toContain('Selected bubble text');
+    expect(overlay?.textContent).toContain('Translated: Selected bubble text');
   });
 
   it('removes image mode styling and overlay when disabled', async () => {
