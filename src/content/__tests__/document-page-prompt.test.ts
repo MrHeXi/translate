@@ -42,4 +42,13 @@ describe('DocumentPagePrompt', () => {
 
     expect(document.getElementById('lexibridge-document-translator-button')).toBeNull();
   });
+
+  it('shows the entry on HTML document URLs', () => {
+    window.history.replaceState({}, '', '/manual.html?download=1');
+    const prompt = new DocumentPagePrompt();
+
+    prompt.initialize();
+
+    expect(document.getElementById('lexibridge-document-translator-button')).not.toBeNull();
+  });
 });

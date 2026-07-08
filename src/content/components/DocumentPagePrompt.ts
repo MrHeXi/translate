@@ -46,6 +46,6 @@ export class DocumentPagePrompt {
   }
 
   private isDocumentUrl(url: string): boolean {
-    return /\.(pdf|txt|md|markdown|srt|vtt)([?#].*)?$/i.test(url);
+    return /\.(pdf|txt|md|markdown|html|htm|srt|vtt)([?#].*)?$/i.test(url);
   }
 }

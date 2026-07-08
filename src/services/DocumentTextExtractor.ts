@@ -10,7 +10,7 @@ export interface DocumentBlockLayout {
   y: number;
   width: number;
   height: number;
-  source: 'pdf-text' | 'plain-text' | 'subtitle';
+  source: 'pdf-text' | 'plain-text' | 'subtitle' | 'html';
 }
 
 export class DocumentTextExtractor {
@@ -20,7 +20,12 @@ export class DocumentTextExtractor {
       return this.extractTextFromPdfBytes(bytes);
     }
 
-    return file.text();
+    const text = await file.text();
+    if (this.isHtmlFile(file)) {
+      return this.extractTextFromHtml(text);
+    }
+
+    return text;
   }
 
   static async extractBlocksFromFile(file: File, maxBlockLength: number = 1200): Promise<DocumentBlock[]> {
@@ -32,7 +37,12 @@ export class DocumentTextExtractor {
       return this.splitIntoBlocks(this.extractTextFromPdfBytes(bytes), maxBlockLength);
     }
 
-    return this.splitIntoBlocks(await file.text(), maxBlockLength);
+    const text = await file.text();
+    if (this.isHtmlFile(file)) {
+      return this.extractBlocksFromHtml(text, maxBlockLength);
+    }
+
+    return this.splitIntoBlocks(text, maxBlockLength);
   }
 
   static splitIntoBlocks(text: string, maxBlockLength: number = 1200): DocumentBlock[] {
@@ -82,6 +92,20 @@ export class DocumentTextExtractor {
       .trim();
   }
 
+  static extractTextFromHtml(html: string): string {
+    return this.extractHtmlTextBlocks(html).join('\n\n').trim();
+  }
+
+  static extractBlocksFromHtml(html: string, maxBlockLength: number = 1200): DocumentBlock[] {
+    const htmlBlocks = this.extractHtmlTextBlocks(html);
+    const chunks = htmlBlocks.flatMap(block => this.chunkBlock(block, maxBlockLength));
+
+    return chunks.map((originalText, index) => ({
+      id: index + 1,
+      originalText
+    }));
+  }
+
   static extractLayoutBlocksFromPdfBytes(bytes: Uint8Array): DocumentBlock[] {
     const pdfText = this.bytesToBinaryString(bytes);
     const streams = this.extractPdfStreams(pdfText);
@@ -108,6 +132,20 @@ export class DocumentTextExtractor {
       .replace(/\r\n?/g, '\n')
       .replace(/[ \t]+\n/g, '\n')
       .trim();
+  }
+
+  private static uniqueTextBlocks(textBlocks: string[]): string[] {
+    const seen = new Set<string>();
+
+    return textBlocks
+      .map(text => text.trim())
+      .filter(Boolean)
+      .filter(text => {
+        const key = text.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
   }
 
   private static extractSubtitleBlocks(text: string): string[] {
@@ -151,6 +189,106 @@ export class DocumentTextExtractor {
 
   private static isPdfFile(file: File): boolean {
     return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+  }
+
+  private static isHtmlFile(file: File): boolean {
+    const lowerName = file.name.toLowerCase();
+    return file.type === 'text/html' ||
+      file.type === 'application/xhtml+xml' ||
+      lowerName.endsWith('.html') ||
+      lowerName.endsWith('.htm') ||
+      lowerName.endsWith('.xhtml');
+  }
+
+  private static extractHtmlTextBlocks(html: string): string[] {
+    if (typeof DOMParser === 'undefined') {
+      return this.splitHtmlTextWithoutParser(html);
+    }
+
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    doc.querySelectorAll('script, style, noscript, template, svg, canvas').forEach(node => node.remove());
+
+    const root = doc.body || doc.documentElement;
+    if (!root) return [];
+
+    const blockSelector = [
+      'article',
+      'section',
+      'main',
+      'h1',
+      'h2',
+      'h3',
+      'h4',
+      'h5',
+      'h6',
+      'p',
+      'li',
+      'blockquote',
+      'figcaption',
+      'caption',
+      'th',
+      'td',
+      'dt',
+      'dd',
+      'pre'
+    ].join(',');
+
+    const candidates = Array.from(root.querySelectorAll(blockSelector))
+      .filter(element => !element.querySelector(blockSelector))
+      .map(element => this.normalizeHtmlText(element.textContent || ''))
+      .filter(Boolean);
+
+    if (candidates.length > 0) {
+      return this.uniqueTextBlocks(candidates);
+    }
+
+    return this.uniqueTextBlocks([this.normalizeHtmlText(root.textContent || '')]);
+  }
+
+  private static splitHtmlTextWithoutParser(html: string): string[] {
+    const withoutNoise = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '\n')
+      .replace(/<style[\s\S]*?<\/style>/gi, '\n')
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, '\n')
+      .replace(/<template[\s\S]*?<\/template>/gi, '\n');
+    const withBlockBreaks = withoutNoise.replace(
+      /<\/?(article|section|main|h[1-6]|p|li|blockquote|figcaption|caption|tr|th|td|dt|dd|pre|br)\b[^>]*>/gi,
+      '\n'
+    );
+    const plainText = this.decodeHtmlEntities(withBlockBreaks.replace(/<[^>]+>/g, ' '));
+
+    return this.uniqueTextBlocks(
+      plainText
+        .split(/\n{2,}|\n/)
+        .map(block => this.normalizeHtmlText(block))
+        .filter(Boolean)
+    );
+  }
+
+  private static normalizeHtmlText(text: string): string {
+    return this.decodeHtmlEntities(text)
+      .replace(/\u00a0/g, ' ')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  private static decodeHtmlEntities(text: string): string {
+    if (typeof document !== 'undefined') {
+      const textarea = document.createElement('textarea');
+      textarea.innerHTML = text;
+      return textarea.value;
+    }
+
+    return text
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;|&apos;/gi, "'")
+      .replace(/&#(\d+);/g, (_match, code: string) => String.fromCodePoint(Number(code)))
+      .replace(/&#x([\da-f]+);/gi, (_match, code: string) => String.fromCodePoint(parseInt(code, 16)));
   }
 
   private static extractPdfStreams(pdfText: string): Array<{ pageNumber: number; body: string }> {

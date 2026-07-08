@@ -31,6 +31,61 @@ describe('DocumentTextExtractor', () => {
     ]);
   });
 
+  it('extracts readable text blocks from HTML without scripts or tags', () => {
+    const html = [
+      '<!doctype html>',
+      '<html>',
+      '<head>',
+      '<style>.hidden { display: none; }</style>',
+      '<script>window.secret = "do not translate";</script>',
+      '</head>',
+      '<body>',
+      '<article>',
+      '<h1>Install &amp; setup</h1>',
+      '<p>First <strong>paragraph</strong> with&nbsp;spacing.</p>',
+      '<ul>',
+      '<li>Keep manual control.</li>',
+      '<li>Review saved words.</li>',
+      '</ul>',
+      '</article>',
+      '</body>',
+      '</html>'
+    ].join('');
+
+    const blocks = DocumentTextExtractor.extractBlocksFromHtml(html);
+
+    expect(blocks.map(block => block.originalText)).toEqual([
+      'Install & setup',
+      'First paragraph with spacing.',
+      'Keep manual control.',
+      'Review saved words.'
+    ]);
+    expect(blocks.map(block => block.originalText).join('\n')).not.toContain('do not translate');
+    expect(blocks.map(block => block.originalText).join('\n')).not.toContain('<strong>');
+  });
+
+  it('uses HTML extraction when loading HTML files', async () => {
+    const html = [
+      '<main>',
+      '<h1>Release notes</h1>',
+      '<p>Translate the document body.</p>',
+      '<script>Translate nothing from scripts.</script>',
+      '</main>'
+    ].join('');
+    const file = new File([html], 'notes.html', { type: 'text/html' });
+    Object.defineProperty(file, 'text', {
+      value: async () => html,
+      configurable: true
+    });
+
+    const blocks = await DocumentTextExtractor.extractBlocksFromFile(file);
+
+    expect(blocks.map(block => block.originalText)).toEqual([
+      'Release notes',
+      'Translate the document body.'
+    ]);
+  });
+
   it('extracts text from simple text-based PDF operators', () => {
     const pdf = [
       '%PDF-1.4',
