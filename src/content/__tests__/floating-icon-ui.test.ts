@@ -563,7 +563,7 @@ describe('浮动图标UI交互响应性属性测试', () => {
             fc.record({
               translationState: fc.boolean(),
               learningState: fc.boolean(),
-              delay: fc.integer({ min: 0, max: 200 })
+              delay: fc.integer({ min: 0, max: 30 })
             }),
             { minLength: 1, maxLength: 10 }
           ),

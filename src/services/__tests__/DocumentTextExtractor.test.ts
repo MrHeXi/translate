@@ -1,4 +1,77 @@
+import { TextDecoder, TextEncoder } from 'util';
 import { DocumentTextExtractor } from '../DocumentTextExtractor';
+
+Object.assign(globalThis, {
+  TextDecoder,
+  TextEncoder
+});
+
+const concatBytes = (chunks: Uint8Array[]): Uint8Array => {
+  const length = chunks.reduce((total, chunk) => total + chunk.length, 0);
+  const result = new Uint8Array(length);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+
+  return result;
+};
+
+const writeUint16 = (bytes: Uint8Array, offset: number, value: number): void => {
+  new DataView(bytes.buffer).setUint16(offset, value, true);
+};
+
+const writeUint32 = (bytes: Uint8Array, offset: number, value: number): void => {
+  new DataView(bytes.buffer).setUint32(offset, value, true);
+};
+
+const createStoredZip = (files: Array<{ name: string; content: string }>): Uint8Array => {
+  const encoder = new TextEncoder();
+  const localChunks: Uint8Array[] = [];
+  const centralChunks: Uint8Array[] = [];
+  let localOffset = 0;
+
+  for (const file of files) {
+    const nameBytes = encoder.encode(file.name);
+    const dataBytes = encoder.encode(file.content);
+    const localHeader = new Uint8Array(30 + nameBytes.length);
+
+    writeUint32(localHeader, 0, 0x04034b50);
+    writeUint16(localHeader, 4, 20);
+    writeUint16(localHeader, 8, 0);
+    writeUint32(localHeader, 18, dataBytes.length);
+    writeUint32(localHeader, 22, dataBytes.length);
+    writeUint16(localHeader, 26, nameBytes.length);
+    localHeader.set(nameBytes, 30);
+
+    const centralHeader = new Uint8Array(46 + nameBytes.length);
+    writeUint32(centralHeader, 0, 0x02014b50);
+    writeUint16(centralHeader, 4, 20);
+    writeUint16(centralHeader, 6, 20);
+    writeUint16(centralHeader, 10, 0);
+    writeUint32(centralHeader, 20, dataBytes.length);
+    writeUint32(centralHeader, 24, dataBytes.length);
+    writeUint16(centralHeader, 28, nameBytes.length);
+    writeUint32(centralHeader, 42, localOffset);
+    centralHeader.set(nameBytes, 46);
+
+    localChunks.push(localHeader, dataBytes);
+    centralChunks.push(centralHeader);
+    localOffset += localHeader.length + dataBytes.length;
+  }
+
+  const centralDirectory = concatBytes(centralChunks);
+  const endOfCentralDirectory = new Uint8Array(22);
+  writeUint32(endOfCentralDirectory, 0, 0x06054b50);
+  writeUint16(endOfCentralDirectory, 8, files.length);
+  writeUint16(endOfCentralDirectory, 10, files.length);
+  writeUint32(endOfCentralDirectory, 12, centralDirectory.length);
+  writeUint32(endOfCentralDirectory, 16, localOffset);
+
+  return concatBytes([...localChunks, centralDirectory, endOfCentralDirectory]);
+};
 
 describe('DocumentTextExtractor', () => {
   it('splits prose documents into stable translation blocks', () => {
@@ -122,6 +195,78 @@ describe('DocumentTextExtractor', () => {
     expect(blocks.map(block => block.originalText)).toEqual([
       '{"title": "Broken"',
       'Second fallback block.'
+    ]);
+  });
+
+  it('extracts readable DOCX paragraph text from WordprocessingML entries', async () => {
+    const docxBytes = createStoredZip([
+      {
+        name: 'word/document.xml',
+        content: [
+          '<?xml version="1.0" encoding="UTF-8"?>',
+          '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">',
+          '<w:body>',
+          '<w:p><w:r><w:t>First DOCX paragraph.</w:t></w:r></w:p>',
+          '<w:p><w:r><w:t>Second </w:t></w:r><w:r><w:t>paragraph &amp; details.</w:t></w:r></w:p>',
+          '</w:body>',
+          '</w:document>'
+        ].join('')
+      }
+    ]);
+
+    const blocks = await DocumentTextExtractor.extractBlocksFromDocxBytes(docxBytes);
+
+    expect(blocks.map(block => block.originalText)).toEqual([
+      'First DOCX paragraph.',
+      'Second paragraph & details.'
+    ]);
+  });
+
+  it('extracts EPUB spine documents in reading order', async () => {
+    const epubBytes = createStoredZip([
+      {
+        name: 'META-INF/container.xml',
+        content: [
+          '<?xml version="1.0"?>',
+          '<container version="1.0">',
+          '<rootfiles>',
+          '<rootfile full-path="OPS/package.opf" media-type="application/oebps-package+xml"/>',
+          '</rootfiles>',
+          '</container>'
+        ].join('')
+      },
+      {
+        name: 'OPS/package.opf',
+        content: [
+          '<package>',
+          '<manifest>',
+          '<item id="chapter2" href="chapter2.xhtml" media-type="application/xhtml+xml"/>',
+          '<item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>',
+          '</manifest>',
+          '<spine>',
+          '<itemref idref="chapter1"/>',
+          '<itemref idref="chapter2"/>',
+          '</spine>',
+          '</package>'
+        ].join('')
+      },
+      {
+        name: 'OPS/chapter1.xhtml',
+        content: '<html><body><h1>Chapter One</h1><p>Open with the first scene.</p></body></html>'
+      },
+      {
+        name: 'OPS/chapter2.xhtml',
+        content: '<html><body><h1>Chapter Two</h1><p>Continue with the second scene.</p></body></html>'
+      }
+    ]);
+
+    const blocks = await DocumentTextExtractor.extractBlocksFromEpubBytes(epubBytes);
+
+    expect(blocks.map(block => block.originalText)).toEqual([
+      'Chapter One',
+      'Open with the first scene.',
+      'Chapter Two',
+      'Continue with the second scene.'
     ]);
   });
 

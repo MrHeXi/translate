@@ -129,7 +129,7 @@ class DocumentTranslatorController {
       if (!text.trim()) {
         this.loadedDocumentBlocks = null;
         this.loadedSourceText = '';
-        this.showMessage('No selectable text was found. Scanned PDFs need OCR in a later batch.', 'error');
+        this.showMessage('No selectable text was found. Scanned PDFs and image-only documents need OCR in a later batch.', 'error');
         return;
       }
 

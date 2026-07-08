@@ -142,9 +142,13 @@ describe('Popup current tab state', () => {
     errorSpy.mockRestore();
   });
 
-  it('passes JSON document URLs through to the document translator', async () => {
+  it.each([
+    ['JSON', 'locale.json'],
+    ['DOCX', 'handbook.docx'],
+    ['EPUB', 'book.epub']
+  ])('passes %s document URLs through to the document translator', async (_label, fileName) => {
     (global as any).chrome.tabs.query = jest.fn().mockResolvedValue([
-      { id: 1, url: 'https://example.com/locale.json?download=1' }
+      { id: 1, url: `https://example.com/${fileName}?download=1` }
     ]);
 
     require('../popup');
@@ -155,7 +159,7 @@ describe('Popup current tab state', () => {
     await flushPromises();
 
     expect((global as any).chrome.tabs.create).toHaveBeenCalledWith({
-      url: 'chrome-extension://test/document.html?sourceUrl=https%3A%2F%2Fexample.com%2Flocale.json%3Fdownload%3D1'
+      url: `chrome-extension://test/document.html?sourceUrl=https%3A%2F%2Fexample.com%2F${encodeURIComponent(fileName)}%3Fdownload%3D1`
     });
   });
 });

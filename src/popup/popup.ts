@@ -576,7 +576,7 @@ class PopupController {
   }
 
   private isDocumentUrl(url: string): boolean {
-    return /\.(pdf|txt|md|markdown|html|htm|json|srt|vtt)([?#].*)?$/i.test(url);
+    return /\.(pdf|txt|md|markdown|html|htm|json|docx|epub|srt|vtt)([?#].*)?$/i.test(url);
   }
 
   private openSettings(): void {

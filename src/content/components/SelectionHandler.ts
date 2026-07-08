@@ -420,6 +420,7 @@ export class SelectionHandler {
     const minTop = viewport.height >= tooltipSize.height + margin * 2 ? margin : 0;
     const maxLeft = Math.max(minLeft, viewport.width - tooltipSize.width - minLeft);
     const maxTop = Math.max(minTop, viewport.height - tooltipSize.height - minTop);
+    const maxViewportTop = Math.max(0, viewport.height - tooltipSize.height);
 
     // fixed positioning uses viewport coordinates. Scroll offsets belong to absolute positioning only.
     let left = rect.left + (rect.width - tooltipSize.width) / 2;
@@ -429,14 +430,23 @@ export class SelectionHandler {
     const spaceBelow = viewport.height - rect.bottom;
     const spaceAbove = rect.top;
 
-    if (tooltipSize.height + gap + margin <= spaceBelow) {
-      top = rect.bottom + gap;
-    } else if (tooltipSize.height + gap + margin <= spaceAbove) {
-      top = rect.top - tooltipSize.height - gap;
-    } else if (tooltipSize.height <= spaceBelow) {
-      top = rect.bottom;
-    } else if (tooltipSize.height <= spaceAbove) {
-      top = rect.top - tooltipSize.height;
+    const belowWithGap = rect.bottom + gap;
+    const aboveWithGap = rect.top - tooltipSize.height - gap;
+    const belowFlush = rect.bottom;
+    const aboveFlush = rect.top - tooltipSize.height;
+
+    if (belowWithGap >= minTop && belowWithGap <= maxTop) {
+      top = belowWithGap;
+    } else if (aboveWithGap >= minTop && aboveWithGap <= maxTop) {
+      top = aboveWithGap;
+    } else if (belowWithGap >= 0 && belowWithGap <= maxViewportTop) {
+      top = belowWithGap;
+    } else if (aboveWithGap >= 0 && aboveWithGap <= maxViewportTop) {
+      top = aboveWithGap;
+    } else if (belowFlush >= 0 && belowFlush <= maxViewportTop) {
+      top = belowFlush;
+    } else if (aboveFlush >= 0 && aboveFlush <= maxViewportTop) {
+      top = aboveFlush;
     } else if (spaceBelow >= spaceAbove) {
       top = rect.bottom;
     } else {
@@ -444,7 +454,7 @@ export class SelectionHandler {
     }
 
     left = Math.min(Math.max(left, minLeft), maxLeft);
-    top = Math.min(Math.max(top, minTop), maxTop);
+    top = Math.min(Math.max(top, 0), maxViewportTop);
 
     return { left, top };
   }

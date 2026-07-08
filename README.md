@@ -11,7 +11,7 @@ LexiBridge is built around one idea: translate while you read, then review what 
 It is best for:
 
 - Reading English web pages, technical articles, documentation, and study material.
-- Translating pasted or uploaded text documents, HTML files, JSON files, subtitle files, and simple text-based PDFs.
+- Translating pasted or uploaded text documents, HTML files, JSON files, DOCX files, EPUB files, subtitle files, and simple text-based PDFs.
 - Translating video captions when the page exposes subtitle or caption tracks.
 - Translating live caption text that is already visible in a page.
 - Translating text from selected images, SVGs, and canvases when readable text or browser OCR is available.
@@ -19,7 +19,7 @@ It is best for:
 - Reviewing CET4, CET6, GRE, IELTS, TOEFL vocabulary.
 - Keeping a local-first vocabulary notebook with Chrome storage sync support.
 
-It is not marketed as a full scanned-PDF OCR translator, automatic whole-page image reader, audio transcription service, or meeting bot that records or joins calls.
+It is not marketed as a full scanned-PDF OCR translator, layout-preserving Office/eBook converter, automatic whole-page image reader, audio transcription service, or meeting bot that records or joins calls.
 
 ## Core Features
 
@@ -48,12 +48,13 @@ It is not marketed as a full scanned-PDF OCR translator, automatic whole-page im
 ### Document Translation
 
 - Open the document translator from the popup or from detected document URLs.
-- Paste text or upload `.txt`, `.md`, `.html`, `.htm`, `.json`, `.srt`, `.vtt`, or simple text-based `.pdf` files.
+- Paste text or upload `.txt`, `.md`, `.html`, `.htm`, `.json`, `.docx`, `.epub`, `.srt`, `.vtt`, or simple text-based `.pdf` files.
 - Translate document blocks manually with bilingual, translation-only, or original-only display.
 - Extract readable HTML body blocks while skipping scripts, styles, and markup.
 - Extract readable string values from JSON files.
+- Extract readable text from DOCX paragraphs and EPUB spine documents.
 - Preserve page and coordinate metadata for simple text-based PDF layout blocks.
-- Scanned PDFs and full PDF visual rendering are planned for later OCR/document layout batches.
+- Scanned PDFs, source-document rewrite, and full PDF visual rendering are planned for later OCR/document layout batches.
 
 ### Video Subtitle Translation
 

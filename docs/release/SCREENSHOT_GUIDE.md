@@ -69,6 +69,7 @@ Capture the document translator page with:
 - Target language, provider, and display mode controls visible.
 - For an HTML sample, readable body text blocks visible without raw tags or script/style content.
 - For a JSON sample, readable string values visible without implying structure-preserving JSON rewrite.
+- For a DOCX or EPUB sample, extracted readable text blocks visible without implying source-file layout rewrite.
 - For a text-based PDF sample, page and coordinate metadata visible on translated blocks.
 
 ### Video Subtitles
@@ -128,6 +129,7 @@ Capture the options page with:
 - Unsupported feature claims beyond web page translation, text-based document translation, selected-text translation, vocabulary collection, review, import/export, and Chrome storage sync.
 - Claims for full scanned PDF OCR, automatic manga segmentation, or layout-preserving PDF translation.
 - Claims for structure-preserving JSON rewrite.
+- Claims for layout-preserving DOCX or EPUB rewrite.
 - Claims for audio transcription, automatic subtitle generation, meeting translation, or guaranteed support for every video site.
 - Console errors, developer tools, or local file explorer windows.
 

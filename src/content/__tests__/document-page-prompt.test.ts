@@ -60,4 +60,16 @@ describe('DocumentPagePrompt', () => {
 
     expect(document.getElementById('lexibridge-document-translator-button')).not.toBeNull();
   });
+
+  it.each(['/handbook.docx?download=1', '/book.epub?download=1'])(
+    'shows the entry on document archive URLs: %s',
+    (documentUrl) => {
+      window.history.replaceState({}, '', documentUrl);
+      const prompt = new DocumentPagePrompt();
+
+      prompt.initialize();
+
+      expect(document.getElementById('lexibridge-document-translator-button')).not.toBeNull();
+    }
+  );
 });

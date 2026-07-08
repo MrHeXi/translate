@@ -50,8 +50,11 @@ describe('first-run and empty-state copy', () => {
     expect(documentHtml).toContain('Translate document');
     expect(documentHtml).toContain('.html,.htm');
     expect(documentHtml).toContain('.json');
+    expect(documentHtml).toContain('.docx,.epub');
     expect(documentHtml).toContain('HTML file');
     expect(documentHtml).toContain('JSON file');
+    expect(documentHtml).toContain('DOCX');
+    expect(documentHtml).toContain('EPUB');
     expect(documentHtml).toContain('Bilingual');
   });
 

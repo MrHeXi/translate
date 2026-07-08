@@ -13,11 +13,28 @@ export interface DocumentBlockLayout {
   source: 'pdf-text' | 'plain-text' | 'subtitle' | 'html' | 'json';
 }
 
+interface ZipCentralEntry {
+  name: string;
+  compressionMethod: number;
+  compressedSize: number;
+  localHeaderOffset: number;
+}
+
 export class DocumentTextExtractor {
   static async extractFromFile(file: File): Promise<string> {
     if (this.isPdfFile(file)) {
       const bytes = new Uint8Array(await file.arrayBuffer());
       return this.extractTextFromPdfBytes(bytes);
+    }
+
+    if (this.isDocxFile(file)) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      return this.extractTextFromDocxBytes(bytes);
+    }
+
+    if (this.isEpubFile(file)) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      return this.extractTextFromEpubBytes(bytes);
     }
 
     const text = await file.text();
@@ -39,6 +56,16 @@ export class DocumentTextExtractor {
       if (layoutBlocks.length > 0) return layoutBlocks;
 
       return this.splitIntoBlocks(this.extractTextFromPdfBytes(bytes), maxBlockLength);
+    }
+
+    if (this.isDocxFile(file)) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      return this.extractBlocksFromDocxBytes(bytes, maxBlockLength);
+    }
+
+    if (this.isEpubFile(file)) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      return this.extractBlocksFromEpubBytes(bytes, maxBlockLength);
     }
 
     const text = await file.text();
@@ -121,6 +148,34 @@ export class DocumentTextExtractor {
   static extractBlocksFromJson(json: string, maxBlockLength: number = 1200): DocumentBlock[] {
     const jsonBlocks = this.extractJsonTextBlocks(json);
     const chunks = jsonBlocks.flatMap(block => this.chunkBlock(block, maxBlockLength));
+
+    return chunks.map((originalText, index) => ({
+      id: index + 1,
+      originalText
+    }));
+  }
+
+  static async extractTextFromDocxBytes(bytes: Uint8Array): Promise<string> {
+    return (await this.extractDocxTextBlocksFromBytes(bytes)).join('\n\n').trim();
+  }
+
+  static async extractBlocksFromDocxBytes(bytes: Uint8Array, maxBlockLength: number = 1200): Promise<DocumentBlock[]> {
+    const docxBlocks = await this.extractDocxTextBlocksFromBytes(bytes);
+    const chunks = docxBlocks.flatMap(block => this.chunkBlock(block, maxBlockLength));
+
+    return chunks.map((originalText, index) => ({
+      id: index + 1,
+      originalText
+    }));
+  }
+
+  static async extractTextFromEpubBytes(bytes: Uint8Array): Promise<string> {
+    return (await this.extractEpubTextBlocksFromBytes(bytes)).join('\n\n').trim();
+  }
+
+  static async extractBlocksFromEpubBytes(bytes: Uint8Array, maxBlockLength: number = 1200): Promise<DocumentBlock[]> {
+    const epubBlocks = await this.extractEpubTextBlocksFromBytes(bytes);
+    const chunks = epubBlocks.flatMap(block => this.chunkBlock(block, maxBlockLength));
 
     return chunks.map((originalText, index) => ({
       id: index + 1,
@@ -226,6 +281,16 @@ export class DocumentTextExtractor {
     return file.type === 'application/json' ||
       file.type === 'text/json' ||
       file.name.toLowerCase().endsWith('.json');
+  }
+
+  private static isDocxFile(file: File): boolean {
+    return file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      file.name.toLowerCase().endsWith('.docx');
+  }
+
+  private static isEpubFile(file: File): boolean {
+    return file.type === 'application/epub+zip' ||
+      file.name.toLowerCase().endsWith('.epub');
   }
 
   private static extractHtmlTextBlocks(html: string): string[] {
@@ -355,6 +420,236 @@ export class DocumentTextExtractor {
       .replace(/[ \t]+/g, ' ')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
+  }
+
+  private static async extractDocxTextBlocksFromBytes(bytes: Uint8Array): Promise<string[]> {
+    const entries = this.readZipCentralDirectory(bytes);
+    const xmlNames = [
+      'word/document.xml',
+      ...entries
+        .map(entry => entry.name)
+        .filter(name => /^word\/(?:header|footer|footnotes|endnotes)\d*\.xml$/i.test(name))
+    ];
+    const blocks: string[] = [];
+
+    for (const xmlName of xmlNames) {
+      const xml = await this.readZipTextEntry(bytes, entries, xmlName);
+      if (xml) blocks.push(...this.extractDocxXmlTextBlocks(xml));
+    }
+
+    return blocks;
+  }
+
+  private static extractDocxXmlTextBlocks(xml: string): string[] {
+    const paragraphs = xml.match(/<(?:\w+:)?p\b[\s\S]*?<\/(?:\w+:)?p>/g) || [xml];
+
+    return paragraphs
+      .map(paragraph => this.extractWordprocessingText(paragraph))
+      .map(text => text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim())
+      .filter(Boolean);
+  }
+
+  private static extractWordprocessingText(xml: string): string {
+    const tokens = /<(?:\w+:)?t\b[^>]*>([\s\S]*?)<\/(?:\w+:)?t>|<(?:\w+:)?tab\b[^>]*\/>|<(?:\w+:)?br\b[^>]*\/>/g;
+    let text = '';
+
+    for (const match of xml.matchAll(tokens)) {
+      if (match[1] !== undefined) {
+        text += this.decodeXmlEntities(match[1]);
+      } else if (match[0].includes(':tab') || match[0].includes('<tab')) {
+        text += '\t';
+      } else {
+        text += '\n';
+      }
+    }
+
+    return text;
+  }
+
+  private static async extractEpubTextBlocksFromBytes(bytes: Uint8Array): Promise<string[]> {
+    const entries = this.readZipCentralDirectory(bytes);
+    const contentPaths = await this.getEpubContentPaths(bytes, entries);
+    const blocks: string[] = [];
+
+    for (const contentPath of contentPaths) {
+      const html = await this.readZipTextEntry(bytes, entries, contentPath);
+      if (html) blocks.push(...this.extractHtmlTextBlocks(html));
+    }
+
+    return blocks;
+  }
+
+  private static async getEpubContentPaths(bytes: Uint8Array, entries: ZipCentralEntry[]): Promise<string[]> {
+    const container = await this.readZipTextEntry(bytes, entries, 'META-INF/container.xml');
+    const rootFilePath = container ? this.getXmlAttribute(container, 'full-path') : null;
+
+    if (rootFilePath) {
+      const opf = await this.readZipTextEntry(bytes, entries, rootFilePath);
+      if (opf) {
+        const spinePaths = this.extractEpubSpinePaths(opf, rootFilePath);
+        if (spinePaths.length > 0) return spinePaths;
+      }
+    }
+
+    return entries
+      .map(entry => entry.name)
+      .filter(name => /\.(?:xhtml|html|htm)$/i.test(name) && !name.startsWith('META-INF/'))
+      .sort((left, right) => left.localeCompare(right));
+  }
+
+  private static extractEpubSpinePaths(opf: string, opfPath: string): string[] {
+    const manifest = new Map<string, string>();
+    const manifestItems = opf.match(/<item\b[^>]*>/g) || [];
+
+    for (const item of manifestItems) {
+      const id = this.getXmlAttribute(item, 'id');
+      const href = this.getXmlAttribute(item, 'href');
+      const mediaType = this.getXmlAttribute(item, 'media-type') || '';
+
+      if (id && href && /(?:application\/xhtml\+xml|text\/html)/i.test(mediaType)) {
+        manifest.set(id, this.resolveZipPath(opfPath, href));
+      }
+    }
+
+    const spineItems = opf.match(/<itemref\b[^>]*>/g) || [];
+    const spinePaths = spineItems
+      .map(item => this.getXmlAttribute(item, 'idref'))
+      .map(id => id ? manifest.get(id) : undefined)
+      .filter((path): path is string => Boolean(path));
+
+    if (spinePaths.length > 0) return spinePaths;
+    return Array.from(manifest.values());
+  }
+
+  private static getXmlAttribute(xml: string, attributeName: string): string | null {
+    const escapedName = attributeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`${escapedName}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`);
+    const match = pattern.exec(xml);
+    const value = match?.[1] ?? match?.[2];
+
+    return value ? this.decodeXmlEntities(value) : null;
+  }
+
+  private static resolveZipPath(baseFilePath: string, relativePath: string): string {
+    const baseParts = baseFilePath.split('/').slice(0, -1);
+    const relativeParts = relativePath.split('/');
+    const resolvedParts: string[] = [];
+
+    for (const part of [...baseParts, ...relativeParts]) {
+      if (!part || part === '.') continue;
+      if (part === '..') {
+        resolvedParts.pop();
+        continue;
+      }
+
+      resolvedParts.push(part);
+    }
+
+    return resolvedParts.join('/');
+  }
+
+  private static readZipCentralDirectory(bytes: Uint8Array): ZipCentralEntry[] {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const eocdOffset = this.findZipEndOfCentralDirectory(view);
+    if (eocdOffset < 0) {
+      throw new Error('Could not read the document archive.');
+    }
+
+    const centralDirectoryOffset = view.getUint32(eocdOffset + 16, true);
+    const totalEntries = view.getUint16(eocdOffset + 10, true);
+    const entries: ZipCentralEntry[] = [];
+    let offset = centralDirectoryOffset;
+
+    for (let index = 0; index < totalEntries; index++) {
+      if (view.getUint32(offset, true) !== 0x02014b50) break;
+
+      const compressionMethod = view.getUint16(offset + 10, true);
+      const compressedSize = view.getUint32(offset + 20, true);
+      const fileNameLength = view.getUint16(offset + 28, true);
+      const extraFieldLength = view.getUint16(offset + 30, true);
+      const commentLength = view.getUint16(offset + 32, true);
+      const localHeaderOffset = view.getUint32(offset + 42, true);
+      const fileNameBytes = bytes.slice(offset + 46, offset + 46 + fileNameLength);
+      const name = this.normalizeZipEntryName(new TextDecoder('utf-8').decode(fileNameBytes));
+
+      entries.push({
+        name,
+        compressionMethod,
+        compressedSize,
+        localHeaderOffset
+      });
+
+      offset += 46 + fileNameLength + extraFieldLength + commentLength;
+    }
+
+    return entries;
+  }
+
+  private static findZipEndOfCentralDirectory(view: DataView): number {
+    const minOffset = Math.max(0, view.byteLength - 65557);
+
+    for (let offset = view.byteLength - 22; offset >= minOffset; offset--) {
+      if (view.getUint32(offset, true) === 0x06054b50) {
+        return offset;
+      }
+    }
+
+    return -1;
+  }
+
+  private static async readZipTextEntry(
+    bytes: Uint8Array,
+    entries: ZipCentralEntry[],
+    entryName: string
+  ): Promise<string | null> {
+    const normalizedEntryName = this.normalizeZipEntryName(entryName);
+    const entry = entries.find(candidate => candidate.name === normalizedEntryName);
+    if (!entry) return null;
+
+    const data = await this.readZipEntryData(bytes, entry);
+    return new TextDecoder('utf-8').decode(data);
+  }
+
+  private static async readZipEntryData(bytes: Uint8Array, entry: ZipCentralEntry): Promise<Uint8Array> {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const localOffset = entry.localHeaderOffset;
+
+    if (view.getUint32(localOffset, true) !== 0x04034b50) {
+      throw new Error(`Could not read archive entry: ${entry.name}`);
+    }
+
+    const fileNameLength = view.getUint16(localOffset + 26, true);
+    const extraFieldLength = view.getUint16(localOffset + 28, true);
+    const dataStart = localOffset + 30 + fileNameLength + extraFieldLength;
+    const compressedData = bytes.slice(dataStart, dataStart + entry.compressedSize);
+
+    if (entry.compressionMethod === 0) return compressedData;
+    if (entry.compressionMethod === 8) return this.inflateRawDeflate(compressedData, entry.name);
+
+    throw new Error(`Unsupported archive compression method ${entry.compressionMethod} for ${entry.name}`);
+  }
+
+  private static async inflateRawDeflate(compressedData: Uint8Array, entryName: string): Promise<Uint8Array> {
+    if (typeof DecompressionStream === 'undefined') {
+      throw new Error(`Compressed archive entry needs browser decompression support: ${entryName}`);
+    }
+
+    const deflateBuffer = new ArrayBuffer(compressedData.byteLength);
+    new Uint8Array(deflateBuffer).set(compressedData);
+    const stream = new Blob([deflateBuffer]).stream().pipeThrough(
+      new DecompressionStream('deflate-raw' as CompressionFormat)
+    );
+    const buffer = await new Response(stream).arrayBuffer();
+
+    return new Uint8Array(buffer);
+  }
+
+  private static normalizeZipEntryName(name: string): string {
+    return name.replace(/\\/g, '/').replace(/^\/+/, '');
+  }
+
+  private static decodeXmlEntities(text: string): string {
+    return this.decodeHtmlEntities(text);
   }
 
   private static extractPdfStreams(pdfText: string): Array<{ pageNumber: number; body: string }> {
