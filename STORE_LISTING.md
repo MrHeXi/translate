@@ -14,7 +14,7 @@ Translate web pages on demand, save unknown words, and review CET, GRE, IELTS, a
 
 LexiBridge Translate helps you read real web pages and text-based documents in another language while turning unknown words into review material.
 
-Page translation is always user-triggered. Start from the extension popup or the floating page button, then stop translation with the same control to restore the page. LexiBridge also supports selected-text translation, Control-hover paragraph translation, a deliberate input-box shortcut, video subtitle translation when a page exposes browser caption tracks or common DOM-rendered captions, SRT export for translated subtitle cues from the current session, live caption translation for caption text already visible on a page with Google Meet, Zoom, and Teams-style speaker label handling, and manual image text translation for selected images or selected image regions.
+Page translation is always user-triggered. Start from the extension popup or the floating page button, then stop translation with the same control to restore the page. Settings can skip configured CSS selector areas, such as navigation, comments, ads, or `[data-no-translate]` regions, during manual page translation. LexiBridge also supports selected-text translation, Control-hover paragraph translation, a deliberate input-box shortcut, video subtitle translation when a page exposes browser caption tracks or common DOM-rendered captions, SRT export for translated subtitle cues from the current session, live caption translation for caption text already visible on a page with Google Meet, Zoom, and Teams-style speaker label handling, and manual image text translation for selected images or selected image regions.
 
 The document translator supports pasted text, text files, Markdown, HTML files, JSON string values, DOCX paragraph text, EPUB spine documents, subtitle files, and simple text-based PDFs with page and coordinate metadata for detected PDF text blocks. Subtitle files can be exported after translation as `.srt` or `.vtt` files with their original cue timing preserved. HTML files are reduced to readable body text blocks before translation, skipping scripts, styles, and markup. Image text translation can use browser OCR when available, plus SVG and accessibility text fallbacks, and it can place separate translation overlays on OCR text blocks when the browser provides bounding boxes. Full scanned-PDF OCR, full PDF visual rendering, structure-preserving JSON rewrite, layout-preserving DOCX/EPUB rewrite, automatic manga panel segmentation, audio transcription, and meeting bots are not included yet.
 
@@ -23,6 +23,7 @@ The extension includes built-in CET4, CET6, GRE, IELTS, and TOEFL vocabulary set
 Core features:
 
 - Manual page translation from the popup or floating button.
+- Configurable CSS selector exclusions for page areas that should stay original.
 - Selection translation tooltip for quick lookups.
 - Control-hover paragraph translation for quick in-page reading help.
 - Input box translation by typing three trailing spaces.
@@ -97,6 +98,7 @@ Common support answers:
 - Page translation does not start automatically. Use the popup Start button or the floating page button.
 - The floating button appears near the bottom-right of regular web pages. It is not shown on browser-owned pages such as `chrome://` URLs.
 - Click the same Start/Stop control again to stop translation and restore the page.
+- Add CSS selectors in settings to keep navigation, comments, ads, or other page areas untranslated during manual page translation.
 - Hold Control while hovering over a paragraph to translate that paragraph only.
 - Type three trailing spaces in a supported input box to translate the typed text.
 - The document translator handles text-based documents, HTML body text extraction, JSON string value extraction, DOCX paragraph text, EPUB spine documents, subtitle file timing-preserving export, and simple text-based PDFs. Scanned PDFs, structure-preserving JSON rewrite, layout-preserving DOCX/EPUB rewrite, and full visual PDF rendering need later batches.

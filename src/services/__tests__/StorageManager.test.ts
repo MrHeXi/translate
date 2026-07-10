@@ -81,7 +81,11 @@ describe('StorageManager', () => {
               activeDictionaries: fc.array(fc.constantFrom('gre', 'toefl'), { maxLength: 2 }),
               highlightColors: fc.dictionary(fc.constantFrom('gre', 'toefl'), fc.constant('#ff0000')),
               autoTranslate: fc.boolean(),
-              showFloatingIcon: fc.boolean()
+              showFloatingIcon: fc.boolean(),
+              pageTranslationExcludeSelectors: fc.array(
+                fc.constantFrom('nav', 'footer', '.comments', '[data-no-translate]'),
+                { maxLength: 4 }
+              )
             }),
             vocabulary: fc.array(
               fc.record({
@@ -148,7 +152,11 @@ describe('StorageManager', () => {
               activeDictionaries: fc.array(fc.constantFrom('gre', 'toefl', 'ielts'), { maxLength: 3 }),
               highlightColors: fc.dictionary(fc.constantFrom('gre', 'toefl', 'ielts'), fc.constant('#ff0000')),
               autoTranslate: fc.boolean(),
-              showFloatingIcon: fc.boolean()
+              showFloatingIcon: fc.boolean(),
+              pageTranslationExcludeSelectors: fc.array(
+                fc.constantFrom('nav', 'footer', '.comments', '[data-no-translate]'),
+                { maxLength: 4 }
+              )
             }),
             vocabulary: fc.array(
               fc.record({
@@ -210,6 +218,9 @@ describe('StorageManager', () => {
             expect(exportedUserData.settings.highlightColors).toEqual(originalData.settings.highlightColors);
             expect(exportedUserData.settings.autoTranslate).toBe(originalData.settings.autoTranslate);
             expect(exportedUserData.settings.showFloatingIcon).toBe(originalData.settings.showFloatingIcon);
+            expect(exportedUserData.settings.pageTranslationExcludeSelectors).toEqual(
+              originalData.settings.pageTranslationExcludeSelectors
+            );
 
             // 验证词汇数据完整性 - 不直接比较，因为日期会被序列化
             // expect(exportedUserData.vocabulary).toEqual(originalData.vocabulary);
@@ -290,7 +301,11 @@ describe('StorageManager', () => {
               activeDictionaries: fc.array(fc.constantFrom('gre', 'toefl'), { maxLength: 2 }),
               highlightColors: fc.dictionary(fc.constantFrom('gre', 'toefl'), fc.constant('#00ff00')),
               autoTranslate: fc.boolean(),
-              showFloatingIcon: fc.boolean()
+              showFloatingIcon: fc.boolean(),
+              pageTranslationExcludeSelectors: fc.array(
+                fc.constantFrom('nav', 'footer', '.comments', '[data-no-translate]'),
+                { maxLength: 4 }
+              )
             }),
             vocabulary: fc.array(
               fc.record({
@@ -344,6 +359,9 @@ describe('StorageManager', () => {
               expect(deviceBData.settings.highlightColors).toEqual(deviceAData.settings.highlightColors);
               expect(deviceBData.settings.autoTranslate).toBe(deviceAData.settings.autoTranslate);
               expect(deviceBData.settings.showFloatingIcon).toBe(deviceAData.settings.showFloatingIcon);
+              expect(deviceBData.settings.pageTranslationExcludeSelectors).toEqual(
+                deviceAData.settings.pageTranslationExcludeSelectors
+              );
             }
 
             // 验证词汇数据同步一致性

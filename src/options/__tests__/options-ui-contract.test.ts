@@ -27,6 +27,7 @@ describe('options UI settings contract', () => {
       </select>
       <input id="autoTranslate" type="checkbox">
       <input id="showFloatingIcon" type="checkbox">
+      <textarea id="pageTranslationExcludeSelectors"></textarea>
       <input id="learningModeEnabled" type="checkbox">
       <input id="dailyGoal" value="20">
       <input id="greEnabled" type="checkbox" checked>
@@ -218,6 +219,88 @@ describe('options UI settings contract', () => {
       expect.objectContaining({
         action: 'updateSettings',
         data: expect.objectContaining({ pageTranslationDisplayMode: 'translation-only' })
+      }),
+      expect.any(Function)
+    );
+  });
+
+  it('saves page translation exclude selectors from newline and comma separated input', async () => {
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getSettings') {
+        callback({
+          success: true,
+          data: {
+            defaultTargetLanguage: 'zh-CN',
+            translationProvider: 'google',
+            pageTranslationDisplayMode: 'bilingual',
+            autoTranslate: false,
+            showFloatingIcon: true,
+            pageTranslationExcludeSelectors: ['aside'],
+            floatingIconPosition: { x: 72, y: 96 },
+            learningModeEnabled: false,
+            activeDictionaries: ['gre'],
+            highlightColors: {
+              gre: '#ff6b6b',
+              toefl: '#4ecdc4',
+              ielts: '#45b7d1',
+              cet4: '#96ceb4',
+              cet6: '#feca57'
+            },
+            dailyGoal: 20,
+            reviewInterval: 'spaced',
+            difficultyAdjustment: 'auto'
+          }
+        });
+        return;
+      }
+
+      if (message.action === 'getLearningStats') {
+        callback({
+          success: true,
+          data: {
+            totalWordsLearned: 0,
+            dailyGoal: 20,
+            currentStreak: 0,
+            longestStreak: 0,
+            reviewAccuracy: 0,
+            timeSpentLearning: 0
+          }
+        });
+        return;
+      }
+
+      if (message.action === 'getDictionaryProgress') {
+        callback({ success: true, data: {} });
+        return;
+      }
+
+      callback({ success: true });
+    });
+
+    (global as any).chrome = {
+      runtime: {
+        sendMessage,
+        lastError: null
+      }
+    };
+
+    require('../options');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    const excludeSelectors = document.getElementById('pageTranslationExcludeSelectors') as HTMLTextAreaElement;
+    expect(excludeSelectors.value).toBe('aside');
+
+    excludeSelectors.value = 'nav, footer\n.comments\nnav\n[data-no-translate]';
+    document.getElementById('saveSettings')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'updateSettings',
+        data: expect.objectContaining({
+          pageTranslationExcludeSelectors: ['nav', 'footer', '.comments', '[data-no-translate]']
+        })
       }),
       expect.any(Function)
     );

@@ -122,6 +122,7 @@ Capture the options page with:
 - Dictionary selection visible.
 - Translation provider and target language controls visible.
 - Floating button setting visible.
+- Page translation exclude selectors visible.
 
 ## Do Not Show
 

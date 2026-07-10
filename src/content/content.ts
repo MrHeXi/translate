@@ -36,6 +36,7 @@ interface UserSettings {
   highlightColors: { [key: string]: string };
   autoTranslate: boolean;
   showFloatingIcon: boolean;
+  pageTranslationExcludeSelectors?: string[];
 }
 
 class ContentScript {
@@ -217,7 +218,8 @@ class ContentScript {
         ielts: '#45b7d1'
       },
       autoTranslate: false,
-      showFloatingIcon: true
+      showFloatingIcon: true,
+      pageTranslationExcludeSelectors: []
     };
   }
 
@@ -736,6 +738,9 @@ class ContentScript {
             return NodeFilter.FILTER_REJECT;
           }
           // 跳过已翻译的内容
+          if (parent && this.isExcludedFromPageTranslation(parent)) {
+            return NodeFilter.FILTER_REJECT;
+          }
           if (parent && parent.classList.contains('translation-overlay')) {
             return NodeFilter.FILTER_REJECT;
           }
@@ -751,6 +756,23 @@ class ContentScript {
     }
 
     return textNodes;
+  }
+
+  private isExcludedFromPageTranslation(element: Element): boolean {
+    if (element.closest('[translate="no"], [data-no-translate], .notranslate, .lexibridge-no-translate')) {
+      return true;
+    }
+
+    const selectors = this.userSettings?.pageTranslationExcludeSelectors || [];
+    return selectors.some(selector => this.safeClosest(element, selector));
+  }
+
+  private safeClosest(element: Element, selector: string): Element | null {
+    try {
+      return element.closest(selector);
+    } catch {
+      return null;
+    }
   }
 
   private async requestTranslation(text: string): Promise<TranslationResult> {

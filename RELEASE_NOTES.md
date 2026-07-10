@@ -8,6 +8,7 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 
 - User-triggered page translation from the popup or floating page button.
 - Immediate Start/Stop behavior that restores the page when translation mode is turned off.
+- Configurable CSS selector exclusions for page areas that should stay original during manual page translation.
 - Bottom-right floating button with a visible "Translate page" hint.
 - Selected-text translation tooltip with vocabulary collection actions.
 - Control-hover paragraph translation for on-demand reading help.
@@ -30,7 +31,7 @@ Verified on 2026-07-08:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 34 test suites and 230 tests.
+- `jest --runInBand --silent`: passed, 34 test suites and 232 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 

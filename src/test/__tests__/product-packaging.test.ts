@@ -45,6 +45,7 @@ describe('product packaging contract', () => {
     const readme = readProjectFile('README.md');
     expect(readme).toContain('LexiBridge Translate');
     expect(readme).toContain('manual floating button');
+    expect(readme).toContain('Skip configured page areas');
     expect(readme).toContain('Hold Control while hovering');
     expect(readme).toContain('Press Space three times');
     expect(readme).toContain('Document Translation');
@@ -95,6 +96,7 @@ describe('product packaging contract', () => {
     expect(listing).toContain('LexiBridge Translate');
     expect(listing).toContain('Translate web pages on demand');
     expect(listing).toContain('Manual page translation');
+    expect(listing).toContain('Configurable CSS selector exclusions');
     expect(listing).toContain('Selection translation tooltip');
     expect(listing).toContain('Control-hover paragraph translation');
     expect(listing).toContain('Input box translation');
@@ -138,7 +140,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-08');
-    expect(releaseNotes).toContain('34 test suites and 230 tests');
+    expect(releaseNotes).toContain('34 test suites and 232 tests');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -162,6 +164,7 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('Vocabulary Notebook');
     expect(screenshotGuide).toContain('Review Page');
     expect(screenshotGuide).toContain('Options');
+    expect(screenshotGuide).toContain('Page translation exclude selectors');
     expect(screenshotGuide).toContain('No translated page text yet');
     expect(screenshotGuide).toContain('STORE_LISTING.md');
   });
@@ -170,6 +173,7 @@ describe('product packaging contract', () => {
     const roadmap = readProjectFile('docs/superpowers/specs/2026-07-07-immersive-replication-roadmap.md');
 
     expect(roadmap).toContain('Web page bilingual translation');
+    expect(roadmap).toContain('Configurable page translation exclude selectors');
     expect(roadmap).toContain('Hover paragraph translation');
     expect(roadmap).toContain('Input box translation');
     expect(roadmap).toContain('PDF and document translation');

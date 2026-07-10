@@ -10,6 +10,7 @@ export interface UserSettings {
   highlightColors: { [key: string]: string };
   autoTranslate: boolean;
   showFloatingIcon: boolean;
+  pageTranslationExcludeSelectors?: string[];
 }
 
 export type PageTranslationDisplayMode = 'bilingual' | 'translation-only' | 'original-only';
@@ -37,7 +38,8 @@ export class StorageManager {
       cet6: '#feca57'
     },
     autoTranslate: false,
-    showFloatingIcon: true
+    showFloatingIcon: true,
+    pageTranslationExcludeSelectors: []
   };
 
   async saveUserData(data: Partial<UserData>): Promise<void> {

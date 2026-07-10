@@ -35,6 +35,7 @@ Current batch:
 - Translation provider registry with Google Translate and MyMemory available.
 - 20+ provider definitions and 100+ target language choices for engine/language expansion.
 - Configurable page display modes: bilingual, translation only, and original only.
+- Configurable page translation exclude selectors for areas that should remain original.
 - Document translator page for pasted/uploaded text, HTML files, subtitle files, and simple text-based PDFs.
 - JSON document string-value extraction in the document translator.
 - DOCX paragraph text and EPUB spine text extraction in the document translator.
@@ -60,6 +61,7 @@ Current batch:
 
 - Done: improve page translation from inserted blocks to configurable bilingual layout.
 - Done: add display mode controls: original only, translation only, bilingual.
+- Done: add CSS selector exclusions for page areas that should not be translated.
 - Done: preserve restore behavior.
 
 ### Batch C: Translation Engine Expansion

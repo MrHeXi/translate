@@ -61,6 +61,12 @@
               Automatically translate the page after you turn page translation on
             </label>
           </div>
+
+          <div class="setting-item">
+            <label for="pageTranslationExcludeSelectors">Do not translate CSS selectors:</label>
+            <textarea id="pageTranslationExcludeSelectors" rows="4" placeholder="nav, footer, .comments, [data-no-translate]"></textarea>
+            <p class="setting-help">One selector per line or comma. Matching page areas are skipped after you manually start page translation.</p>
+          </div>
         </div>
 
         <div class="setting-group">

@@ -311,6 +311,160 @@ describe('Content script direct runtime message contract', () => {
     });
   });
 
+  it('skips configured page translation exclude selectors after manual start', async () => {
+    document.body.innerHTML = `
+      <main>
+        <p>Primary article text for translation.</p>
+        <nav>Navigation text should stay original.</nav>
+        <section class="comments">Comment text should stay original.</section>
+        <aside data-no-translate>Sponsored text should stay original.</aside>
+      </main>
+    `;
+
+    const listeners: Array<(request: any, sender: any, sendResponse: (response: any) => void) => boolean> = [];
+    const addListener = jest.fn((listener) => {
+      listeners.push(listener);
+    });
+    const addTranslation = jest.fn();
+    const sendToBackground = jest.fn(async (request) => ({
+      success: true,
+      data: {
+        originalText: request.data.text,
+        translatedText: `translated: ${request.data.text}`,
+        sourceLang: 'en',
+        targetLang: request.data.targetLang,
+        confidence: 0.95
+      }
+    }));
+
+    (global as any).chrome = {
+      runtime: {
+        sendMessage: jest.fn((message, callback) => {
+          if (message.action === 'getSettings') {
+            callback({
+              success: true,
+              data: {
+                defaultTargetLanguage: 'zh-CN',
+                translationProvider: 'google',
+                pageTranslationDisplayMode: 'bilingual',
+                pageTranslationExcludeSelectors: ['nav', '.comments', 'main >> invalid'],
+                floatingIconPosition: { x: 20, y: 20 },
+                learningModeEnabled: false,
+                activeDictionaries: ['gre'],
+                highlightColors: { gre: '#ff0000' },
+                autoTranslate: false,
+                showFloatingIcon: true
+              }
+            });
+            return;
+          }
+
+          callback({ success: true });
+        }),
+        onMessage: {
+          addListener,
+          removeListener: jest.fn()
+        }
+      }
+    };
+
+    jest.doMock('../components/FloatingIcon', () => ({
+      FloatingIcon: jest.fn().mockImplementation(() => ({
+        create: jest.fn(),
+        onToggle: jest.fn(),
+        onLearningModeToggle: jest.fn(),
+        updateState: jest.fn(),
+        updateLearningModeState: jest.fn(),
+        updatePosition: jest.fn(),
+        show: jest.fn(),
+        hide: jest.fn(),
+        cleanup: jest.fn()
+      }))
+    }));
+
+    jest.doMock('../components/SelectionHandler', () => ({
+      SelectionHandler: jest.fn().mockImplementation(() => ({
+        initialize: jest.fn(),
+        onTextSelected: jest.fn(),
+        cleanup: jest.fn()
+      }))
+    }));
+
+    jest.doMock('../components/TranslationOverlay', () => ({
+      TranslationOverlay: jest.fn().mockImplementation(() => ({
+        addTranslation,
+        removeAllTranslations: jest.fn(),
+        setDisplayMode: jest.fn(),
+        showTooltip: jest.fn(),
+        showAddToVocabularyOption: jest.fn(),
+        showWordDetails: jest.fn(),
+        showError: jest.fn(),
+        cleanup: jest.fn()
+      }))
+    }));
+
+    jest.doMock('../../services/MessageManager', () => ({
+      messageManager: {
+        registerHandlers: jest.fn(),
+        sendToBackground
+      }
+    }));
+
+    jest.doMock('../../services/PerformanceManager', () => ({
+      performanceManager: {
+        startMonitoring: jest.fn(),
+        recordRequest: jest.fn()
+      }
+    }));
+
+    jest.doMock('../../services/ErrorHandler', () => ({
+      ErrorType: { TRANSLATION_API_ERROR: 'TRANSLATION_API_ERROR' },
+      ErrorSeverity: { MEDIUM: 'MEDIUM', HIGH: 'HIGH' },
+      errorHandler: {
+        logError: jest.fn(),
+        getUserFriendlyMessage: jest.fn(() => 'translation failed')
+      }
+    }));
+
+    jest.doMock('../../services/OfflineManager', () => ({
+      offlineManager: {
+        isNetworkOnline: jest.fn(() => true),
+        handleOfflineTranslation: jest.fn()
+      }
+    }));
+
+    jest.doMock('../../services/LoadingManager', () => ({
+      loadingManager: {
+        showLoading: jest.fn(),
+        showSimpleLoading: jest.fn(() => 'simple-loading'),
+        showProgressLoading: jest.fn(() => 'progress-loading'),
+        updateProgress: jest.fn(),
+        hideLoading: jest.fn()
+      }
+    }));
+
+    await import('../content');
+    await flushPromises();
+
+    const directListener = listeners[listeners.length - 1]!;
+    const sendDirectMessage = (request: any): Promise<any> => new Promise(resolve => {
+      directListener(request, {}, resolve);
+    });
+
+    await sendDirectMessage({ action: 'toggleTranslation' });
+    await flushPromises();
+
+    expect(sendToBackground).toHaveBeenCalledTimes(1);
+    expect(sendToBackground).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'translate',
+      data: expect.objectContaining({
+        text: 'Primary article text for translation.'
+      })
+    }));
+    expect(addTranslation).toHaveBeenCalledTimes(1);
+    expect(addTranslation.mock.calls[0][0].textContent).toBe('Primary article text for translation.');
+  });
+
   it('does not start page translation automatically when the content script initializes', async () => {
     const listeners: Array<(request: any, sender: any, sendResponse: (response: any) => void) => boolean> = [];
     const addListener = jest.fn((listener) => {

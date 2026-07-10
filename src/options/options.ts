@@ -17,6 +17,7 @@ interface UserSettings {
   dailyGoal: number;
   reviewInterval: string;
   difficultyAdjustment: string;
+  pageTranslationExcludeSelectors?: string[];
 }
 
 interface LearningStats {
@@ -142,6 +143,9 @@ class OptionsController {
 
     const iconPosition = document.getElementById('iconPosition') as HTMLSelectElement;
     iconPosition?.addEventListener('change', () => this.onSettingChange());
+
+    const pageTranslationExcludeSelectors = document.getElementById('pageTranslationExcludeSelectors') as HTMLTextAreaElement;
+    pageTranslationExcludeSelectors?.addEventListener('input', () => this.onSettingChange());
 
     // 词库设置
     const dictionaryCheckboxes = document.querySelectorAll('input[id$="Enabled"]');
@@ -291,6 +295,11 @@ class OptionsController {
     const showFloatingIcon = document.getElementById('showFloatingIcon') as HTMLInputElement;
     if (showFloatingIcon) showFloatingIcon.checked = this.settings.showFloatingIcon;
 
+    const pageTranslationExcludeSelectors = document.getElementById('pageTranslationExcludeSelectors') as HTMLTextAreaElement;
+    if (pageTranslationExcludeSelectors) {
+      pageTranslationExcludeSelectors.value = (this.settings.pageTranslationExcludeSelectors || []).join('\n');
+    }
+
     // 根据浮动图标位置设置选择框
     const iconPosition = document.getElementById('iconPosition') as HTMLSelectElement;
     if (iconPosition && this.settings.floatingIconPosition) {
@@ -439,6 +448,9 @@ class OptionsController {
     const showFloatingIcon = showFloatingIconInput ? showFloatingIconInput.checked : true;
     const learningModeEnabled = (document.getElementById('learningModeEnabled') as HTMLInputElement)?.checked || false;
     const dailyGoal = parseInt((document.getElementById('dailyGoal') as HTMLInputElement)?.value || '20');
+    const pageTranslationExcludeSelectors = this.parseSelectorList(
+      (document.getElementById('pageTranslationExcludeSelectors') as HTMLTextAreaElement)?.value || ''
+    );
 
     // 收集激活的词库
     const activeDictionaries: string[] = [];
@@ -466,6 +478,7 @@ class OptionsController {
       autoTranslate: autoTranslate,
       showFloatingIcon: showFloatingIcon,
       floatingIconPosition: this.getSelectedFloatingIconPosition(),
+      pageTranslationExcludeSelectors,
       learningModeEnabled: learningModeEnabled,
       activeDictionaries: activeDictionaries,
       highlightColors: highlightColors,
@@ -489,6 +502,20 @@ class OptionsController {
       default:
         return { x: this.floatingIconFarEdge, y: this.floatingIconFarEdge };
     }
+  }
+
+  private parseSelectorList(value: string): string[] {
+    const seen = new Set<string>();
+
+    return value
+      .split(/[\n,]+/)
+      .map(selector => selector.trim())
+      .filter(Boolean)
+      .filter(selector => {
+        if (seen.has(selector)) return false;
+        seen.add(selector);
+        return true;
+      });
   }
 
   private async resetToDefault(): Promise<void> {
