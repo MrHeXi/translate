@@ -27,6 +27,7 @@ const setupDocumentDom = (): void => {
     <input id="documentFile" type="file">
     <button id="translateDocument"></button>
     <button id="exportSubtitleFile" disabled></button>
+    <button id="exportJsonFile" disabled></button>
     <button id="clearDocument"></button>
     <textarea id="sourceText"></textarea>
     <p id="documentMessage"></p>
@@ -220,6 +221,91 @@ describe('document translator page', () => {
     expect(blocks).toHaveLength(4);
     expect(document.getElementById('translationResults')?.textContent).toContain('translated: Product tour');
     expect(document.getElementById('translationResults')?.textContent).toContain('translated: Export learning data from settings.');
+  });
+
+  it('exports translated JSON files while preserving non-string structure', async () => {
+    let exportedBlob: Blob | null = null;
+    const createObjectURL = jest.fn((blob: Blob) => {
+      exportedBlob = blob;
+      return 'blob:translated-json';
+    });
+    const revokeObjectURL = jest.fn();
+    const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: createObjectURL,
+      configurable: true
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      value: revokeObjectURL,
+      configurable: true
+    });
+
+    try {
+      require('../document');
+      document.dispatchEvent(new Event('DOMContentLoaded'));
+      await flushPromises();
+
+      const json = JSON.stringify({
+        title: 'Product tour',
+        steps: [
+          'Open the extension popup.',
+          'Click Start to translate manually.'
+        ],
+        metadata: {
+          version: 2,
+          published: true
+        }
+      });
+      const file = new File([json], 'guide.json', { type: 'application/json' });
+      Object.defineProperty(file, 'text', {
+        value: async () => json,
+        configurable: true
+      });
+      const fileInput = document.getElementById('documentFile') as HTMLInputElement;
+
+      Object.defineProperty(fileInput, 'files', {
+        value: [file],
+        configurable: true
+      });
+
+      fileInput.dispatchEvent(new Event('change'));
+      await flushPromises();
+      await flushPromises();
+
+      expect((document.getElementById('exportJsonFile') as HTMLButtonElement).disabled).toBe(true);
+      expect((global as any).chrome.runtime.sendMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'translate' }),
+        expect.any(Function)
+      );
+
+      document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      expect((document.getElementById('exportJsonFile') as HTMLButtonElement).disabled).toBe(false);
+
+      document.getElementById('exportJsonFile')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+
+      expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+      expect(exportedBlob).not.toBeNull();
+      await expect(readBlobText(exportedBlob!)).resolves.toEqual(JSON.stringify({
+        title: 'translated: Product tour',
+        steps: [
+          'translated: Open the extension popup.',
+          'translated: Click Start to translate manually.'
+        ],
+        metadata: {
+          version: 2,
+          published: true
+        }
+      }, null, 2) + '\n');
+      expect(clickSpy).toHaveBeenCalled();
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:translated-json');
+      expect(document.getElementById('documentMessage')?.textContent).toBe('Exported translated JSON with 3 string values');
+    } finally {
+      clickSpy.mockRestore();
+    }
   });
 
   it('exports translated subtitle files with the original timing preserved', async () => {

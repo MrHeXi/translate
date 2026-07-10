@@ -53,6 +53,7 @@ It is not marketed as a full scanned-PDF OCR translator, layout-preserving Offic
 - Translate document blocks manually with bilingual, translation-only, or original-only display.
 - Extract readable HTML body blocks while skipping scripts, styles, and markup.
 - Extract readable string values from JSON files.
+- Export translated JSON files with the original object and array structure preserved.
 - Extract readable text from DOCX paragraphs and EPUB spine documents.
 - Export translated `.srt` and `.vtt` subtitle files with their original timing preserved.
 - Preserve page and coordinate metadata for simple text-based PDF layout blocks.
@@ -153,6 +154,13 @@ The generated test package is `chrome-translation-extension.zip`.
 2. Choose a `.srt` or `.vtt` subtitle file.
 3. Click Translate document.
 4. Click Export subtitles to download a translated subtitle file with the original cue timing.
+
+### Translate JSON Files
+
+1. Open the document translator.
+2. Choose a `.json` file.
+3. Click Translate document.
+4. Click Export JSON to download a translated JSON file with the original structure preserved.
 
 ### Translate Live Captions
 

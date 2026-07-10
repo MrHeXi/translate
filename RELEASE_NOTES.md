@@ -13,7 +13,7 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Selected-text translation tooltip with vocabulary collection actions.
 - Control-hover paragraph translation for on-demand reading help.
 - Input box translation by typing three trailing spaces.
-- Text-based document translator for pasted text, text files, HTML files, JSON string values, DOCX paragraph text, EPUB spine documents, subtitle files with timing-preserving export, and simple PDFs, including page/coordinate metadata for simple text-based PDF blocks.
+- Text-based document translator for pasted text, text files, HTML files, JSON string values with structure-preserving export, DOCX paragraph text, EPUB spine documents, subtitle files with timing-preserving export, and simple PDFs, including page/coordinate metadata for simple text-based PDF blocks.
 - Video subtitle translation for pages that expose caption/subtitle text tracks or common DOM-rendered caption containers.
 - SRT export for translated video subtitle cues from the current session.
 - Live caption translation for caption text already visible in the page DOM, with Google Meet, Zoom, and Teams-style speaker label handling.
@@ -31,7 +31,7 @@ Verified on 2026-07-08:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 34 test suites and 232 tests.
+- `jest --runInBand --silent`: passed, 34 test suites and 234 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 

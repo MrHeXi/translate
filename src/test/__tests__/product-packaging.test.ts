@@ -60,6 +60,7 @@ describe('product packaging contract', () => {
     expect(readme).toContain('`.docx`, `.epub`');
     expect(readme).toContain('Extract readable HTML body blocks');
     expect(readme).toContain('Extract readable string values from JSON files');
+    expect(readme).toContain('Export translated JSON files');
     expect(readme).toContain('Extract readable text from DOCX paragraphs and EPUB spine documents');
     expect(readme).toContain('Export translated `.srt` and `.vtt` subtitle files');
     expect(readme).toContain('simple text-based `.pdf` files');
@@ -103,6 +104,7 @@ describe('product packaging contract', () => {
     expect(listing).toContain('Text-based document translator');
     expect(listing).toContain('HTML files');
     expect(listing).toContain('JSON string values');
+    expect(listing).toContain('structure-preserving export');
     expect(listing).toContain('DOCX paragraph text');
     expect(listing).toContain('EPUB spine documents');
     expect(listing).toContain('subtitle files with timing-preserving export');
@@ -140,7 +142,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-08');
-    expect(releaseNotes).toContain('34 test suites and 232 tests');
+    expect(releaseNotes).toContain('34 test suites and 234 tests');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -154,6 +156,7 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('Document Translator');
     expect(screenshotGuide).toContain('without raw tags or script/style content');
     expect(screenshotGuide).toContain('readable string values');
+    expect(screenshotGuide).toContain('Export JSON');
     expect(screenshotGuide).toContain('DOCX or EPUB sample');
     expect(screenshotGuide).toContain('Export subtitles');
     expect(screenshotGuide).toContain('Video Subtitles');
@@ -179,6 +182,7 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('PDF and document translation');
     expect(roadmap).toContain('HTML body text extraction');
     expect(roadmap).toContain('JSON document string-value extraction');
+    expect(roadmap).toContain('translated JSON export');
     expect(roadmap).toContain('DOCX paragraph text and EPUB spine text extraction');
     expect(roadmap).toContain('Timing-preserving subtitle file export');
     expect(roadmap).toContain('Video subtitle translation');

@@ -19,6 +19,7 @@ class DocumentTranslatorController {
   private fileInput: HTMLInputElement | null = null;
   private translateButton: HTMLButtonElement | null = null;
   private exportSubtitleButton: HTMLButtonElement | null = null;
+  private exportJsonButton: HTMLButtonElement | null = null;
   private clearButton: HTMLButtonElement | null = null;
   private targetLanguage: HTMLSelectElement | null = null;
   private translationProvider: HTMLSelectElement | null = null;
@@ -29,6 +30,7 @@ class DocumentTranslatorController {
   private resultsContainer: HTMLElement | null = null;
   private loadedDocumentBlocks: DocumentBlock[] | null = null;
   private loadedSourceText = '';
+  private loadedRawFileText = '';
   private loadedFileName = '';
   private currentResults: TranslationResult[] = [];
 
@@ -41,6 +43,7 @@ class DocumentTranslatorController {
     this.fileInput = document.getElementById('documentFile') as HTMLInputElement | null;
     this.translateButton = document.getElementById('translateDocument') as HTMLButtonElement | null;
     this.exportSubtitleButton = document.getElementById('exportSubtitleFile') as HTMLButtonElement | null;
+    this.exportJsonButton = document.getElementById('exportJsonFile') as HTMLButtonElement | null;
     this.clearButton = document.getElementById('clearDocument') as HTMLButtonElement | null;
     this.targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement | null;
     this.translationProvider = document.getElementById('translationProvider') as HTMLSelectElement | null;
@@ -55,7 +58,7 @@ class DocumentTranslatorController {
     this.applySourceUrl();
     this.bindEvents();
     this.renderResults([]);
-    this.updateSubtitleExportButton();
+    this.updateExportButtons();
   }
 
   private populateControls(): void {
@@ -116,6 +119,7 @@ class DocumentTranslatorController {
     this.fileInput?.addEventListener('change', () => this.loadSelectedFile());
     this.translateButton?.addEventListener('click', () => this.translateDocument());
     this.exportSubtitleButton?.addEventListener('click', () => this.exportTranslatedSubtitles());
+    this.exportJsonButton?.addEventListener('click', () => this.exportTranslatedJson());
     this.clearButton?.addEventListener('click', () => this.clearDocument());
     this.displayMode?.addEventListener('change', () => this.applyDisplayMode());
 
@@ -129,21 +133,27 @@ class DocumentTranslatorController {
 
     try {
       this.setBusy(true);
-      const blocks = await DocumentTextExtractor.extractBlocksFromFile(file);
+      const isJsonDocument = this.isJsonDocumentFile(file);
+      const rawText = isJsonDocument ? await file.text() : '';
+      const blocks = isJsonDocument
+        ? DocumentTextExtractor.extractBlocksFromJson(rawText)
+        : await DocumentTextExtractor.extractBlocksFromFile(file);
       const text = blocks.map(block => block.originalText).join('\n\n');
 
       if (!text.trim()) {
         this.loadedDocumentBlocks = null;
         this.loadedSourceText = '';
+        this.loadedRawFileText = '';
         this.loadedFileName = '';
         this.currentResults = [];
-        this.updateSubtitleExportButton();
+        this.updateExportButtons();
         this.showMessage('No selectable text was found. Scanned PDFs and image-only documents need OCR in a later batch.', 'error');
         return;
       }
 
       this.loadedDocumentBlocks = blocks;
       this.loadedSourceText = text;
+      this.loadedRawFileText = rawText;
       this.loadedFileName = file.name;
       this.currentResults = [];
       this.sourceText.value = text;
@@ -151,7 +161,7 @@ class DocumentTranslatorController {
       this.showMessage(`${file.name} loaded${hasLayout ? ' with PDF layout blocks' : ''}`);
       this.updateProgress(0, 0);
       this.renderResults([]);
-      this.updateSubtitleExportButton();
+      this.updateExportButtons();
     } catch (error) {
       this.showMessage(error instanceof Error ? error.message : 'Could not load the document.', 'error');
     } finally {
@@ -175,7 +185,7 @@ class DocumentTranslatorController {
     const results: TranslationResult[] = [];
     this.currentResults = results;
     this.renderResults(results);
-    this.updateSubtitleExportButton();
+    this.updateExportButtons();
     this.setBusy(true);
     this.updateProgress(0, blocks.length);
     this.showMessage(`Translating ${blocks.length} blocks`);
@@ -186,7 +196,7 @@ class DocumentTranslatorController {
         results.push({ block, translatedText });
         this.currentResults = results;
         this.renderResults(results);
-        this.updateSubtitleExportButton();
+        this.updateExportButtons();
         this.updateProgress(results.length, blocks.length);
       }
 
@@ -271,6 +281,22 @@ class DocumentTranslatorController {
     this.showMessage(`Exported ${subtitleResults.length} translated subtitle cues`);
   }
 
+  private exportTranslatedJson(): void {
+    const jsonResults = this.currentResults.filter(result => result.block.json && result.translatedText.trim());
+    if (!this.loadedRawFileText || jsonResults.length === 0) {
+      this.showMessage('Translate a JSON file before exporting.', 'error');
+      return;
+    }
+
+    try {
+      const content = DocumentTextExtractor.rewriteJsonWithTranslations(this.loadedRawFileText, jsonResults);
+      this.downloadTextFile(content, this.createJsonExportFilename(), 'application/json;charset=utf-8');
+      this.showMessage(`Exported translated JSON with ${jsonResults.length} string values`);
+    } catch (error) {
+      this.showMessage(error instanceof Error ? error.message : 'Could not export translated JSON.', 'error');
+    }
+  }
+
   private renderTranslatedSubtitleFile(results: TranslationResult[], format: 'srt' | 'vtt'): string {
     const cues = results.map((result, index) => {
       const cue = result.block.subtitle!;
@@ -306,6 +332,18 @@ class DocumentTranslatorController {
       .slice(0, 80) || 'translated-subtitles';
 
     return `${baseName}.translated.${extension}`;
+  }
+
+  private createJsonExportFilename(): string {
+    const baseName = (this.loadedFileName || 'translated-document')
+      .replace(/\.[^.]+$/, '')
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 80) || 'translated-document';
+
+    return `${baseName}.translated.json`;
   }
 
   private applyDisplayMode(): void {
@@ -349,11 +387,12 @@ class DocumentTranslatorController {
     if (this.fileInput) this.fileInput.value = '';
     this.loadedDocumentBlocks = null;
     this.loadedSourceText = '';
+    this.loadedRawFileText = '';
     this.loadedFileName = '';
     this.currentResults = [];
     this.renderResults([]);
     this.updateProgress(0, 0);
-    this.updateSubtitleExportButton();
+    this.updateExportButtons();
     this.showMessage('');
   }
 
@@ -365,7 +404,12 @@ class DocumentTranslatorController {
 
   private setBusy(isBusy: boolean): void {
     if (this.translateButton) this.translateButton.disabled = isBusy;
+    this.updateExportButtons(isBusy);
+  }
+
+  private updateExportButtons(isBusy: boolean = false): void {
     this.updateSubtitleExportButton(isBusy);
+    this.updateJsonExportButton(isBusy);
   }
 
   private updateSubtitleExportButton(isBusy: boolean = false): void {
@@ -373,6 +417,19 @@ class DocumentTranslatorController {
 
     const hasTranslatedSubtitles = this.currentResults.some(result => result.block.subtitle && result.translatedText.trim());
     this.exportSubtitleButton.disabled = isBusy || !hasTranslatedSubtitles;
+  }
+
+  private updateJsonExportButton(isBusy: boolean = false): void {
+    if (!this.exportJsonButton) return;
+
+    const hasTranslatedJson = this.currentResults.some(result => result.block.json && result.translatedText.trim());
+    this.exportJsonButton.disabled = isBusy || !this.loadedRawFileText || !hasTranslatedJson;
+  }
+
+  private isJsonDocumentFile(file: File): boolean {
+    return file.type === 'application/json' ||
+      file.type === 'text/json' ||
+      file.name.toLowerCase().endsWith('.json');
   }
 
   private showMessage(message: string, type: 'info' | 'error' = 'info'): void {

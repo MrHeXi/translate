@@ -240,6 +240,56 @@ describe('DocumentTextExtractor', () => {
       'Translate manually',
       'Click Start only when you want page translation.'
     ]);
+    expect(blocks.map(block => block.json?.path)).toEqual([
+      ['title'],
+      ['sections', 0, 'heading'],
+      ['sections', 0, 'body'],
+      ['sections', 1, 'heading'],
+      ['sections', 1, 'body']
+    ]);
+  });
+
+  it('rewrites translated JSON string values while preserving structure', () => {
+    const json = JSON.stringify({
+      title: 'Quick start',
+      metadata: {
+        version: 1,
+        published: true
+      },
+      sections: [
+        {
+          heading: 'Install the extension',
+          body: 'Open Chrome extensions and load the unpacked folder.'
+        }
+      ]
+    });
+    const blocks = DocumentTextExtractor.extractBlocksFromJson(json);
+    const rewritten = DocumentTextExtractor.rewriteJsonWithTranslations(json, [
+      { block: blocks[0]!, translatedText: 'Translated quick start' },
+      { block: blocks[1]!, translatedText: 'Translated install the extension' },
+      { block: blocks[2]!, translatedText: 'Translated load the unpacked folder.' }
+    ]);
+
+    expect(JSON.parse(rewritten)).toEqual({
+      title: 'Translated quick start',
+      metadata: {
+        version: 1,
+        published: true
+      },
+      sections: [
+        {
+          heading: 'Translated install the extension',
+          body: 'Translated load the unpacked folder.'
+        }
+      ]
+    });
+
+    const rootStringBlocks = DocumentTextExtractor.extractBlocksFromJson('"Standalone string"');
+    const rewrittenRootString = DocumentTextExtractor.rewriteJsonWithTranslations('"Standalone string"', [
+      { block: rootStringBlocks[0]!, translatedText: 'Translated standalone string' }
+    ]);
+
+    expect(JSON.parse(rewrittenRootString)).toBe('Translated standalone string');
   });
 
   it('falls back to plain text blocks when JSON parsing fails', () => {

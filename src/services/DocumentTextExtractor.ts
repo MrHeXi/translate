@@ -3,6 +3,7 @@ export interface DocumentBlock {
   originalText: string;
   layout?: DocumentBlockLayout;
   subtitle?: DocumentSubtitleCue;
+  json?: DocumentJsonStringValue;
 }
 
 export interface DocumentBlockLayout {
@@ -20,6 +21,10 @@ export interface DocumentSubtitleCue {
   identifier?: string;
   timing: string;
   textLines: string[];
+}
+
+export interface DocumentJsonStringValue {
+  path: Array<string | number>;
 }
 
 interface ZipCentralEntry {
@@ -200,13 +205,50 @@ export class DocumentTextExtractor {
   }
 
   static extractBlocksFromJson(json: string, maxBlockLength: number = 1200): DocumentBlock[] {
-    const jsonBlocks = this.extractJsonTextBlocks(json);
-    const chunks = jsonBlocks.flatMap(block => this.chunkBlock(block, maxBlockLength));
+    try {
+      const parsed = JSON.parse(json) as unknown;
+      const values: Array<{ text: string; path: Array<string | number> }> = [];
+      this.collectJsonStringValues(parsed, [], values);
 
-    return chunks.map((originalText, index) => ({
-      id: index + 1,
-      originalText
-    }));
+      return values
+        .map(value => ({
+          originalText: this.normalizeJsonText(value.text),
+          json: { path: value.path }
+        }))
+        .filter(value => value.originalText)
+        .map((value, index) => ({
+          id: index + 1,
+          originalText: value.originalText,
+          json: value.json
+        }));
+    } catch {
+      const jsonBlocks = this.extractJsonTextBlocks(json);
+      const chunks = jsonBlocks.flatMap(block => this.chunkBlock(block, maxBlockLength));
+
+      return chunks.map((originalText, index) => ({
+        id: index + 1,
+        originalText
+      }));
+    }
+  }
+
+  static rewriteJsonWithTranslations(
+    json: string,
+    results: Array<{ block: DocumentBlock; translatedText: string }>
+  ): string {
+    let parsed = JSON.parse(json) as unknown;
+
+    results.forEach(result => {
+      if (!result.block.json || !result.translatedText.trim()) return;
+      if (result.block.json.path.length === 0) {
+        parsed = result.translatedText.trim();
+        return;
+      }
+
+      this.setJsonValueAtPath(parsed, result.block.json.path, result.translatedText.trim());
+    });
+
+    return `${JSON.stringify(parsed, null, 2)}\n`;
   }
 
   static async extractTextFromDocxBytes(bytes: Uint8Array): Promise<string> {
@@ -431,6 +473,57 @@ export class DocumentTextExtractor {
         .filter(Boolean);
     } catch {
       return this.splitIntoBlocks(json).map(block => block.originalText);
+    }
+  }
+
+  private static collectJsonStringValues(
+    value: unknown,
+    path: Array<string | number>,
+    values: Array<{ text: string; path: Array<string | number> }>
+  ): void {
+    if (typeof value === 'string') {
+      values.push({ text: value, path });
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => this.collectJsonStringValues(item, [...path, index], values));
+      return;
+    }
+
+    if (value && typeof value === 'object') {
+      Object.entries(value as Record<string, unknown>).forEach(([key, item]) => {
+        this.collectJsonStringValues(item, [...path, key], values);
+      });
+    }
+  }
+
+  private static setJsonValueAtPath(value: unknown, path: Array<string | number>, translatedText: string): void {
+    if (path.length === 0) return;
+
+    let current = value as Record<string, unknown> | unknown[];
+    for (const segment of path.slice(0, -1)) {
+      if (typeof segment === 'number' && Array.isArray(current)) {
+        current = current[segment] as Record<string, unknown> | unknown[];
+        continue;
+      }
+
+      if (typeof segment === 'string' && current && !Array.isArray(current) && typeof current === 'object') {
+        current = (current as Record<string, unknown>)[segment] as Record<string, unknown> | unknown[];
+        continue;
+      }
+
+      return;
+    }
+
+    const lastSegment = path[path.length - 1];
+    if (typeof lastSegment === 'number' && Array.isArray(current)) {
+      current[lastSegment] = translatedText;
+      return;
+    }
+
+    if (typeof lastSegment === 'string' && current && !Array.isArray(current) && typeof current === 'object') {
+      (current as Record<string, unknown>)[lastSegment] = translatedText;
     }
   }
 
