@@ -20,6 +20,7 @@ class DocumentTranslatorController {
   private translateButton: HTMLButtonElement | null = null;
   private exportSubtitleButton: HTMLButtonElement | null = null;
   private exportJsonButton: HTMLButtonElement | null = null;
+  private exportDocxButton: HTMLButtonElement | null = null;
   private clearButton: HTMLButtonElement | null = null;
   private targetLanguage: HTMLSelectElement | null = null;
   private translationProvider: HTMLSelectElement | null = null;
@@ -31,6 +32,7 @@ class DocumentTranslatorController {
   private loadedDocumentBlocks: DocumentBlock[] | null = null;
   private loadedSourceText = '';
   private loadedRawFileText = '';
+  private loadedRawFileBytes: Uint8Array | null = null;
   private loadedFileName = '';
   private currentResults: TranslationResult[] = [];
 
@@ -44,6 +46,7 @@ class DocumentTranslatorController {
     this.translateButton = document.getElementById('translateDocument') as HTMLButtonElement | null;
     this.exportSubtitleButton = document.getElementById('exportSubtitleFile') as HTMLButtonElement | null;
     this.exportJsonButton = document.getElementById('exportJsonFile') as HTMLButtonElement | null;
+    this.exportDocxButton = document.getElementById('exportDocxFile') as HTMLButtonElement | null;
     this.clearButton = document.getElementById('clearDocument') as HTMLButtonElement | null;
     this.targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement | null;
     this.translationProvider = document.getElementById('translationProvider') as HTMLSelectElement | null;
@@ -120,6 +123,7 @@ class DocumentTranslatorController {
     this.translateButton?.addEventListener('click', () => this.translateDocument());
     this.exportSubtitleButton?.addEventListener('click', () => this.exportTranslatedSubtitles());
     this.exportJsonButton?.addEventListener('click', () => this.exportTranslatedJson());
+    this.exportDocxButton?.addEventListener('click', () => void this.exportTranslatedDocx());
     this.clearButton?.addEventListener('click', () => this.clearDocument());
     this.displayMode?.addEventListener('change', () => this.applyDisplayMode());
 
@@ -134,9 +138,13 @@ class DocumentTranslatorController {
     try {
       this.setBusy(true);
       const isJsonDocument = this.isJsonDocumentFile(file);
+      const isDocxDocument = this.isDocxDocumentFile(file);
       const rawText = isJsonDocument ? await file.text() : '';
+      const rawBytes = isDocxDocument ? new Uint8Array(await file.arrayBuffer()) : null;
       const blocks = isJsonDocument
         ? DocumentTextExtractor.extractBlocksFromJson(rawText)
+        : isDocxDocument
+          ? await DocumentTextExtractor.extractBlocksFromDocxBytes(rawBytes!)
         : await DocumentTextExtractor.extractBlocksFromFile(file);
       const text = blocks.map(block => block.originalText).join('\n\n');
 
@@ -144,6 +152,7 @@ class DocumentTranslatorController {
         this.loadedDocumentBlocks = null;
         this.loadedSourceText = '';
         this.loadedRawFileText = '';
+        this.loadedRawFileBytes = null;
         this.loadedFileName = '';
         this.currentResults = [];
         this.updateExportButtons();
@@ -154,6 +163,7 @@ class DocumentTranslatorController {
       this.loadedDocumentBlocks = blocks;
       this.loadedSourceText = text;
       this.loadedRawFileText = rawText;
+      this.loadedRawFileBytes = rawBytes;
       this.loadedFileName = file.name;
       this.currentResults = [];
       this.sourceText.value = text;
@@ -297,6 +307,26 @@ class DocumentTranslatorController {
     }
   }
 
+  private async exportTranslatedDocx(): Promise<void> {
+    const docxResults = this.currentResults.filter(result => result.block.docx && result.translatedText.trim());
+    if (!this.loadedRawFileBytes || docxResults.length === 0) {
+      this.showMessage('Translate a DOCX file before exporting.', 'error');
+      return;
+    }
+
+    try {
+      const content = await DocumentTextExtractor.rewriteDocxWithTranslations(this.loadedRawFileBytes, docxResults);
+      this.downloadBinaryFile(
+        content,
+        this.createDocxExportFilename(),
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      );
+      this.showMessage(`Exported translated DOCX with ${docxResults.length} paragraphs`);
+    } catch (error) {
+      this.showMessage(error instanceof Error ? error.message : 'Could not export translated DOCX.', 'error');
+    }
+  }
+
   private renderTranslatedSubtitleFile(results: TranslationResult[], format: 'srt' | 'vtt'): string {
     const cues = results.map((result, index) => {
       const cue = result.block.subtitle!;
@@ -346,6 +376,18 @@ class DocumentTranslatorController {
     return `${baseName}.translated.json`;
   }
 
+  private createDocxExportFilename(): string {
+    const baseName = (this.loadedFileName || 'translated-document')
+      .replace(/\.[^.]+$/, '')
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 80) || 'translated-document';
+
+    return `${baseName}.translated.docx`;
+  }
+
   private applyDisplayMode(): void {
     const mode = (this.displayMode?.value || 'bilingual') as DisplayMode;
     const originals = document.querySelectorAll<HTMLElement>('.document-original');
@@ -388,6 +430,7 @@ class DocumentTranslatorController {
     this.loadedDocumentBlocks = null;
     this.loadedSourceText = '';
     this.loadedRawFileText = '';
+    this.loadedRawFileBytes = null;
     this.loadedFileName = '';
     this.currentResults = [];
     this.renderResults([]);
@@ -410,6 +453,7 @@ class DocumentTranslatorController {
   private updateExportButtons(isBusy: boolean = false): void {
     this.updateSubtitleExportButton(isBusy);
     this.updateJsonExportButton(isBusy);
+    this.updateDocxExportButton(isBusy);
   }
 
   private updateSubtitleExportButton(isBusy: boolean = false): void {
@@ -426,10 +470,22 @@ class DocumentTranslatorController {
     this.exportJsonButton.disabled = isBusy || !this.loadedRawFileText || !hasTranslatedJson;
   }
 
+  private updateDocxExportButton(isBusy: boolean = false): void {
+    if (!this.exportDocxButton) return;
+
+    const hasTranslatedDocx = this.currentResults.some(result => result.block.docx && result.translatedText.trim());
+    this.exportDocxButton.disabled = isBusy || !this.loadedRawFileBytes || !hasTranslatedDocx;
+  }
+
   private isJsonDocumentFile(file: File): boolean {
     return file.type === 'application/json' ||
       file.type === 'text/json' ||
       file.name.toLowerCase().endsWith('.json');
+  }
+
+  private isDocxDocumentFile(file: File): boolean {
+    return file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      file.name.toLowerCase().endsWith('.docx');
   }
 
   private showMessage(message: string, type: 'info' | 'error' = 'info'): void {
@@ -452,7 +508,14 @@ class DocumentTranslatorController {
   }
 
   private downloadTextFile(content: string, filename: string, mimeType: string): void {
-    const blob = new Blob([content], { type: mimeType });
+    this.downloadBinaryFile(new TextEncoder().encode(content), filename, mimeType);
+  }
+
+  private downloadBinaryFile(content: Uint8Array, filename: string, mimeType: string): void {
+    const buffer = new ArrayBuffer(content.byteLength);
+    new Uint8Array(buffer).set(content);
+
+    const blob = new Blob([buffer], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;

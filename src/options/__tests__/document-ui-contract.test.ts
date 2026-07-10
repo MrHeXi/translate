@@ -1,3 +1,11 @@
+import { TextDecoder, TextEncoder } from 'util';
+import { DocumentTextExtractor } from '../../services/DocumentTextExtractor';
+
+Object.assign(globalThis, {
+  TextDecoder,
+  TextEncoder
+});
+
 const flushPromises = async (): Promise<void> => {
   await Promise.resolve();
   await Promise.resolve();
@@ -11,7 +19,85 @@ const readBlobText = (blob: Blob): Promise<string> => new Promise((resolve, reje
   reader.readAsText(blob);
 });
 
-export {};
+const readBlobBytes = (blob: Blob): Promise<Uint8Array> => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer));
+  reader.onerror = () => reject(reader.error);
+  reader.readAsArrayBuffer(blob);
+});
+
+const concatBytes = (chunks: Uint8Array[]): Uint8Array => {
+  const length = chunks.reduce((total, chunk) => total + chunk.length, 0);
+  const result = new Uint8Array(length);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+
+  return result;
+};
+
+const writeUint16 = (bytes: Uint8Array, offset: number, value: number): void => {
+  new DataView(bytes.buffer).setUint16(offset, value, true);
+};
+
+const writeUint32 = (bytes: Uint8Array, offset: number, value: number): void => {
+  new DataView(bytes.buffer).setUint32(offset, value, true);
+};
+
+const createStoredZip = (files: Array<{ name: string; content: string }>): Uint8Array => {
+  const encoder = new TextEncoder();
+  const localChunks: Uint8Array[] = [];
+  const centralChunks: Uint8Array[] = [];
+  let localOffset = 0;
+
+  for (const file of files) {
+    const nameBytes = encoder.encode(file.name);
+    const dataBytes = encoder.encode(file.content);
+    const localHeader = new Uint8Array(30 + nameBytes.length);
+
+    writeUint32(localHeader, 0, 0x04034b50);
+    writeUint16(localHeader, 4, 20);
+    writeUint16(localHeader, 8, 0);
+    writeUint32(localHeader, 18, dataBytes.length);
+    writeUint32(localHeader, 22, dataBytes.length);
+    writeUint16(localHeader, 26, nameBytes.length);
+    localHeader.set(nameBytes, 30);
+
+    const centralHeader = new Uint8Array(46 + nameBytes.length);
+    writeUint32(centralHeader, 0, 0x02014b50);
+    writeUint16(centralHeader, 4, 20);
+    writeUint16(centralHeader, 6, 20);
+    writeUint16(centralHeader, 10, 0);
+    writeUint32(centralHeader, 20, dataBytes.length);
+    writeUint32(centralHeader, 24, dataBytes.length);
+    writeUint16(centralHeader, 28, nameBytes.length);
+    writeUint32(centralHeader, 42, localOffset);
+    centralHeader.set(nameBytes, 46);
+
+    localChunks.push(localHeader, dataBytes);
+    centralChunks.push(centralHeader);
+    localOffset += localHeader.length + dataBytes.length;
+  }
+
+  const centralDirectory = concatBytes(centralChunks);
+  const endOfCentralDirectory = new Uint8Array(22);
+  writeUint32(endOfCentralDirectory, 0, 0x06054b50);
+  writeUint16(endOfCentralDirectory, 8, files.length);
+  writeUint16(endOfCentralDirectory, 10, files.length);
+  writeUint32(endOfCentralDirectory, 12, centralDirectory.length);
+  writeUint32(endOfCentralDirectory, 16, localOffset);
+
+  return concatBytes([...localChunks, centralDirectory, endOfCentralDirectory]);
+};
+
+const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer => {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+};
 
 const setupDocumentDom = (): void => {
   document.body.innerHTML = `
@@ -28,6 +114,7 @@ const setupDocumentDom = (): void => {
     <button id="translateDocument"></button>
     <button id="exportSubtitleFile" disabled></button>
     <button id="exportJsonFile" disabled></button>
+    <button id="exportDocxFile" disabled></button>
     <button id="clearDocument"></button>
     <textarea id="sourceText"></textarea>
     <p id="documentMessage"></p>
@@ -303,6 +390,97 @@ describe('document translator page', () => {
       expect(clickSpy).toHaveBeenCalled();
       expect(revokeObjectURL).toHaveBeenCalledWith('blob:translated-json');
       expect(document.getElementById('documentMessage')?.textContent).toBe('Exported translated JSON with 3 string values');
+    } finally {
+      clickSpy.mockRestore();
+    }
+  });
+
+  it('exports translated DOCX files while preserving the document archive', async () => {
+    let exportedBlob: Blob | null = null;
+    const createObjectURL = jest.fn((blob: Blob) => {
+      exportedBlob = blob;
+      return 'blob:translated-docx';
+    });
+    const revokeObjectURL = jest.fn();
+    const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: createObjectURL,
+      configurable: true
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      value: revokeObjectURL,
+      configurable: true
+    });
+
+    try {
+      require('../document');
+      document.dispatchEvent(new Event('DOMContentLoaded'));
+      await flushPromises();
+
+      const docxBytes = createStoredZip([
+        {
+          name: '[Content_Types].xml',
+          content: '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>'
+        },
+        {
+          name: 'word/document.xml',
+          content: [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">',
+            '<w:body>',
+            '<w:p><w:r><w:t>First DOCX paragraph.</w:t></w:r></w:p>',
+            '<w:p><w:r><w:t>Second </w:t></w:r><w:r><w:t>paragraph &amp; details.</w:t></w:r></w:p>',
+            '</w:body>',
+            '</w:document>'
+          ].join('')
+        }
+      ]);
+      const file = new File([toArrayBuffer(docxBytes)], 'lesson.docx', {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      });
+      Object.defineProperty(file, 'arrayBuffer', {
+        value: async () => toArrayBuffer(docxBytes),
+        configurable: true
+      });
+      const fileInput = document.getElementById('documentFile') as HTMLInputElement;
+
+      Object.defineProperty(fileInput, 'files', {
+        value: [file],
+        configurable: true
+      });
+
+      fileInput.dispatchEvent(new Event('change'));
+      await flushPromises();
+      await flushPromises();
+
+      expect((document.getElementById('exportDocxFile') as HTMLButtonElement).disabled).toBe(true);
+      expect((global as any).chrome.runtime.sendMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'translate' }),
+        expect.any(Function)
+      );
+
+      document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      expect((document.getElementById('exportDocxFile') as HTMLButtonElement).disabled).toBe(false);
+
+      document.getElementById('exportDocxFile')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+      expect(exportedBlob).not.toBeNull();
+      const exportedBytes = await readBlobBytes(exportedBlob!);
+      const exportedBlocks = await DocumentTextExtractor.extractBlocksFromDocxBytes(exportedBytes);
+
+      expect(exportedBlocks.map(block => block.originalText)).toEqual([
+        'translated: First DOCX paragraph.',
+        'translated: Second paragraph & details.'
+      ]);
+      expect(clickSpy).toHaveBeenCalled();
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:translated-docx');
+      expect(document.getElementById('documentMessage')?.textContent).toBe('Exported translated DOCX with 2 paragraphs');
     } finally {
       clickSpy.mockRestore();
     }

@@ -69,7 +69,8 @@ Capture the document translator page with:
 - Target language, provider, and display mode controls visible.
 - For an HTML sample, readable body text blocks visible without raw tags or script/style content.
 - For a JSON sample, readable string values visible with the Export JSON control after translation.
-- For a DOCX or EPUB sample, extracted readable text blocks visible without implying source-file layout rewrite.
+- For a DOCX sample, extracted readable text blocks visible with the Export DOCX control after translation, without implying full layout-perfect Office conversion.
+- For an EPUB sample, extracted readable text blocks visible without implying source-file rewrite.
 - For a subtitle sample, translated cues visible with the Export subtitles control after translation.
 - For a text-based PDF sample, page and coordinate metadata visible on translated blocks.
 
@@ -130,7 +131,7 @@ Capture the options page with:
 - Any claim that translation starts automatically.
 - Unsupported feature claims beyond web page translation, text-based document translation, selected-text translation, vocabulary collection, review, import/export, and Chrome storage sync.
 - Claims for full scanned PDF OCR, automatic manga segmentation, or layout-preserving PDF translation.
-- Claims for layout-preserving DOCX or EPUB rewrite.
+- Claims for layout-perfect Office/eBook conversion or EPUB source-document rewrite.
 - Claims for audio transcription, automatic subtitle generation, meeting translation, or guaranteed support for every video site.
 - Console errors, developer tools, or local file explorer windows.
 

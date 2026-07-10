@@ -19,7 +19,7 @@ It is best for:
 - Reviewing CET4, CET6, GRE, IELTS, TOEFL vocabulary.
 - Keeping a local-first vocabulary notebook with Chrome storage sync support.
 
-It is not marketed as a full scanned-PDF OCR translator, layout-preserving Office/eBook converter, automatic whole-page image reader, audio transcription service, or meeting bot that records or joins calls.
+It is not marketed as a full scanned-PDF OCR translator, layout-perfect Office/eBook converter, automatic whole-page image reader, audio transcription service, or meeting bot that records or joins calls.
 
 ## Core Features
 
@@ -55,9 +55,10 @@ It is not marketed as a full scanned-PDF OCR translator, layout-preserving Offic
 - Extract readable string values from JSON files.
 - Export translated JSON files with the original object and array structure preserved.
 - Extract readable text from DOCX paragraphs and EPUB spine documents.
+- Export translated DOCX files by writing translated paragraph text back into the original document archive.
 - Export translated `.srt` and `.vtt` subtitle files with their original timing preserved.
 - Preserve page and coordinate metadata for simple text-based PDF layout blocks.
-- Scanned PDFs, source-document rewrite, and full PDF visual rendering are planned for later OCR/document layout batches.
+- EPUB source-document rewrite, scanned PDFs, full PDF visual rendering, and full layout-perfect Office/eBook conversion are planned for later OCR/document layout batches.
 
 ### Video Subtitle Translation
 
@@ -161,6 +162,13 @@ The generated test package is `chrome-translation-extension.zip`.
 2. Choose a `.json` file.
 3. Click Translate document.
 4. Click Export JSON to download a translated JSON file with the original structure preserved.
+
+### Translate DOCX Files
+
+1. Open the document translator.
+2. Choose a `.docx` file.
+3. Click Translate document.
+4. Click Export DOCX to download a translated DOCX file with paragraph text rewritten.
 
 ### Translate Live Captions
 

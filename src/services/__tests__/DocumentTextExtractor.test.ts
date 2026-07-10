@@ -323,6 +323,50 @@ describe('DocumentTextExtractor', () => {
       'First DOCX paragraph.',
       'Second paragraph & details.'
     ]);
+    expect(blocks.map(block => block.docx)).toEqual([
+      { entryName: 'word/document.xml', paragraphIndex: 0 },
+      { entryName: 'word/document.xml', paragraphIndex: 1 }
+    ]);
+  });
+
+  it('rewrites translated DOCX paragraphs while preserving the document archive', async () => {
+    const docxBytes = createStoredZip([
+      {
+        name: '[Content_Types].xml',
+        content: '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>'
+      },
+      {
+        name: 'word/document.xml',
+        content: [
+          '<?xml version="1.0" encoding="UTF-8"?>',
+          '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">',
+          '<w:body>',
+          '<w:p><w:r><w:t>First DOCX paragraph.</w:t></w:r></w:p>',
+          '<w:p><w:r><w:t>Second </w:t></w:r><w:r><w:t>paragraph.</w:t></w:r></w:p>',
+          '</w:body>',
+          '</w:document>'
+        ].join('')
+      }
+    ]);
+    const blocks = await DocumentTextExtractor.extractBlocksFromDocxBytes(docxBytes);
+    const rewritten = await DocumentTextExtractor.rewriteDocxWithTranslations(docxBytes, [
+      { block: blocks[0]!, translatedText: 'Translated first paragraph.' },
+      { block: blocks[1]!, translatedText: 'Translated second paragraph.' }
+    ]);
+
+    const rewrittenArchiveText = new TextDecoder('utf-8').decode(rewritten);
+    expect(rewrittenArchiveText).toContain('[Content_Types].xml');
+    expect(rewrittenArchiveText).toContain('<w:body>');
+    expect(rewrittenArchiveText).toContain('Translated first paragraph.');
+    expect(rewrittenArchiveText).toContain('Translated second paragraph.');
+    expect(rewrittenArchiveText).not.toContain('First DOCX paragraph.');
+    expect(rewrittenArchiveText).not.toContain('Second ');
+
+    const rewrittenBlocks = await DocumentTextExtractor.extractBlocksFromDocxBytes(rewritten);
+    expect(rewrittenBlocks.map(block => block.originalText)).toEqual([
+      'Translated first paragraph.',
+      'Translated second paragraph.'
+    ]);
   });
 
   it('extracts EPUB spine documents in reading order', async () => {

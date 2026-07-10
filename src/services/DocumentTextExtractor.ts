@@ -4,6 +4,7 @@ export interface DocumentBlock {
   layout?: DocumentBlockLayout;
   subtitle?: DocumentSubtitleCue;
   json?: DocumentJsonStringValue;
+  docx?: DocumentDocxParagraph;
 }
 
 export interface DocumentBlockLayout {
@@ -27,11 +28,21 @@ export interface DocumentJsonStringValue {
   path: Array<string | number>;
 }
 
+export interface DocumentDocxParagraph {
+  entryName: string;
+  paragraphIndex: number;
+}
+
 interface ZipCentralEntry {
   name: string;
   compressionMethod: number;
   compressedSize: number;
   localHeaderOffset: number;
+}
+
+interface ZipFileData {
+  name: string;
+  data: Uint8Array;
 }
 
 export class DocumentTextExtractor {
@@ -256,13 +267,39 @@ export class DocumentTextExtractor {
   }
 
   static async extractBlocksFromDocxBytes(bytes: Uint8Array, maxBlockLength: number = 1200): Promise<DocumentBlock[]> {
-    const docxBlocks = await this.extractDocxTextBlocksFromBytes(bytes);
-    const chunks = docxBlocks.flatMap(block => this.chunkBlock(block, maxBlockLength));
+    void maxBlockLength;
+    return this.extractDocxParagraphBlocksFromBytes(bytes);
+  }
 
-    return chunks.map((originalText, index) => ({
-      id: index + 1,
-      originalText
-    }));
+  static async rewriteDocxWithTranslations(
+    bytes: Uint8Array,
+    results: Array<{ block: DocumentBlock; translatedText: string }>
+  ): Promise<Uint8Array> {
+    const entries = this.readZipCentralDirectory(bytes);
+    const replacements = new Map<string, Map<number, string>>();
+
+    results.forEach(result => {
+      if (!result.block.docx || !result.translatedText.trim()) return;
+
+      const entryReplacements = replacements.get(result.block.docx.entryName) || new Map<number, string>();
+      entryReplacements.set(result.block.docx.paragraphIndex, result.translatedText.trim());
+      replacements.set(result.block.docx.entryName, entryReplacements);
+    });
+
+    const files: ZipFileData[] = [];
+    for (const entry of entries) {
+      let data = await this.readZipEntryData(bytes, entry);
+
+      const entryReplacements = replacements.get(entry.name);
+      if (entryReplacements) {
+        const xml = new TextDecoder('utf-8').decode(data);
+        data = new TextEncoder().encode(this.rewriteDocxXmlParagraphs(xml, entryReplacements));
+      }
+
+      files.push({ name: entry.name, data });
+    }
+
+    return this.createStoredZip(files);
   }
 
   static async extractTextFromEpubBytes(bytes: Uint8Array): Promise<string> {
@@ -553,6 +590,10 @@ export class DocumentTextExtractor {
   }
 
   private static async extractDocxTextBlocksFromBytes(bytes: Uint8Array): Promise<string[]> {
+    return (await this.extractDocxParagraphBlocksFromBytes(bytes)).map(block => block.originalText);
+  }
+
+  private static async extractDocxParagraphBlocksFromBytes(bytes: Uint8Array): Promise<DocumentBlock[]> {
     const entries = this.readZipCentralDirectory(bytes);
     const xmlNames = [
       'word/document.xml',
@@ -560,23 +601,64 @@ export class DocumentTextExtractor {
         .map(entry => entry.name)
         .filter(name => /^word\/(?:header|footer|footnotes|endnotes)\d*\.xml$/i.test(name))
     ];
-    const blocks: string[] = [];
+    const blocks: DocumentBlock[] = [];
 
     for (const xmlName of xmlNames) {
       const xml = await this.readZipTextEntry(bytes, entries, xmlName);
-      if (xml) blocks.push(...this.extractDocxXmlTextBlocks(xml));
+      if (xml) blocks.push(...this.extractDocxXmlParagraphBlocks(xml, xmlName, blocks.length));
     }
 
     return blocks;
   }
 
   private static extractDocxXmlTextBlocks(xml: string): string[] {
+    return this.extractDocxXmlParagraphBlocks(xml, 'word/document.xml', 0).map(block => block.originalText);
+  }
+
+  private static extractDocxXmlParagraphBlocks(xml: string, entryName: string, startIndex: number): DocumentBlock[] {
     const paragraphs = xml.match(/<(?:\w+:)?p\b[\s\S]*?<\/(?:\w+:)?p>/g) || [xml];
 
     return paragraphs
-      .map(paragraph => this.extractWordprocessingText(paragraph))
-      .map(text => text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim())
-      .filter(Boolean);
+      .map((paragraph, paragraphIndex) => ({
+        paragraphIndex,
+        text: this.extractWordprocessingText(paragraph)
+          .replace(/[ \t]+\n/g, '\n')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim()
+      }))
+      .filter(block => block.text)
+      .map((block, index) => ({
+        id: startIndex + index + 1,
+        originalText: block.text,
+        docx: {
+          entryName,
+          paragraphIndex: block.paragraphIndex
+        }
+      }));
+  }
+
+  private static rewriteDocxXmlParagraphs(xml: string, replacements: Map<number, string>): string {
+    let paragraphIndex = 0;
+
+    return xml.replace(/<(?:\w+:)?p\b[\s\S]*?<\/(?:\w+:)?p>/g, paragraph => {
+      const translatedText = replacements.get(paragraphIndex);
+      paragraphIndex++;
+
+      if (!translatedText) return paragraph;
+      return this.replaceDocxParagraphText(paragraph, translatedText);
+    });
+  }
+
+  private static replaceDocxParagraphText(paragraph: string, translatedText: string): string {
+    let replacedFirstTextRun = false;
+    const escapedText = this.escapeXmlText(translatedText);
+
+    return paragraph.replace(/(<(?:\w+:)?t\b[^>]*>)([\s\S]*?)(<\/(?:\w+:)?t>)/g, (_match, open: string, _text: string, close: string) => {
+      if (replacedFirstTextRun) return `${open}${close}`;
+
+      replacedFirstTextRun = true;
+      return `${open}${escapedText}${close}`;
+    });
   }
 
   private static extractWordprocessingText(xml: string): string {
@@ -759,6 +841,90 @@ export class DocumentTextExtractor {
     throw new Error(`Unsupported archive compression method ${entry.compressionMethod} for ${entry.name}`);
   }
 
+  private static createStoredZip(files: ZipFileData[]): Uint8Array {
+    const encoder = new TextEncoder();
+    const localChunks: Uint8Array[] = [];
+    const centralChunks: Uint8Array[] = [];
+    let localOffset = 0;
+
+    for (const file of files) {
+      const nameBytes = encoder.encode(file.name);
+      const crc = this.crc32(file.data);
+      const localHeader = new Uint8Array(30 + nameBytes.length);
+
+      this.writeUint32(localHeader, 0, 0x04034b50);
+      this.writeUint16(localHeader, 4, 20);
+      this.writeUint16(localHeader, 6, 0x0800);
+      this.writeUint16(localHeader, 8, 0);
+      this.writeUint32(localHeader, 14, crc);
+      this.writeUint32(localHeader, 18, file.data.length);
+      this.writeUint32(localHeader, 22, file.data.length);
+      this.writeUint16(localHeader, 26, nameBytes.length);
+      localHeader.set(nameBytes, 30);
+
+      const centralHeader = new Uint8Array(46 + nameBytes.length);
+      this.writeUint32(centralHeader, 0, 0x02014b50);
+      this.writeUint16(centralHeader, 4, 20);
+      this.writeUint16(centralHeader, 6, 20);
+      this.writeUint16(centralHeader, 8, 0x0800);
+      this.writeUint16(centralHeader, 10, 0);
+      this.writeUint32(centralHeader, 16, crc);
+      this.writeUint32(centralHeader, 20, file.data.length);
+      this.writeUint32(centralHeader, 24, file.data.length);
+      this.writeUint16(centralHeader, 28, nameBytes.length);
+      this.writeUint32(centralHeader, 42, localOffset);
+      centralHeader.set(nameBytes, 46);
+
+      localChunks.push(localHeader, file.data);
+      centralChunks.push(centralHeader);
+      localOffset += localHeader.length + file.data.length;
+    }
+
+    const centralDirectory = this.concatBytes(centralChunks);
+    const endOfCentralDirectory = new Uint8Array(22);
+    this.writeUint32(endOfCentralDirectory, 0, 0x06054b50);
+    this.writeUint16(endOfCentralDirectory, 8, files.length);
+    this.writeUint16(endOfCentralDirectory, 10, files.length);
+    this.writeUint32(endOfCentralDirectory, 12, centralDirectory.length);
+    this.writeUint32(endOfCentralDirectory, 16, localOffset);
+
+    return this.concatBytes([...localChunks, centralDirectory, endOfCentralDirectory]);
+  }
+
+  private static concatBytes(chunks: Uint8Array[]): Uint8Array {
+    const length = chunks.reduce((total, chunk) => total + chunk.length, 0);
+    const result = new Uint8Array(length);
+    let offset = 0;
+
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    return result;
+  }
+
+  private static writeUint16(bytes: Uint8Array, offset: number, value: number): void {
+    new DataView(bytes.buffer).setUint16(offset, value, true);
+  }
+
+  private static writeUint32(bytes: Uint8Array, offset: number, value: number): void {
+    new DataView(bytes.buffer).setUint32(offset, value >>> 0, true);
+  }
+
+  private static crc32(bytes: Uint8Array): number {
+    let crc = 0xffffffff;
+
+    for (const byte of bytes) {
+      crc ^= byte;
+      for (let bit = 0; bit < 8; bit++) {
+        crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+      }
+    }
+
+    return (crc ^ 0xffffffff) >>> 0;
+  }
+
   private static async inflateRawDeflate(compressedData: Uint8Array, entryName: string): Promise<Uint8Array> {
     if (typeof DecompressionStream === 'undefined') {
       throw new Error(`Compressed archive entry needs browser decompression support: ${entryName}`);
@@ -780,6 +946,13 @@ export class DocumentTextExtractor {
 
   private static decodeXmlEntities(text: string): string {
     return this.decodeHtmlEntities(text);
+  }
+
+  private static escapeXmlText(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
   }
 
   private static extractPdfStreams(pdfText: string): Array<{ pageNumber: number; body: string }> {
