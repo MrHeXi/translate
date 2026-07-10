@@ -21,6 +21,7 @@ class DocumentTranslatorController {
   private exportSubtitleButton: HTMLButtonElement | null = null;
   private exportJsonButton: HTMLButtonElement | null = null;
   private exportDocxButton: HTMLButtonElement | null = null;
+  private exportEpubButton: HTMLButtonElement | null = null;
   private clearButton: HTMLButtonElement | null = null;
   private targetLanguage: HTMLSelectElement | null = null;
   private translationProvider: HTMLSelectElement | null = null;
@@ -47,6 +48,7 @@ class DocumentTranslatorController {
     this.exportSubtitleButton = document.getElementById('exportSubtitleFile') as HTMLButtonElement | null;
     this.exportJsonButton = document.getElementById('exportJsonFile') as HTMLButtonElement | null;
     this.exportDocxButton = document.getElementById('exportDocxFile') as HTMLButtonElement | null;
+    this.exportEpubButton = document.getElementById('exportEpubFile') as HTMLButtonElement | null;
     this.clearButton = document.getElementById('clearDocument') as HTMLButtonElement | null;
     this.targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement | null;
     this.translationProvider = document.getElementById('translationProvider') as HTMLSelectElement | null;
@@ -124,6 +126,7 @@ class DocumentTranslatorController {
     this.exportSubtitleButton?.addEventListener('click', () => this.exportTranslatedSubtitles());
     this.exportJsonButton?.addEventListener('click', () => this.exportTranslatedJson());
     this.exportDocxButton?.addEventListener('click', () => void this.exportTranslatedDocx());
+    this.exportEpubButton?.addEventListener('click', () => void this.exportTranslatedEpub());
     this.clearButton?.addEventListener('click', () => this.clearDocument());
     this.displayMode?.addEventListener('change', () => this.applyDisplayMode());
 
@@ -139,12 +142,15 @@ class DocumentTranslatorController {
       this.setBusy(true);
       const isJsonDocument = this.isJsonDocumentFile(file);
       const isDocxDocument = this.isDocxDocumentFile(file);
+      const isEpubDocument = this.isEpubDocumentFile(file);
       const rawText = isJsonDocument ? await file.text() : '';
-      const rawBytes = isDocxDocument ? new Uint8Array(await file.arrayBuffer()) : null;
+      const rawBytes = isDocxDocument || isEpubDocument ? new Uint8Array(await file.arrayBuffer()) : null;
       const blocks = isJsonDocument
         ? DocumentTextExtractor.extractBlocksFromJson(rawText)
         : isDocxDocument
           ? await DocumentTextExtractor.extractBlocksFromDocxBytes(rawBytes!)
+        : isEpubDocument
+          ? await DocumentTextExtractor.extractBlocksFromEpubBytes(rawBytes!)
         : await DocumentTextExtractor.extractBlocksFromFile(file);
       const text = blocks.map(block => block.originalText).join('\n\n');
 
@@ -327,6 +333,22 @@ class DocumentTranslatorController {
     }
   }
 
+  private async exportTranslatedEpub(): Promise<void> {
+    const epubResults = this.currentResults.filter(result => result.block.epub && result.translatedText.trim());
+    if (!this.loadedRawFileBytes || epubResults.length === 0) {
+      this.showMessage('Translate an EPUB file before exporting.', 'error');
+      return;
+    }
+
+    try {
+      const content = await DocumentTextExtractor.rewriteEpubWithTranslations(this.loadedRawFileBytes, epubResults);
+      this.downloadBinaryFile(content, this.createEpubExportFilename(), 'application/epub+zip');
+      this.showMessage(`Exported translated EPUB with ${epubResults.length} blocks`);
+    } catch (error) {
+      this.showMessage(error instanceof Error ? error.message : 'Could not export translated EPUB.', 'error');
+    }
+  }
+
   private renderTranslatedSubtitleFile(results: TranslationResult[], format: 'srt' | 'vtt'): string {
     const cues = results.map((result, index) => {
       const cue = result.block.subtitle!;
@@ -386,6 +408,18 @@ class DocumentTranslatorController {
       .slice(0, 80) || 'translated-document';
 
     return `${baseName}.translated.docx`;
+  }
+
+  private createEpubExportFilename(): string {
+    const baseName = (this.loadedFileName || 'translated-document')
+      .replace(/\.[^.]+$/, '')
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 80) || 'translated-document';
+
+    return `${baseName}.translated.epub`;
   }
 
   private applyDisplayMode(): void {
@@ -454,6 +488,7 @@ class DocumentTranslatorController {
     this.updateSubtitleExportButton(isBusy);
     this.updateJsonExportButton(isBusy);
     this.updateDocxExportButton(isBusy);
+    this.updateEpubExportButton(isBusy);
   }
 
   private updateSubtitleExportButton(isBusy: boolean = false): void {
@@ -477,6 +512,13 @@ class DocumentTranslatorController {
     this.exportDocxButton.disabled = isBusy || !this.loadedRawFileBytes || !hasTranslatedDocx;
   }
 
+  private updateEpubExportButton(isBusy: boolean = false): void {
+    if (!this.exportEpubButton) return;
+
+    const hasTranslatedEpub = this.currentResults.some(result => result.block.epub && result.translatedText.trim());
+    this.exportEpubButton.disabled = isBusy || !this.loadedRawFileBytes || !hasTranslatedEpub;
+  }
+
   private isJsonDocumentFile(file: File): boolean {
     return file.type === 'application/json' ||
       file.type === 'text/json' ||
@@ -486,6 +528,11 @@ class DocumentTranslatorController {
   private isDocxDocumentFile(file: File): boolean {
     return file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
       file.name.toLowerCase().endsWith('.docx');
+  }
+
+  private isEpubDocumentFile(file: File): boolean {
+    return file.type === 'application/epub+zip' ||
+      file.name.toLowerCase().endsWith('.epub');
   }
 
   private showMessage(message: string, type: 'info' | 'error' = 'info'): void {

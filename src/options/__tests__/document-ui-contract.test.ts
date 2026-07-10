@@ -115,6 +115,7 @@ const setupDocumentDom = (): void => {
     <button id="exportSubtitleFile" disabled></button>
     <button id="exportJsonFile" disabled></button>
     <button id="exportDocxFile" disabled></button>
+    <button id="exportEpubFile" disabled></button>
     <button id="clearDocument"></button>
     <textarea id="sourceText"></textarea>
     <p id="documentMessage"></p>
@@ -481,6 +482,113 @@ describe('document translator page', () => {
       expect(clickSpy).toHaveBeenCalled();
       expect(revokeObjectURL).toHaveBeenCalledWith('blob:translated-docx');
       expect(document.getElementById('documentMessage')?.textContent).toBe('Exported translated DOCX with 2 paragraphs');
+    } finally {
+      clickSpy.mockRestore();
+    }
+  });
+
+  it('exports translated EPUB files while preserving the book archive', async () => {
+    let exportedBlob: Blob | null = null;
+    const createObjectURL = jest.fn((blob: Blob) => {
+      exportedBlob = blob;
+      return 'blob:translated-epub';
+    });
+    const revokeObjectURL = jest.fn();
+    const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: createObjectURL,
+      configurable: true
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      value: revokeObjectURL,
+      configurable: true
+    });
+
+    try {
+      require('../document');
+      document.dispatchEvent(new Event('DOMContentLoaded'));
+      await flushPromises();
+
+      const epubBytes = createStoredZip([
+        {
+          name: 'mimetype',
+          content: 'application/epub+zip'
+        },
+        {
+          name: 'META-INF/container.xml',
+          content: [
+            '<?xml version="1.0"?>',
+            '<container version="1.0">',
+            '<rootfiles>',
+            '<rootfile full-path="OPS/package.opf" media-type="application/oebps-package+xml"/>',
+            '</rootfiles>',
+            '</container>'
+          ].join('')
+        },
+        {
+          name: 'OPS/package.opf',
+          content: [
+            '<package>',
+            '<manifest>',
+            '<item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>',
+            '</manifest>',
+            '<spine>',
+            '<itemref idref="chapter1"/>',
+            '</spine>',
+            '</package>'
+          ].join('')
+        },
+        {
+          name: 'OPS/chapter1.xhtml',
+          content: '<html><body><h1>Chapter One</h1><p>Open with &amp; details.</p></body></html>'
+        }
+      ]);
+      const file = new File([toArrayBuffer(epubBytes)], 'book.epub', {
+        type: 'application/epub+zip'
+      });
+      Object.defineProperty(file, 'arrayBuffer', {
+        value: async () => toArrayBuffer(epubBytes),
+        configurable: true
+      });
+      const fileInput = document.getElementById('documentFile') as HTMLInputElement;
+
+      Object.defineProperty(fileInput, 'files', {
+        value: [file],
+        configurable: true
+      });
+
+      fileInput.dispatchEvent(new Event('change'));
+      await flushPromises();
+      await flushPromises();
+
+      expect((document.getElementById('exportEpubFile') as HTMLButtonElement).disabled).toBe(true);
+      expect((global as any).chrome.runtime.sendMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'translate' }),
+        expect.any(Function)
+      );
+
+      document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      expect((document.getElementById('exportEpubFile') as HTMLButtonElement).disabled).toBe(false);
+
+      document.getElementById('exportEpubFile')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+      expect(exportedBlob).not.toBeNull();
+      const exportedBytes = await readBlobBytes(exportedBlob!);
+      const exportedBlocks = await DocumentTextExtractor.extractBlocksFromEpubBytes(exportedBytes);
+
+      expect(exportedBlocks.map(block => block.originalText)).toEqual([
+        'translated: Chapter One',
+        'translated: Open with & details.'
+      ]);
+      expect(clickSpy).toHaveBeenCalled();
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:translated-epub');
+      expect(document.getElementById('documentMessage')?.textContent).toBe('Exported translated EPUB with 2 blocks');
     } finally {
       clickSpy.mockRestore();
     }

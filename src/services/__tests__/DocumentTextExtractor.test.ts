@@ -415,6 +415,68 @@ describe('DocumentTextExtractor', () => {
       'Chapter Two',
       'Continue with the second scene.'
     ]);
+    expect(blocks.map(block => block.epub)).toEqual([
+      { entryName: 'OPS/chapter1.xhtml', blockIndex: 0 },
+      { entryName: 'OPS/chapter1.xhtml', blockIndex: 1 },
+      { entryName: 'OPS/chapter2.xhtml', blockIndex: 0 },
+      { entryName: 'OPS/chapter2.xhtml', blockIndex: 1 }
+    ]);
+  });
+
+  it('rewrites translated EPUB spine documents while preserving the book archive', async () => {
+    const epubBytes = createStoredZip([
+      {
+        name: 'mimetype',
+        content: 'application/epub+zip'
+      },
+      {
+        name: 'META-INF/container.xml',
+        content: [
+          '<?xml version="1.0"?>',
+          '<container version="1.0">',
+          '<rootfiles>',
+          '<rootfile full-path="OPS/package.opf" media-type="application/oebps-package+xml"/>',
+          '</rootfiles>',
+          '</container>'
+        ].join('')
+      },
+      {
+        name: 'OPS/package.opf',
+        content: [
+          '<package>',
+          '<manifest>',
+          '<item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>',
+          '</manifest>',
+          '<spine>',
+          '<itemref idref="chapter1"/>',
+          '</spine>',
+          '</package>'
+        ].join('')
+      },
+      {
+        name: 'OPS/chapter1.xhtml',
+        content: '<html><body><h1>Chapter One</h1><p>Open with &amp; details.</p></body></html>'
+      }
+    ]);
+    const blocks = await DocumentTextExtractor.extractBlocksFromEpubBytes(epubBytes);
+    const rewritten = await DocumentTextExtractor.rewriteEpubWithTranslations(epubBytes, [
+      { block: blocks[0]!, translatedText: 'Translated chapter one' },
+      { block: blocks[1]!, translatedText: 'Translated open & details.' }
+    ]);
+
+    const rewrittenArchiveText = new TextDecoder('utf-8').decode(rewritten);
+    expect(rewrittenArchiveText).toContain('application/epub+zip');
+    expect(rewrittenArchiveText).toContain('OPS/package.opf');
+    expect(rewrittenArchiveText).toContain('<h1>Translated chapter one</h1>');
+    expect(rewrittenArchiveText).toContain('<p>Translated open &amp; details.</p>');
+    expect(rewrittenArchiveText).not.toContain('Chapter One');
+    expect(rewrittenArchiveText).not.toContain('Open with &amp; details.');
+
+    const rewrittenBlocks = await DocumentTextExtractor.extractBlocksFromEpubBytes(rewritten);
+    expect(rewrittenBlocks.map(block => block.originalText)).toEqual([
+      'Translated chapter one',
+      'Translated open & details.'
+    ]);
   });
 
   it('extracts text from simple text-based PDF operators', () => {

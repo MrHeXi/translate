@@ -5,6 +5,7 @@ export interface DocumentBlock {
   subtitle?: DocumentSubtitleCue;
   json?: DocumentJsonStringValue;
   docx?: DocumentDocxParagraph;
+  epub?: DocumentEpubBlock;
 }
 
 export interface DocumentBlockLayout {
@@ -31,6 +32,11 @@ export interface DocumentJsonStringValue {
 export interface DocumentDocxParagraph {
   entryName: string;
   paragraphIndex: number;
+}
+
+export interface DocumentEpubBlock {
+  entryName: string;
+  blockIndex: number;
 }
 
 interface ZipCentralEntry {
@@ -307,13 +313,39 @@ export class DocumentTextExtractor {
   }
 
   static async extractBlocksFromEpubBytes(bytes: Uint8Array, maxBlockLength: number = 1200): Promise<DocumentBlock[]> {
-    const epubBlocks = await this.extractEpubTextBlocksFromBytes(bytes);
-    const chunks = epubBlocks.flatMap(block => this.chunkBlock(block, maxBlockLength));
+    void maxBlockLength;
+    return this.extractEpubBlocksFromBytes(bytes);
+  }
 
-    return chunks.map((originalText, index) => ({
-      id: index + 1,
-      originalText
-    }));
+  static async rewriteEpubWithTranslations(
+    bytes: Uint8Array,
+    results: Array<{ block: DocumentBlock; translatedText: string }>
+  ): Promise<Uint8Array> {
+    const entries = this.readZipCentralDirectory(bytes);
+    const replacements = new Map<string, Map<number, string>>();
+
+    results.forEach(result => {
+      if (!result.block.epub || !result.translatedText.trim()) return;
+
+      const entryReplacements = replacements.get(result.block.epub.entryName) || new Map<number, string>();
+      entryReplacements.set(result.block.epub.blockIndex, result.translatedText.trim());
+      replacements.set(result.block.epub.entryName, entryReplacements);
+    });
+
+    const files: ZipFileData[] = [];
+    for (const entry of entries) {
+      let data = await this.readZipEntryData(bytes, entry);
+
+      const entryReplacements = replacements.get(entry.name);
+      if (entryReplacements) {
+        const html = new TextDecoder('utf-8').decode(data);
+        data = new TextEncoder().encode(this.rewriteEpubHtmlBlocks(html, entryReplacements));
+      }
+
+      files.push({ name: entry.name, data });
+    }
+
+    return this.createStoredZip(files);
   }
 
   static extractLayoutBlocksFromPdfBytes(bytes: Uint8Array): DocumentBlock[] {
@@ -679,16 +711,74 @@ export class DocumentTextExtractor {
   }
 
   private static async extractEpubTextBlocksFromBytes(bytes: Uint8Array): Promise<string[]> {
+    return (await this.extractEpubBlocksFromBytes(bytes)).map(block => block.originalText);
+  }
+
+  private static async extractEpubBlocksFromBytes(bytes: Uint8Array): Promise<DocumentBlock[]> {
     const entries = this.readZipCentralDirectory(bytes);
     const contentPaths = await this.getEpubContentPaths(bytes, entries);
-    const blocks: string[] = [];
+    const blocks: DocumentBlock[] = [];
 
     for (const contentPath of contentPaths) {
       const html = await this.readZipTextEntry(bytes, entries, contentPath);
-      if (html) blocks.push(...this.extractHtmlTextBlocks(html));
+      if (html) blocks.push(...this.extractEpubHtmlBlocks(html, contentPath, blocks.length));
     }
 
     return blocks;
+  }
+
+  private static extractEpubHtmlBlocks(html: string, entryName: string, startIndex: number): DocumentBlock[] {
+    return this.extractEpubHtmlBlockRecords(html).map((block, index) => ({
+      id: startIndex + index + 1,
+      originalText: block.text,
+      epub: {
+        entryName,
+        blockIndex: block.blockIndex
+      }
+    }));
+  }
+
+  private static extractEpubHtmlBlockRecords(html: string): Array<{ blockIndex: number; text: string }> {
+    const blockPattern = /<(h[1-6]|p|li|blockquote|figcaption|caption|th|td|dt|dd|pre)\b[^>]*>[\s\S]*?<\/\1>/gi;
+    const records: Array<{ blockIndex: number; text: string }> = [];
+    let blockIndex = 0;
+
+    for (const match of html.matchAll(blockPattern)) {
+      const text = this.extractHtmlFragmentText(match[0]);
+      if (text) records.push({ blockIndex, text });
+      blockIndex++;
+    }
+
+    if (records.length > 0) return records;
+
+    const fallbackText = this.extractHtmlFragmentText(html);
+    return fallbackText ? [{ blockIndex: 0, text: fallbackText }] : [];
+  }
+
+  private static rewriteEpubHtmlBlocks(html: string, replacements: Map<number, string>): string {
+    const blockPattern = /<(h[1-6]|p|li|blockquote|figcaption|caption|th|td|dt|dd|pre)\b[^>]*>[\s\S]*?<\/\1>/gi;
+    let blockIndex = 0;
+    const rewritten = html.replace(blockPattern, block => {
+      const translatedText = replacements.get(blockIndex);
+      blockIndex++;
+
+      if (!translatedText) return block;
+      return this.replaceHtmlElementText(block, translatedText);
+    });
+
+    if (blockIndex > 0) return rewritten;
+
+    const fallbackText = replacements.get(0);
+    return fallbackText ? this.replaceHtmlElementText(html, fallbackText) : html;
+  }
+
+  private static replaceHtmlElementText(element: string, translatedText: string): string {
+    const open = element.match(/^<[^>]+>/)?.[0];
+    const close = element.match(/<\/[^>]+>\s*$/)?.[0];
+    if (!open || !close) return element;
+
+    const escapedText = this.escapeHtmlText(translatedText).replace(/\n/g, '<br/>');
+    return `${open}${escapedText}${close}`;
   }
 
   private static async getEpubContentPaths(bytes: Uint8Array, entries: ZipCentralEntry[]): Promise<string[]> {
@@ -944,8 +1034,22 @@ export class DocumentTextExtractor {
     return name.replace(/\\/g, '/').replace(/^\/+/, '');
   }
 
+  private static extractHtmlFragmentText(html: string): string {
+    const withBreaks = html
+      .replace(/<br\b[^>]*\/?>/gi, '\n')
+      .replace(/<\/(?:p|li|blockquote|figcaption|caption|th|td|dt|dd|pre|h[1-6])>/gi, '\n');
+    const plainText = this.decodeHtmlEntities(withBreaks.replace(/<[^>]+>/g, ' '));
+    return this.normalizeHtmlText(plainText);
+  }
+
   private static decodeXmlEntities(text: string): string {
     return this.decodeHtmlEntities(text);
+  }
+
+  private static escapeHtmlText(text: string): string {
+    return this.escapeXmlText(text)
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   private static escapeXmlText(text: string): string {

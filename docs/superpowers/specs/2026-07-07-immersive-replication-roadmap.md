@@ -41,6 +41,7 @@ Current batch:
 - Structure-preserving translated JSON export from the document translator.
 - DOCX paragraph text and EPUB spine text extraction in the document translator.
 - DOCX translated paragraph export by rewriting text into the original document archive.
+- EPUB translated block export by rewriting readable spine documents into the original book archive.
 - Timing-preserving subtitle file export from the document translator.
 - Manual document entry prompt on detected document URLs.
 - Manual video subtitle translation for pages that expose caption or subtitle text tracks.
@@ -81,10 +82,11 @@ Current batch:
 - Done: support DOCX files by extracting WordprocessingML paragraph text.
 - Done: support EPUB files by extracting readable spine document text.
 - Done: export translated DOCX files by rewriting translated paragraph text into the original document archive.
+- Done: export translated EPUB files by rewriting translated readable blocks into the original book archive.
 - Done: export translated SRT and VTT subtitle files while preserving cue timing.
 - Done: render translated document blocks with bilingual, translation-only, or original-only display.
 - Done: preserve page and coordinate metadata for simple text-based PDF layout blocks.
-- Remaining: EPUB source-document rewrite, full visual PDF rendering, and scanned PDF OCR.
+- Remaining: full visual PDF rendering and scanned PDF OCR.
 
 ### Batch E: Video Subtitle Translation
 
