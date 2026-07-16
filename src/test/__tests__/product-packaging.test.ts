@@ -84,8 +84,9 @@ describe('product packaging contract', () => {
     expect(readme).toContain('Export translated DOCX files');
     expect(readme).toContain('Export translated EPUB files');
     expect(readme).toContain('Export translated `.srt` and `.vtt` subtitle files');
-    expect(readme).toContain('simple text-based `.pdf` files');
-    expect(readme).toContain('Preserve page and coordinate metadata');
+    expect(readme).toContain('Parse and render PDF pages locally with Mozilla PDF.js');
+    expect(readme).toContain('Export translated PDF pages locally as a flattened visual PDF');
+    expect(readme).toContain('Attempt local OCR on image-only PDF pages');
     expect(readme).toContain('separate translation overlays for detected OCR text blocks');
     expect(readme).toContain('without recording audio');
     expect(readme).toContain('100+ target language options');
@@ -93,7 +94,7 @@ describe('product packaging contract', () => {
     expect(readme).toContain('API keys in local Chrome storage only');
     expect(readme).toContain('CET4, CET6, GRE, IELTS, TOEFL');
     expect(readme).not.toMatch(/automatic audio transcription|records calls|joins calls automatically/i);
-    expect(readme).toContain('not marketed as a full scanned-PDF OCR translator');
+    expect(readme).toContain('not marketed as guaranteed OCR for every scanned PDF');
 
     const privacy = readProjectFile('PRIVACY.md');
     expect(privacy).toContain('No default telemetry');
@@ -136,7 +137,7 @@ describe('product packaging contract', () => {
     expect(listing).toContain('Selection translation tooltip');
     expect(listing).toContain('Control-hover paragraph translation');
     expect(listing).toContain('Input box translation');
-    expect(listing).toContain('Text-based document translator');
+    expect(listing).toContain('Document translator');
     expect(listing).toContain('HTML files');
     expect(listing).toContain('JSON string values');
     expect(listing).toContain('structure-preserving export');
@@ -145,7 +146,8 @@ describe('product packaging contract', () => {
     expect(listing).toContain('EPUB spine documents');
     expect(listing).toContain('subtitle files with timing-preserving export');
     expect(listing).toContain('skipping scripts, styles, and markup');
-    expect(listing).toContain('layout block metadata');
+    expect(listing).toContain('local PDF.js rendering');
+    expect(listing).toContain('flattened translated-PDF export');
     expect(listing).toContain('Video subtitle translation');
     expect(listing).toContain('common DOM-rendered captions');
     expect(listing).toContain('SRT export for translated cues from the current session');
@@ -182,7 +184,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-08');
-    expect(releaseNotes).toContain('39 test suites and 274 tests');
+    expect(releaseNotes).toContain('40 test suites and 282 tests');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -202,6 +204,8 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('EPUB sample');
     expect(screenshotGuide).toContain('Export EPUB');
     expect(screenshotGuide).toContain('Export subtitles');
+    expect(screenshotGuide).toContain('Export PDF');
+    expect(screenshotGuide).toContain('original and translated rendered pages');
     expect(screenshotGuide).toContain('Video Subtitles');
     expect(screenshotGuide).toContain('Export SRT');
     expect(screenshotGuide).toContain('Live Captions');
@@ -237,6 +241,9 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('DOCX translated paragraph export');
     expect(roadmap).toContain('EPUB translated block export');
     expect(roadmap).toContain('Timing-preserving subtitle file export');
+    expect(roadmap).toContain('bundled Mozilla PDF.js');
+    expect(roadmap).toContain('flattened visual PDF');
+    expect(roadmap).toContain('browser `TextDetector`');
     expect(roadmap).toContain('Video subtitle translation');
     expect(roadmap).toContain('DOM-rendered video caption adapters');
     expect(roadmap).toContain('SRT export for translated subtitle cues');
@@ -249,5 +256,21 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('Translate visible images');
     expect(roadmap).toContain('Multiple translation engines');
     expect(roadmap).toContain('Do not auto-translate a page on load');
+  });
+
+  it('packages the local PDF runtime and document-page controls', () => {
+    const packageJson = JSON.parse(readProjectFile('package.json'));
+    const webpackConfig = readProjectFile('webpack.config.js');
+    const documentHtml = readProjectFile('src/options/document.html');
+
+    expect(packageJson.dependencies).toEqual(expect.objectContaining({
+      'pdf-lib': expect.any(String),
+      'pdfjs-dist': expect.any(String)
+    }));
+    expect(webpackConfig).toContain('pdf.worker.min.js');
+    expect(webpackConfig).toContain("path.join(pdfjsRoot, 'cmaps')");
+    expect(webpackConfig).toContain("path.join(pdfjsRoot, 'standard_fonts')");
+    expect(documentHtml).toContain('id="pdfViewer"');
+    expect(documentHtml).toContain('id="exportPdfFile"');
   });
 });

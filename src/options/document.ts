@@ -1,4 +1,10 @@
 import { DocumentBlock, DocumentTextExtractor } from '../services/DocumentTextExtractor';
+import {
+  PdfDocumentAnalysis,
+  PdfDocumentSession,
+  PdfPageSummary,
+  pdfDocumentService
+} from '../services/PdfDocumentService';
 import { AVAILABLE_TRANSLATION_PROVIDERS, TRANSLATION_LANGUAGES } from '../services/TranslationProviderRegistry';
 
 type DisplayMode = 'bilingual' | 'translation-only' | 'original-only';
@@ -14,6 +20,16 @@ interface UserSettings {
   pageTranslationDisplayMode?: DisplayMode;
 }
 
+interface PdfPageView {
+  summary: PdfPageSummary;
+  row: HTMLElement;
+  originalPanel: HTMLElement;
+  translatedPanel: HTMLElement;
+  originalCanvas: HTMLCanvasElement;
+  translatedCanvas: HTMLCanvasElement;
+  translationLayer: HTMLElement;
+}
+
 class DocumentTranslatorController {
   private sourceText: HTMLTextAreaElement | null = null;
   private fileInput: HTMLInputElement | null = null;
@@ -22,6 +38,7 @@ class DocumentTranslatorController {
   private exportJsonButton: HTMLButtonElement | null = null;
   private exportDocxButton: HTMLButtonElement | null = null;
   private exportEpubButton: HTMLButtonElement | null = null;
+  private exportPdfButton: HTMLButtonElement | null = null;
   private clearButton: HTMLButtonElement | null = null;
   private targetLanguage: HTMLSelectElement | null = null;
   private translationProvider: HTMLSelectElement | null = null;
@@ -30,12 +47,16 @@ class DocumentTranslatorController {
   private progressBar: HTMLElement | null = null;
   private progressText: HTMLElement | null = null;
   private resultsContainer: HTMLElement | null = null;
+  private pdfViewer: HTMLElement | null = null;
   private loadedDocumentBlocks: DocumentBlock[] | null = null;
   private loadedSourceText = '';
   private loadedRawFileText = '';
   private loadedRawFileBytes: Uint8Array | null = null;
   private loadedFileName = '';
   private currentResults: TranslationResult[] = [];
+  private pdfSession: PdfDocumentSession | null = null;
+  private pdfAnalysis: PdfDocumentAnalysis | null = null;
+  private readonly pdfPageViews = new Map<number, PdfPageView>();
 
   constructor() {
     this.initialize();
@@ -49,6 +70,7 @@ class DocumentTranslatorController {
     this.exportJsonButton = document.getElementById('exportJsonFile') as HTMLButtonElement | null;
     this.exportDocxButton = document.getElementById('exportDocxFile') as HTMLButtonElement | null;
     this.exportEpubButton = document.getElementById('exportEpubFile') as HTMLButtonElement | null;
+    this.exportPdfButton = document.getElementById('exportPdfFile') as HTMLButtonElement | null;
     this.clearButton = document.getElementById('clearDocument') as HTMLButtonElement | null;
     this.targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement | null;
     this.translationProvider = document.getElementById('translationProvider') as HTMLSelectElement | null;
@@ -57,6 +79,7 @@ class DocumentTranslatorController {
     this.progressBar = document.getElementById('progressBar');
     this.progressText = document.getElementById('progressText');
     this.resultsContainer = document.getElementById('translationResults');
+    this.pdfViewer = document.getElementById('pdfViewer');
 
     this.populateControls();
     await this.loadSettings();
@@ -127,6 +150,7 @@ class DocumentTranslatorController {
     this.exportJsonButton?.addEventListener('click', () => this.exportTranslatedJson());
     this.exportDocxButton?.addEventListener('click', () => void this.exportTranslatedDocx());
     this.exportEpubButton?.addEventListener('click', () => void this.exportTranslatedEpub());
+    this.exportPdfButton?.addEventListener('click', () => void this.exportTranslatedPdf());
     this.clearButton?.addEventListener('click', () => this.clearDocument());
     this.displayMode?.addEventListener('change', () => this.applyDisplayMode());
 
@@ -140,29 +164,57 @@ class DocumentTranslatorController {
 
     try {
       this.setBusy(true);
+      await this.disposePdfSession();
       const isJsonDocument = this.isJsonDocumentFile(file);
       const isDocxDocument = this.isDocxDocumentFile(file);
       const isEpubDocument = this.isEpubDocumentFile(file);
+      const isPdfDocument = this.isPdfDocumentFile(file);
       const rawText = isJsonDocument ? await file.text() : '';
-      const rawBytes = isDocxDocument || isEpubDocument ? new Uint8Array(await file.arrayBuffer()) : null;
-      const blocks = isJsonDocument
-        ? DocumentTextExtractor.extractBlocksFromJson(rawText)
-        : isDocxDocument
-          ? await DocumentTextExtractor.extractBlocksFromDocxBytes(rawBytes!)
-        : isEpubDocument
-          ? await DocumentTextExtractor.extractBlocksFromEpubBytes(rawBytes!)
-        : await DocumentTextExtractor.extractBlocksFromFile(file);
+      const rawBytes = isDocxDocument || isEpubDocument || isPdfDocument
+        ? new Uint8Array(await file.arrayBuffer())
+        : null;
+      let blocks: DocumentBlock[];
+      let usedPdfFallback = false;
+
+      if (isPdfDocument && rawBytes) {
+        try {
+          this.pdfSession = await pdfDocumentService.open(rawBytes);
+          this.pdfAnalysis = await this.pdfSession.analyze();
+          blocks = this.pdfAnalysis.blocks;
+          await this.renderPdfPreview();
+        } catch {
+          await this.disposePdfSession();
+          blocks = await DocumentTextExtractor.extractBlocksFromFile(file);
+          usedPdfFallback = true;
+        }
+      } else if (isJsonDocument) {
+        blocks = DocumentTextExtractor.extractBlocksFromJson(rawText);
+      } else if (isDocxDocument) {
+        blocks = await DocumentTextExtractor.extractBlocksFromDocxBytes(rawBytes!);
+      } else if (isEpubDocument) {
+        blocks = await DocumentTextExtractor.extractBlocksFromEpubBytes(rawBytes!);
+      } else {
+        blocks = await DocumentTextExtractor.extractBlocksFromFile(file);
+      }
+
       const text = blocks.map(block => block.originalText).join('\n\n');
 
       if (!text.trim()) {
-        this.loadedDocumentBlocks = null;
+        this.loadedDocumentBlocks = blocks;
         this.loadedSourceText = '';
         this.loadedRawFileText = '';
-        this.loadedRawFileBytes = null;
-        this.loadedFileName = '';
+        this.loadedRawFileBytes = rawBytes;
+        this.loadedFileName = file.name;
         this.currentResults = [];
+        this.sourceText.value = '';
+        this.renderResults([]);
         this.updateExportButtons();
-        this.showMessage('No selectable text was found. Scanned PDFs and image-only documents need OCR in a later batch.', 'error');
+        this.showMessage(
+          this.pdfAnalysis
+            ? this.createPdfLoadedMessage(file.name, this.pdfAnalysis)
+            : 'No selectable text was found in this document.',
+          'error'
+        );
         return;
       }
 
@@ -174,7 +226,11 @@ class DocumentTranslatorController {
       this.currentResults = [];
       this.sourceText.value = text;
       const hasLayout = blocks.some(block => block.layout);
-      this.showMessage(`${file.name} loaded${hasLayout ? ' with PDF layout blocks' : ''}`);
+      this.showMessage(
+        this.pdfAnalysis
+          ? this.createPdfLoadedMessage(file.name, this.pdfAnalysis)
+          : `${file.name} loaded${hasLayout ? ` with PDF layout blocks${usedPdfFallback ? ' (compatibility mode)' : ''}` : ''}`
+      );
       this.updateProgress(0, 0);
       this.renderResults([]);
       this.updateExportButtons();
@@ -201,6 +257,7 @@ class DocumentTranslatorController {
     const results: TranslationResult[] = [];
     this.currentResults = results;
     this.renderResults(results);
+    this.renderPdfTranslationOverlays();
     this.updateExportButtons();
     this.setBusy(true);
     this.updateProgress(0, blocks.length);
@@ -212,6 +269,7 @@ class DocumentTranslatorController {
         results.push({ block, translatedText });
         this.currentResults = results;
         this.renderResults(results);
+        this.renderPdfTranslationOverlays();
         this.updateExportButtons();
         this.updateProgress(results.length, blocks.length);
       }
@@ -349,6 +407,26 @@ class DocumentTranslatorController {
     }
   }
 
+  private async exportTranslatedPdf(): Promise<void> {
+    const pdfResults = this.currentResults.filter(result => result.block.layout && result.translatedText.trim());
+    if (!this.pdfSession || pdfResults.length === 0) {
+      this.showMessage('Translate a PDF before exporting.', 'error');
+      return;
+    }
+
+    try {
+      this.setBusy(true);
+      this.showMessage('Rendering translated PDF pages');
+      const content = await this.pdfSession.exportTranslatedPdf(pdfResults);
+      this.downloadBinaryFile(content, this.createPdfExportFilename(), 'application/pdf');
+      this.showMessage(`Exported translated PDF with ${pdfResults.length} positioned blocks`);
+    } catch (error) {
+      this.showMessage(error instanceof Error ? error.message : 'Could not export translated PDF.', 'error');
+    } finally {
+      this.setBusy(false);
+    }
+  }
+
   private renderTranslatedSubtitleFile(results: TranslationResult[], format: 'srt' | 'vtt'): string {
     const cues = results.map((result, index) => {
       const cue = result.block.subtitle!;
@@ -422,6 +500,167 @@ class DocumentTranslatorController {
     return `${baseName}.translated.epub`;
   }
 
+  private createPdfExportFilename(): string {
+    const baseName = (this.loadedFileName || 'translated-document')
+      .replace(/\.[^.]+$/, '')
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 80) || 'translated-document';
+
+    return `${baseName}.translated.pdf`;
+  }
+
+  private async renderPdfPreview(): Promise<void> {
+    if (!this.pdfViewer || !this.pdfSession || !this.pdfAnalysis) return;
+
+    this.pdfViewer.replaceChildren();
+    this.pdfPageViews.clear();
+    this.pdfViewer.hidden = false;
+
+    for (const summary of this.pdfAnalysis.pages) {
+      const row = document.createElement('article');
+      row.className = 'pdf-page-row';
+      row.dataset['page'] = String(summary.pageNumber);
+
+      const originalPanel = this.createPdfPagePanel(`Page ${summary.pageNumber} original`);
+      const translatedPanel = this.createPdfPagePanel(`Page ${summary.pageNumber} translated`);
+      const originalCanvas = originalPanel.querySelector('canvas') as HTMLCanvasElement;
+      const translatedCanvas = translatedPanel.querySelector('canvas') as HTMLCanvasElement;
+      const translationLayer = translatedPanel.querySelector('.pdf-translation-layer') as HTMLElement;
+
+      row.append(originalPanel, translatedPanel);
+      this.pdfViewer.appendChild(row);
+      await this.pdfSession.renderPage(summary.pageNumber, originalCanvas);
+      translatedCanvas.width = originalCanvas.width;
+      translatedCanvas.height = originalCanvas.height;
+      if (typeof CanvasRenderingContext2D !== 'undefined') {
+        const translatedContext = translatedCanvas.getContext('2d', { alpha: false });
+        translatedContext?.drawImage(originalCanvas, 0, 0);
+      } else {
+        await this.pdfSession.renderPage(summary.pageNumber, translatedCanvas);
+      }
+
+      this.pdfPageViews.set(summary.pageNumber, {
+        summary,
+        row,
+        originalPanel,
+        translatedPanel,
+        originalCanvas,
+        translatedCanvas,
+        translationLayer
+      });
+    }
+
+    this.renderPdfTranslationOverlays();
+    this.applyDisplayMode();
+  }
+
+  private createPdfPagePanel(labelText: string): HTMLElement {
+    const panel = document.createElement('section');
+    panel.className = 'pdf-page-panel';
+
+    const label = document.createElement('span');
+    label.className = 'pdf-page-label';
+    label.textContent = labelText;
+
+    const surface = document.createElement('div');
+    surface.className = 'pdf-page-surface';
+    const canvas = document.createElement('canvas');
+    const translationLayer = document.createElement('div');
+    translationLayer.className = 'pdf-translation-layer';
+    surface.append(canvas, translationLayer);
+    panel.append(label, surface);
+    return panel;
+  }
+
+  private renderPdfTranslationOverlays(): void {
+    for (const view of this.pdfPageViews.values()) {
+      view.translationLayer.replaceChildren();
+      const pageResults = this.currentResults.filter(result => (
+        result.block.layout?.pageNumber === view.summary.pageNumber
+        && result.translatedText.trim()
+      ));
+
+      for (const result of pageResults) {
+        const layout = result.block.layout!;
+        const pageWidth = layout.pageWidth || view.summary.width;
+        const pageHeight = layout.pageHeight || view.summary.height;
+        const left = Math.max(0, Math.min(99, (layout.x / pageWidth) * 100));
+        const top = Math.max(0, Math.min(99, (layout.y / pageHeight) * 100));
+        const sourceWidth = Math.max(4, (layout.width / pageWidth) * 100);
+        const width = Math.min(100 - left, Math.max(sourceWidth, Math.min(52, 100 - left)));
+        const minimumHeight = Math.max(1.4, (layout.height / pageHeight) * 100);
+        const overlay = document.createElement('div');
+        overlay.className = 'pdf-translation-overlay';
+        overlay.dataset['source'] = layout.source;
+        overlay.textContent = result.translatedText.trim();
+        overlay.style.left = `${left}%`;
+        if (top > 86) {
+          overlay.style.top = `${Math.min(99, top + minimumHeight)}%`;
+          overlay.style.transform = 'translateY(-100%)';
+        } else {
+          overlay.style.top = `${top}%`;
+        }
+        overlay.style.width = `${width}%`;
+        overlay.style.minHeight = `${minimumHeight}%`;
+        view.translationLayer.appendChild(overlay);
+      }
+    }
+
+    this.applyPdfDisplayMode();
+  }
+
+  private createPdfLoadedMessage(fileName: string, analysis: PdfDocumentAnalysis): string {
+    const parts = [
+      `${fileName} loaded`,
+      `${analysis.pages.length} page${analysis.pages.length === 1 ? '' : 's'}`,
+      `${analysis.blocks.length} positioned block${analysis.blocks.length === 1 ? '' : 's'}`
+    ];
+    if (analysis.ocrPageCount > 0) {
+      parts.push(`${analysis.ocrPageCount} OCR page${analysis.ocrPageCount === 1 ? '' : 's'}`);
+    }
+    if (analysis.unreadablePageCount > 0) {
+      parts.push(
+        `${analysis.unreadablePageCount} page${analysis.unreadablePageCount === 1 ? '' : 's'} without detected text`
+      );
+    }
+    return parts.join(', ');
+  }
+
+  private applyPdfDisplayMode(): void {
+    const mode = (this.displayMode?.value || 'bilingual') as DisplayMode;
+
+    for (const view of this.pdfPageViews.values()) {
+      const hasTranslations = view.translationLayer.childElementCount > 0;
+      const showOriginal = mode !== 'translation-only';
+      const showTranslated = mode !== 'original-only' && (mode === 'translation-only' || hasTranslations);
+      view.originalPanel.style.display = showOriginal ? 'block' : 'none';
+      view.translatedPanel.style.display = showTranslated ? 'block' : 'none';
+      view.row.classList.toggle('pdf-page-row--single', !showOriginal || !showTranslated);
+    }
+  }
+
+  private async disposePdfSession(): Promise<void> {
+    const session = this.pdfSession;
+    this.pdfSession = null;
+    this.pdfAnalysis = null;
+    this.pdfPageViews.clear();
+    if (this.pdfViewer) {
+      this.pdfViewer.replaceChildren();
+      this.pdfViewer.hidden = true;
+    }
+
+    if (session) {
+      try {
+        await session.destroy();
+      } catch {
+        // The document UI is already cleared even if PDF.js cleanup fails.
+      }
+    }
+  }
+
   private applyDisplayMode(): void {
     const mode = (this.displayMode?.value || 'bilingual') as DisplayMode;
     const originals = document.querySelectorAll<HTMLElement>('.document-original');
@@ -437,6 +676,8 @@ class DocumentTranslatorController {
       translation.style.paddingTop = mode === 'translation-only' ? '0' : '8px';
       translation.style.borderTop = mode === 'translation-only' ? 'none' : '1px solid #e5ebf4';
     });
+
+    this.applyPdfDisplayMode();
   }
 
   private getCurrentDocumentBlocks(text: string): DocumentBlock[] {
@@ -459,6 +700,7 @@ class DocumentTranslatorController {
   }
 
   private clearDocument(): void {
+    void this.disposePdfSession();
     if (this.sourceText) this.sourceText.value = '';
     if (this.fileInput) this.fileInput.value = '';
     this.loadedDocumentBlocks = null;
@@ -489,6 +731,7 @@ class DocumentTranslatorController {
     this.updateJsonExportButton(isBusy);
     this.updateDocxExportButton(isBusy);
     this.updateEpubExportButton(isBusy);
+    this.updatePdfExportButton(isBusy);
   }
 
   private updateSubtitleExportButton(isBusy: boolean = false): void {
@@ -519,6 +762,13 @@ class DocumentTranslatorController {
     this.exportEpubButton.disabled = isBusy || !this.loadedRawFileBytes || !hasTranslatedEpub;
   }
 
+  private updatePdfExportButton(isBusy: boolean = false): void {
+    if (!this.exportPdfButton) return;
+
+    const hasTranslatedPdf = this.currentResults.some(result => result.block.layout && result.translatedText.trim());
+    this.exportPdfButton.disabled = isBusy || !this.pdfSession || !hasTranslatedPdf;
+  }
+
   private isJsonDocumentFile(file: File): boolean {
     return file.type === 'application/json' ||
       file.type === 'text/json' ||
@@ -533,6 +783,10 @@ class DocumentTranslatorController {
   private isEpubDocumentFile(file: File): boolean {
     return file.type === 'application/epub+zip' ||
       file.name.toLowerCase().endsWith('.epub');
+  }
+
+  private isPdfDocumentFile(file: File): boolean {
+    return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
   }
 
   private showMessage(message: string, type: 'info' | 'error' = 'info'): void {
@@ -577,4 +831,4 @@ class DocumentTranslatorController {
 
 document.addEventListener('DOMContentLoaded', () => {
   new DocumentTranslatorController();
-});
+}, { once: true });

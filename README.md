@@ -11,7 +11,7 @@ LexiBridge is built around one idea: translate while you read, then review what 
 It is best for:
 
 - Reading English web pages, technical articles, documentation, and study material.
-- Translating pasted or uploaded text documents, HTML files, JSON files, DOCX files, EPUB files, subtitle files, and simple text-based PDFs.
+- Translating pasted or uploaded text documents, HTML files, JSON files, DOCX files, EPUB files, subtitle files, and PDFs with local page rendering.
 - Translating video captions when the page exposes subtitle/caption tracks or common DOM-rendered captions.
 - Translating and locally exporting live caption text that is already visible in a page.
 - Translating text from selected or currently visible images, SVGs, and canvases when readable text or browser OCR is available.
@@ -19,7 +19,7 @@ It is best for:
 - Reviewing CET4, CET6, GRE, IELTS, TOEFL vocabulary.
 - Keeping a local-first vocabulary notebook with Chrome storage sync support.
 
-It is not marketed as a full scanned-PDF OCR translator, layout-perfect Office/eBook converter, automatic whole-page image reader, audio transcription service, or meeting bot that records or joins calls.
+It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-perfect Office/eBook converter, an automatic whole-page image reader, an audio transcription service, or a meeting bot that records or joins calls.
 
 ## Core Features
 
@@ -53,7 +53,7 @@ It is not marketed as a full scanned-PDF OCR translator, layout-perfect Office/e
 ### Document Translation
 
 - Open the document translator from the popup or from detected document URLs.
-- Paste text or upload `.txt`, `.md`, `.html`, `.htm`, `.json`, `.docx`, `.epub`, `.srt`, `.vtt`, or simple text-based `.pdf` files.
+- Paste text or upload `.txt`, `.md`, `.html`, `.htm`, `.json`, `.docx`, `.epub`, `.srt`, `.vtt`, or `.pdf` files.
 - Translate document blocks manually with bilingual, translation-only, or original-only display.
 - Extract readable HTML body blocks while skipping scripts, styles, and markup.
 - Extract readable string values from JSON files.
@@ -62,8 +62,11 @@ It is not marketed as a full scanned-PDF OCR translator, layout-perfect Office/e
 - Export translated DOCX files by writing translated paragraph text back into the original document archive.
 - Export translated EPUB files by writing translated readable blocks back into the original book archive.
 - Export translated `.srt` and `.vtt` subtitle files with their original timing preserved.
-- Preserve page and coordinate metadata for simple text-based PDF layout blocks.
-- Scanned PDFs, full PDF visual rendering, and full layout-perfect Office/eBook conversion are planned for later OCR/document layout batches.
+- Parse and render PDF pages locally with Mozilla PDF.js, including compressed text streams, font mappings, page sizes, and positioned text lines.
+- Show original and translated PDF pages side by side, or switch to translation-only or original-only display.
+- Attempt local OCR on image-only PDF pages when the browser provides `TextDetector`, retaining detected bounding boxes for positioned translations.
+- Export translated PDF pages locally as a flattened visual PDF so browser fonts and the rendered source page remain visible.
+- Browser OCR availability and recognition quality vary. Editable text reflow, form/annotation editing, and layout-perfect Office/eBook conversion remain later work.
 
 ### Video Subtitle Translation
 
@@ -207,6 +210,13 @@ In Main content scope, LexiBridge prefers semantic `article`, `main`, and `[role
 2. Choose an `.epub` file.
 3. Click Translate document.
 4. Click Export EPUB to download a translated EPUB file with readable blocks rewritten.
+
+### Translate PDF Files
+
+1. Open the document translator and choose a `.pdf` file.
+2. Review the locally rendered pages and any reported OCR limitations before clicking Translate document.
+3. Choose bilingual, translation-only, or original-only display for the page preview.
+4. Click Export PDF to download flattened translated page images as a new PDF.
 
 ### Translate Live Captions
 

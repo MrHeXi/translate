@@ -14,7 +14,9 @@ export interface DocumentBlockLayout {
   y: number;
   width: number;
   height: number;
-  source: 'pdf-text' | 'plain-text' | 'subtitle' | 'html' | 'json';
+  pageWidth?: number;
+  pageHeight?: number;
+  source: 'pdf-text' | 'pdf-ocr' | 'plain-text' | 'subtitle' | 'html' | 'json';
 }
 
 export interface DocumentSubtitleCue {

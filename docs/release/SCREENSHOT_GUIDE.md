@@ -72,7 +72,8 @@ Capture the document translator page with:
 - For a DOCX sample, extracted readable text blocks visible with the Export DOCX control after translation, without implying full layout-perfect Office conversion.
 - For an EPUB sample, extracted readable text blocks visible with the Export EPUB control after translation, without implying full layout-perfect eBook conversion.
 - For a subtitle sample, translated cues visible with the Export subtitles control after translation.
-- For a text-based PDF sample, page and coordinate metadata visible on translated blocks.
+- For a standards-compliant PDF sample, original and translated rendered pages visible side by side with the Export PDF control enabled after translation.
+- If showing an image-only PDF, state that OCR uses local browser `TextDetector` support and do not imply guaranteed recognition on every browser or scan.
 
 ### Video Subtitles
 
@@ -136,7 +137,7 @@ Capture the options page with:
 - Any claim that translation starts automatically.
 - Private intranet domains or personal site-rule entries.
 - Unsupported feature claims beyond web page translation, text-based document translation, selected-text translation, vocabulary collection, review, import/export, and Chrome storage sync.
-- Claims for full scanned PDF OCR, automatic manga segmentation, or layout-preserving PDF translation.
+- Claims for guaranteed scanned PDF OCR, editable PDF text reflow, or automatic manga segmentation. Exported translated PDFs are flattened visual pages.
 - Claims for layout-perfect Office/eBook conversion.
 - Claims for audio transcription, automatic subtitle generation, meeting bots, or guaranteed support for every video site.
 - Console errors, developer tools, or local file explorer windows.

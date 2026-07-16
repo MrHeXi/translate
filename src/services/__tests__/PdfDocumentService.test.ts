@@ -1,0 +1,243 @@
+import {
+  PdfDocumentService,
+  PdfEngineAdapter,
+  PdfOcrDetector,
+  PdfOcrDetectorFactory
+} from '../PdfDocumentService';
+import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { ReadableStream } from 'stream/web';
+
+Object.assign(globalThis, { ReadableStream });
+
+interface FakeTextItem {
+  str: string;
+  transform: number[];
+  width: number;
+  height: number;
+  hasEOL?: boolean;
+}
+
+const createEngine = (
+  pages: Array<{
+    width?: number;
+    height?: number;
+    items: FakeTextItem[];
+    render?: jest.Mock;
+  }>
+): { engine: PdfEngineAdapter; destroy: jest.Mock } => {
+  const destroy = jest.fn(async () => undefined);
+  const pdfDocument = {
+    numPages: pages.length,
+    getPage: jest.fn(async (pageNumber: number) => {
+      const page = pages[pageNumber - 1]!;
+      return {
+        getViewport: ({ scale }: { scale: number }) => ({
+          width: (page.width || 600) * scale,
+          height: (page.height || 800) * scale,
+          transform: [scale, 0, 0, -scale, 0, (page.height || 800) * scale]
+        }),
+        getTextContent: jest.fn(async () => ({ items: page.items })),
+        render: page.render || jest.fn(() => ({ promise: Promise.resolve() }))
+      };
+    }),
+    destroy
+  };
+
+  return {
+    engine: {
+      getDocument: jest.fn(() => ({ promise: Promise.resolve(pdfDocument) })),
+      transform: (viewport, item) => [
+        item[0] || 1,
+        item[1] || 0,
+        item[2] || 0,
+        -(item[3] || 12),
+        (item[4] || 0) * (viewport[0] || 1),
+        (viewport[5] || 0) - (item[5] || 0) * Math.abs(viewport[3] || 1)
+      ]
+    },
+    destroy
+  };
+};
+
+describe('PdfDocumentService', () => {
+  it('parses a generated standards-compliant PDF with the bundled PDF.js engine', async () => {
+    const source = await PDFDocument.create();
+    const font = await source.embedFont(StandardFonts.Helvetica);
+    const page = source.addPage([600, 800]);
+    page.drawText('Real PDF.js integration text', { x: 72, y: 720, size: 18, font });
+    const bytes = new Uint8Array(await source.save());
+    const service = new PdfDocumentService();
+    const session = await service.open(bytes);
+
+    try {
+      const analysis = await session.analyze();
+      expect(analysis.pages).toHaveLength(1);
+      expect(analysis.blocks.map(block => block.originalText).join(' ')).toContain(
+        'Real PDF.js integration text'
+      );
+      expect(analysis.blocks[0]?.layout).toEqual(expect.objectContaining({
+        pageNumber: 1,
+        pageWidth: 600,
+        pageHeight: 800,
+        source: 'pdf-text'
+      }));
+    } finally {
+      await session.destroy();
+    }
+  });
+
+  it('extracts real PDF text items into positioned page lines', async () => {
+    const { engine, destroy } = createEngine([
+      {
+        items: [
+          { str: 'Hello', transform: [1, 0, 0, 12, 72, 720], width: 28, height: 12 },
+          { str: 'world', transform: [1, 0, 0, 12, 106, 720], width: 30, height: 12, hasEOL: true },
+          { str: 'Second line', transform: [1, 0, 0, 12, 72, 690], width: 64, height: 12, hasEOL: true }
+        ]
+      }
+    ]);
+    const service = new PdfDocumentService(engine, () => null);
+    const session = await service.open(new Uint8Array([1, 2, 3]));
+    const analysis = await session.analyze();
+
+    expect(analysis.blocks.map(block => block.originalText)).toEqual([
+      'Hello world',
+      'Second line'
+    ]);
+    expect(analysis.blocks[0]?.layout).toEqual(expect.objectContaining({
+      pageNumber: 1,
+      x: 72,
+      y: 68,
+      pageWidth: 600,
+      pageHeight: 800,
+      source: 'pdf-text'
+    }));
+    expect(analysis.pages).toEqual([
+      {
+        pageNumber: 1,
+        width: 600,
+        height: 800,
+        blockCount: 2,
+        source: 'text'
+      }
+    ]);
+    expect(analysis.ocrPageCount).toBe(0);
+    expect(analysis.unreadablePageCount).toBe(0);
+
+    await session.destroy();
+    expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses browser OCR for image-only PDF pages and keeps bounding boxes', async () => {
+    const render = jest.fn(() => ({ promise: Promise.resolve() }));
+    const { engine } = createEngine([{ items: [], render }]);
+    const detector: PdfOcrDetector = {
+      detect: jest.fn(async () => [
+        {
+          rawValue: 'Scanned heading',
+          boundingBox: { x: 40, y: 60, width: 240, height: 44 }
+        }
+      ])
+    };
+    const detectorFactory: PdfOcrDetectorFactory = () => detector;
+    const context = {} as CanvasRenderingContext2D;
+    const contextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(context);
+
+    try {
+      const service = new PdfDocumentService(engine, detectorFactory);
+      const session = await service.open(new Uint8Array([4, 5, 6]));
+      const analysis = await session.analyze();
+
+      expect(render).toHaveBeenCalledTimes(1);
+      expect(detector.detect).toHaveBeenCalledWith(expect.any(HTMLCanvasElement));
+      expect(analysis.ocrPageCount).toBe(1);
+      expect(analysis.unreadablePageCount).toBe(0);
+      expect(analysis.blocks).toEqual([
+        expect.objectContaining({
+          id: 1,
+          originalText: 'Scanned heading',
+          layout: expect.objectContaining({
+            x: 20,
+            y: 30,
+            width: 120,
+            height: 22,
+            source: 'pdf-ocr'
+          })
+        })
+      ]);
+    } finally {
+      contextSpy.mockRestore();
+    }
+  });
+
+  it('exports rendered translated pages as a valid flattened PDF', async () => {
+    const { engine } = createEngine([
+      {
+        items: [
+          { str: 'Source line', transform: [1, 0, 0, 12, 72, 5], width: 64, height: 12, hasEOL: true }
+        ]
+      }
+    ]);
+    const context = {
+      save: jest.fn(),
+      restore: jest.fn(),
+      fillRect: jest.fn(),
+      fillText: jest.fn(),
+      measureText: jest.fn((text: string) => ({ width: text.length * 6 })),
+      fillStyle: '',
+      font: '',
+      textBaseline: 'top'
+    } as unknown as CanvasRenderingContext2D;
+    const contextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(context);
+    const dataUrlSpy = jest.spyOn(HTMLCanvasElement.prototype, 'toDataURL')
+      .mockReturnValue(
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII='
+      );
+
+    try {
+      const service = new PdfDocumentService(engine, () => null);
+      const session = await service.open(new Uint8Array([8, 9]));
+      const analysis = await session.analyze();
+      const bytes = await session.exportTranslatedPdf([
+        { block: analysis.blocks[0]!, translatedText: 'Translated source line' }
+      ]);
+      const reopened = await PDFDocument.load(bytes);
+
+      expect(reopened.getPageCount()).toBe(1);
+      expect(String.fromCharCode(...bytes.slice(0, 4))).toBe('%PDF');
+      expect(context.fillRect).toHaveBeenCalled();
+      expect(context.fillText).toHaveBeenCalledWith(
+        'Translated source line',
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number)
+      );
+      const drawnY = (context.fillText as jest.Mock).mock.calls[0]?.[2] as number;
+      expect(drawnY).toBeLessThan(analysis.blocks[0]!.layout!.y * 1.6);
+    } finally {
+      contextSpy.mockRestore();
+      dataUrlSpy.mockRestore();
+    }
+  });
+
+  it('reports pages that contain neither a text layer nor available OCR', async () => {
+    const { engine } = createEngine([{ items: [] }, { items: [] }]);
+    const service = new PdfDocumentService(engine, () => null);
+    const session = await service.open(new Uint8Array([7]));
+    const analysis = await session.analyze();
+
+    expect(analysis.blocks).toEqual([]);
+    expect(analysis.pages.map(page => page.source)).toEqual(['none', 'none']);
+    expect(analysis.unreadablePageCount).toBe(2);
+  });
+
+  it('rejects empty PDF input before creating a PDF.js task', async () => {
+    const { engine } = createEngine([]);
+    const service = new PdfDocumentService(engine, () => null);
+
+    await expect(service.open(new Uint8Array())).rejects.toThrow('empty');
+    expect(engine.getDocument).not.toHaveBeenCalled();
+  });
+});

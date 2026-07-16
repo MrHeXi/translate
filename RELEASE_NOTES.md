@@ -17,7 +17,7 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Selected-text translation tooltip with vocabulary collection actions.
 - Control-hover paragraph translation for on-demand reading help.
 - Input box translation by typing three trailing spaces.
-- Text-based document translator for pasted text, text files, HTML files, JSON string values with structure-preserving export, DOCX paragraph text and EPUB spine documents with translated source-file export, subtitle files with timing-preserving export, and simple PDFs, including page/coordinate metadata for simple text-based PDF blocks.
+- Document translator for pasted text, text files, HTML, JSON, DOCX, EPUB, subtitle files, and PDFs, with bundled PDF.js page rendering, positioned text extraction, local browser OCR fallback for image-only pages, side-by-side original/translated previews, and flattened translated-PDF export.
 - Video subtitle translation for pages that expose caption/subtitle text tracks or common DOM-rendered caption containers.
 - SRT export for translated video subtitle cues from the current session.
 - Live caption translation for caption text already visible in the page DOM, with Google Meet, Zoom, Microsoft Teams, and Webex-style speaker label handling.
@@ -38,14 +38,15 @@ Verified on 2026-07-16:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 39 test suites and 274 tests.
+- `jest --runInBand --silent`: passed, 40 test suites and 282 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 
 Expected build warnings:
 
 - Built-in vocabulary JSON files exceed the default webpack asset-size recommendation.
-- The warning is accepted for this release because the dictionaries are bundled product data.
+- The PDF.js document bundle and worker also exceed the recommendation because PDF parsing, rendering, fonts, and character maps are shipped locally instead of loaded from a CDN.
+- These warnings are accepted because the dictionaries and PDF runtime are bundled product data.
 
 ### Local Install Package
 

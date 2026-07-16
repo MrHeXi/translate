@@ -93,9 +93,13 @@ select {
 }
 
 .input-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr minmax(132px, auto) 92px;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.input-actions > * {
+  flex: 1 1 132px;
 }
 
 .primary-btn,
@@ -184,12 +188,88 @@ select {
   transition: width 0.2s ease;
 }
 
-.translation-results {
+.document-output {
   grid-area: results;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.translation-results {
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+}
+
+.pdf-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.pdf-viewer[hidden] {
+  display: none;
+}
+
+.pdf-page-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.pdf-page-row.pdf-page-row--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.pdf-page-panel {
+  min-width: 0;
+}
+
+.pdf-page-label {
+  display: block;
+  margin-bottom: 6px;
+  color: #617089;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pdf-page-surface {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #cfd8e6;
+  border-radius: 4px;
+  box-shadow: 0 3px 12px rgba(23, 32, 51, 0.08);
+}
+
+.pdf-page-surface canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.pdf-translation-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pdf-translation-overlay {
+  position: absolute;
+  min-width: 20px;
+  padding: 2px 3px;
+  overflow: visible;
+  color: #172033;
+  background: rgba(255, 255, 255, 0.97);
+  border-left: 2px solid #246bfe;
+  font-size: 11px;
+  line-height: 1.18;
+  overflow-wrap: anywhere;
 }
 
 .result-empty {
@@ -247,6 +327,10 @@ select {
 
   .document-toolbar,
   .input-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .pdf-page-row {
     grid-template-columns: 1fr;
   }
 }

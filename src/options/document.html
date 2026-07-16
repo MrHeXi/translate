@@ -47,9 +47,10 @@
           <button id="exportJsonFile" class="secondary-btn" disabled>Export JSON</button>
           <button id="exportDocxFile" class="secondary-btn" disabled>Export DOCX</button>
           <button id="exportEpubFile" class="secondary-btn" disabled>Export EPUB</button>
+          <button id="exportPdfFile" class="secondary-btn" disabled>Export PDF</button>
           <button id="clearDocument" class="secondary-btn">Clear</button>
         </div>
-        <textarea id="sourceText" placeholder="Paste document text or load a text-based PDF, HTML file, JSON file, DOCX file, or EPUB file."></textarea>
+        <textarea id="sourceText" placeholder="Paste document text or load a PDF, HTML file, JSON file, DOCX, EPUB, or subtitle file."></textarea>
         <p id="documentMessage" class="document-message" role="status"></p>
       </section>
 
@@ -60,7 +61,10 @@
         <span id="progressText">0 blocks</span>
       </section>
 
-      <section id="translationResults" class="translation-results" aria-live="polite"></section>
+      <div class="document-output">
+        <section id="pdfViewer" class="pdf-viewer" aria-label="PDF page preview" hidden></section>
+        <section id="translationResults" class="translation-results" aria-live="polite"></section>
+      </div>
     </main>
   </div>
 

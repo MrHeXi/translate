@@ -1,6 +1,7 @@
 const path = require('path');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
+const pdfjsRoot = path.dirname(require.resolve('pdfjs-dist/package.json'));
 
 module.exports = (env, argv) => {
   const isProduction = argv.mode === 'production';
@@ -109,6 +110,18 @@ module.exports = (env, argv) => {
             from: 'src/data/vocabularies',
             to: 'data/vocabularies',
             noErrorOnMissing: true
+          },
+          {
+            from: path.join(pdfjsRoot, 'legacy/build/pdf.worker.min.js'),
+            to: 'pdfjs/pdf.worker.min.js'
+          },
+          {
+            from: path.join(pdfjsRoot, 'cmaps'),
+            to: 'pdfjs/cmaps'
+          },
+          {
+            from: path.join(pdfjsRoot, 'standard_fonts'),
+            to: 'pdfjs/standard_fonts'
           }
         ]
       })

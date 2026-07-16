@@ -116,11 +116,13 @@ const setupDocumentDom = (): void => {
     <button id="exportJsonFile" disabled></button>
     <button id="exportDocxFile" disabled></button>
     <button id="exportEpubFile" disabled></button>
+    <button id="exportPdfFile" disabled></button>
     <button id="clearDocument"></button>
     <textarea id="sourceText"></textarea>
     <p id="documentMessage"></p>
     <div id="progressBar"></div>
     <span id="progressText"></span>
+    <section id="pdfViewer" hidden></section>
     <section id="translationResults"></section>
   `;
 };
@@ -128,6 +130,7 @@ const setupDocumentDom = (): void => {
 describe('document translator page', () => {
   beforeEach(() => {
     jest.resetModules();
+    jest.dontMock('../../services/PdfDocumentService');
     setupDocumentDom();
     window.history.replaceState({}, '', '/document.html?sourceUrl=https%3A%2F%2Fexample.com%2Fpaper.pdf');
 
@@ -246,7 +249,7 @@ describe('document translator page', () => {
     await flushPromises();
 
     expect((document.getElementById('sourceText') as HTMLTextAreaElement).value).toContain('PDF heading');
-    expect(document.getElementById('documentMessage')?.textContent).toBe('layout.pdf loaded with PDF layout blocks');
+    expect(document.getElementById('documentMessage')?.textContent).toBe('layout.pdf loaded with PDF layout blocks (compatibility mode)');
 
     document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
     await flushPromises();
@@ -257,6 +260,117 @@ describe('document translator page', () => {
     expect((blocks[0] as HTMLElement).dataset['page']).toBe('1');
     expect(blocks[0].querySelector('.block-index')?.textContent).toContain('Page 1 · Block 1 · x 72 · y 720');
     expect(document.getElementById('translationResults')?.textContent).toContain('translated: PDF heading');
+  });
+
+  it('renders PDF.js pages, positions translations, and exports a translated PDF', async () => {
+    const renderPage = jest.fn(async (_pageNumber: number, canvas: HTMLCanvasElement) => {
+      canvas.width = 810;
+      canvas.height = 1080;
+      return { pageNumber: 1, width: 600, height: 800, scale: 1.35 };
+    });
+    const exportTranslatedPdf = jest.fn(async () => new Uint8Array([37, 80, 68, 70]));
+    const destroy = jest.fn(async () => undefined);
+    const session = {
+      analyze: jest.fn(async () => ({
+        blocks: [{
+          id: 1,
+          originalText: 'PDF.js positioned heading',
+          layout: {
+            pageNumber: 1,
+            x: 72,
+            y: 80,
+            width: 210,
+            height: 20,
+            pageWidth: 600,
+            pageHeight: 800,
+            source: 'pdf-text'
+          }
+        }],
+        pages: [{
+          pageNumber: 1,
+          width: 600,
+          height: 800,
+          blockCount: 1,
+          source: 'text'
+        }],
+        ocrPageCount: 0,
+        unreadablePageCount: 0
+      })),
+      renderPage,
+      exportTranslatedPdf,
+      destroy
+    };
+    const open = jest.fn(async () => session);
+    jest.doMock('../../services/PdfDocumentService', () => ({
+      pdfDocumentService: { open }
+    }));
+
+    let exportedBlob: Blob | null = null;
+    const createObjectURL = jest.fn((blob: Blob) => {
+      exportedBlob = blob;
+      return 'blob:translated-pdf';
+    });
+    const revokeObjectURL = jest.fn();
+    const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    Object.defineProperty(URL, 'createObjectURL', { value: createObjectURL, configurable: true });
+    Object.defineProperty(URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true });
+
+    try {
+      require('../document');
+      document.dispatchEvent(new Event('DOMContentLoaded'));
+      await flushPromises();
+
+      const file = new File(['real pdf bytes'], 'research.pdf', { type: 'application/pdf' });
+      Object.defineProperty(file, 'arrayBuffer', {
+        value: async () => new Uint8Array([1, 2, 3]).buffer,
+        configurable: true
+      });
+      const fileInput = document.getElementById('documentFile') as HTMLInputElement;
+      Object.defineProperty(fileInput, 'files', { value: [file], configurable: true });
+      fileInput.dispatchEvent(new Event('change'));
+      await flushPromises();
+      await flushPromises();
+
+      expect(open).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]));
+      expect(renderPage).toHaveBeenCalledTimes(2);
+      expect(document.getElementById('pdfViewer')?.hidden).toBe(false);
+      expect(document.querySelectorAll('.pdf-page-panel')).toHaveLength(2);
+      expect(document.getElementById('documentMessage')?.textContent).toBe(
+        'research.pdf loaded, 1 page, 1 positioned block'
+      );
+      expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(true);
+
+      document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      const overlay = document.querySelector('.pdf-translation-overlay') as HTMLElement;
+      expect(overlay.textContent).toBe('translated: PDF.js positioned heading');
+      expect(overlay.style.left).toBe('12%');
+      expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(false);
+
+      const displayMode = document.getElementById('displayMode') as HTMLSelectElement;
+      displayMode.value = 'translation-only';
+      displayMode.dispatchEvent(new Event('change'));
+      expect((document.querySelector('.pdf-page-panel') as HTMLElement).style.display).toBe('none');
+
+      document.getElementById('exportPdfFile')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      expect(exportTranslatedPdf).toHaveBeenCalledWith([
+        expect.objectContaining({ translatedText: 'translated: PDF.js positioned heading' })
+      ]);
+      expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+      expect(exportedBlob).not.toBeNull();
+      expect(Array.from(await readBlobBytes(exportedBlob!))).toEqual([37, 80, 68, 70]);
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:translated-pdf');
+      expect(document.getElementById('documentMessage')?.textContent).toBe(
+        'Exported translated PDF with 1 positioned blocks'
+      );
+    } finally {
+      clickSpy.mockRestore();
+    }
   });
 
   it('loads JSON files as readable string blocks without auto-translating', async () => {
