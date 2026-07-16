@@ -97,7 +97,9 @@ describe('product packaging contract', () => {
     expect(readme).toContain('separate translation overlays for detected OCR text blocks');
     expect(readme).toContain('without recording audio');
     expect(readme).toContain('100+ target language options');
-    expect(readme).toContain('configure DeepL, Microsoft Translator, an OpenAI-compatible endpoint, or Google Gemini');
+    expect(readme).toContain('21 implemented provider adapters');
+    expect(readme).toContain('Ollama requires an endpoint and model but no API key');
+    expect(readme).toContain('Provider request formats and failure behavior are covered by automated contract tests');
     expect(readme).toContain('choose a domain expert');
     expect(readme).toContain('Neighboring context is opt-in');
     expect(readme).toContain('API keys in local Chrome storage only');
@@ -115,8 +117,12 @@ describe('product packaging contract', () => {
     expect(privacy).toContain('api.cognitive.microsofttranslator.com');
     expect(privacy).toContain('api.openai.com');
     expect(privacy).toContain('generativelanguage.googleapis.com');
+    expect(privacy).toContain('api.deepseek.com');
+    expect(privacy).toContain('api.anthropic.com');
+    expect(privacy).toContain('api.interpreter.caiyunai.com');
     expect(privacy).toContain('not written to Chrome Sync');
-    expect(privacy).toContain('exact configured origin');
+    expect(privacy).toContain("endpoint's scheme and hostname");
+    expect(privacy).toContain('do not restrict permission to one URL path or port');
     expect(privacy).toContain('domain-specific translation rules');
     expect(privacy).toContain('do not trigger translation on page load');
     expect(privacy).toContain('Main-content detection runs locally');
@@ -177,7 +183,8 @@ describe('product packaging contract', () => {
     expect(listing).toContain('does not record audio');
     expect(listing).toContain('does not record audio, join calls, or transcribe speech');
     expect(listing).toContain('100+ target language choices');
-    expect(listing).toContain('DeepL, Microsoft Translator, OpenAI-compatible endpoints, and Google Gemini');
+    expect(listing).toContain('21 implemented provider adapters');
+    expect(listing).toContain('AI-capable providers');
     expect(listing).toContain('nine domain experts');
     expect(listing).toContain('Neighboring context is off by default');
     expect(listing).toContain('Provider API keys stay in local Chrome storage');
@@ -200,8 +207,10 @@ describe('product packaging contract', () => {
     const releaseNotes = readProjectFile('RELEASE_NOTES.md');
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
-    expect(releaseNotes).toContain('1.0.0 - 2026-07-08');
-    expect(releaseNotes).toContain('42 test suites and 296 tests');
+    expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
+    expect(releaseNotes).toContain('42 test suites and 310 tests');
+    expect(releaseNotes).toContain('17,688,050');
+    expect(releaseNotes).toContain('889F86727FFC36D3E50344F4D133E4ED6D2E2FA9E0345CE3A9060CFD386ECC70');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -275,6 +284,8 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('separate OCR text-block overlays');
     expect(roadmap).toContain('Translate visible images');
     expect(roadmap).toContain('Multiple translation engines');
+    expect(roadmap).toContain('21 implemented provider adapters');
+    expect(roadmap).toContain('Papago, Baidu, Tencent Cloud TMT');
     expect(roadmap).toContain('nine domain-specific AI translation experts');
     expect(roadmap).toContain('include AI preferences in cache identity');
     expect(roadmap).toContain('Do not auto-translate a page on load');
@@ -304,10 +315,13 @@ describe('product packaging contract', () => {
     expect(documentHtml).toContain('id="pdfViewer"');
     expect(documentHtml).toContain('id="exportPdfFile"');
     expect(documentHtml).toContain('id="ocrLanguage"');
-    expect(readProjectFile('src/options/options.html')).toContain('id="documentOcrLanguage"');
-    expect(readProjectFile('src/options/options.html')).toContain('id="aiContextEnabled"');
-    expect(readProjectFile('src/options/options.html')).toContain('id="aiTranslationDomain"');
-    expect(readProjectFile('src/options/options.html')).toContain('id="translationGlossary"');
-    expect(readProjectFile('src/options/options.html')).toContain('id="aiCustomPrompt"');
+    const optionsHtml = readProjectFile('src/options/options.html');
+    expect(optionsHtml).toContain('id="documentOcrLanguage"');
+    expect(optionsHtml).toContain('id="aiContextEnabled"');
+    expect(optionsHtml).toContain('id="aiTranslationDomain"');
+    expect(optionsHtml).toContain('id="translationGlossary"');
+    expect(optionsHtml).toContain('id="aiCustomPrompt"');
+    expect(optionsHtml).toContain('Save provider configuration');
+    expect(optionsHtml).toContain('Remove configuration');
   });
 });

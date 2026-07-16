@@ -186,6 +186,40 @@ describe('StorageManager', () => {
       expect(JSON.stringify(summary)).not.toContain('tiny');
     });
 
+    it('treats a configured local Ollama endpoint and model as ready without an API key', async () => {
+      mockChromeStorage.local.get.mockResolvedValue({});
+      mockChromeStorage.local.set.mockResolvedValue(undefined);
+
+      const summary = await storageManager.saveTranslationProviderConfig('ollama', {});
+
+      expect(summary).toEqual({
+        providerId: 'ollama',
+        configured: true,
+        apiKeyHint: '',
+        endpoint: 'http://localhost:11434/v1/chat/completions',
+        model: 'qwen2.5:7b',
+        region: ''
+      });
+    });
+
+    it('requires a user-specific Azure OpenAI deployment endpoint', async () => {
+      mockChromeStorage.local.get.mockResolvedValue({});
+      mockChromeStorage.local.set.mockResolvedValue(undefined);
+
+      await expect(storageManager.saveTranslationProviderConfig('azure-openai', {
+        apiKey: 'azure-secret'
+      })).rejects.toThrow('Azure OpenAI endpoint is required');
+
+      await expect(storageManager.saveTranslationProviderConfig('azure-openai', {
+        apiKey: 'azure-secret',
+        endpoint: 'https://sample.openai.azure.com/openai/deployments/translator/chat/completions?api-version=2024-10-21'
+      })).resolves.toEqual(expect.objectContaining({
+        providerId: 'azure-openai',
+        configured: true,
+        apiKeyHint: 'azur...cret'
+      }));
+    });
+
     it('keeps provider credentials out of exported learning data', async () => {
       mockChromeStorage.sync.get.mockResolvedValue({});
       mockChromeStorage.local.get.mockImplementation(async (key) => {

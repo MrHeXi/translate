@@ -3,6 +3,7 @@
 import {
   getTranslationProvider,
   isAvailableTranslationProvider,
+  providerSupportsTargetLanguage,
   TRANSLATION_LANGUAGES,
   TranslationProviderRuntimeConfig
 } from './TranslationProviderRegistry';
@@ -238,28 +239,31 @@ export class TranslationService {
 
     for (const provider of providerOrder) {
       try {
-        if (provider === 'google') {
-          return await this.callGoogleTranslateAPI(request);
+        const definition = getTranslationProvider(provider);
+        if (!definition?.adapter) {
+          throw new TranslationProviderError(`${definition?.label || provider} is not implemented`);
+        }
+        if (!providerSupportsTargetLanguage(provider, request.targetLang)) {
+          throw new TranslationProviderError(
+            `${definition.label} does not support ${this.getLanguageLabel(request.targetLang)}`
+          );
         }
 
-        if (provider === 'mymemory') {
-          return await this.callMyMemoryAPI(request);
-        }
-
-        if (provider === 'deepl') {
-          return await this.callDeepLAPI(request);
-        }
-
-        if (provider === 'microsoft') {
-          return await this.callMicrosoftTranslatorAPI(request);
-        }
-
-        if (provider === 'openai') {
-          return await this.callOpenAICompatibleAPI(request);
-        }
-
-        if (provider === 'gemini') {
-          return await this.callGeminiAPI(request);
+        switch (definition.adapter) {
+          case 'google': return await this.callGoogleTranslateAPI(request);
+          case 'mymemory': return await this.callMyMemoryAPI(request);
+          case 'deepl': return await this.callDeepLAPI(request);
+          case 'microsoft': return await this.callMicrosoftTranslatorAPI(request);
+          case 'openai-compatible': return await this.callOpenAICompatibleAPI(request, provider);
+          case 'azure-openai': return await this.callAzureOpenAIAPI(request, provider);
+          case 'gemini': return await this.callGeminiAPI(request);
+          case 'anthropic': return await this.callAnthropicAPI(request, provider);
+          case 'libretranslate': return await this.callLibreTranslateAPI(request, provider);
+          case 'yandex': return await this.callYandexTranslateAPI(request, provider);
+          case 'niutrans': return await this.callNiuTransAPI(request, provider);
+          case 'caiyun': return await this.callCaiyunAPI(request, provider);
+          case 'modernmt': return await this.callModernMTAPI(request, provider);
+          case 'lingvanex': return await this.callLingvanexAPI(request, provider);
         }
       } catch (error) {
         lastError = error;
@@ -368,7 +372,7 @@ export class TranslationService {
   }
 
   private async callDeepLAPI(request: TranslationRequest): Promise<TranslationResult> {
-    const config = this.getRequiredProviderConfig('deepl', request.providerConfig);
+    const config = this.getProviderRuntimeConfig('deepl', request.providerConfig);
     const body = new URLSearchParams();
     body.set('text', request.text);
     body.set('target_lang', this.mapDeepLLanguage(request.targetLang, true));
@@ -401,7 +405,7 @@ export class TranslationService {
   }
 
   private async callMicrosoftTranslatorAPI(request: TranslationRequest): Promise<TranslationResult> {
-    const config = this.getRequiredProviderConfig('microsoft', request.providerConfig);
+    const config = this.getProviderRuntimeConfig('microsoft', request.providerConfig);
     const url = new URL(config.endpoint);
     url.searchParams.set('api-version', '3.0');
     url.searchParams.set('to', this.mapMicrosoftLanguage(request.targetLang));
@@ -440,8 +444,12 @@ export class TranslationService {
     };
   }
 
-  private async callOpenAICompatibleAPI(request: TranslationRequest): Promise<TranslationResult> {
-    const config = this.getRequiredProviderConfig('openai', request.providerConfig);
+  private async callOpenAICompatibleAPI(
+    request: TranslationRequest,
+    providerId: string = 'openai'
+  ): Promise<TranslationResult> {
+    const provider = getTranslationProvider(providerId)!;
+    const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
     const sourceLanguage = request.sourceLang && request.sourceLang !== 'auto'
       ? this.getLanguageLabel(request.sourceLang)
       : 'the detected source language';
@@ -456,12 +464,14 @@ export class TranslationService {
       request.context,
       request.aiPreferences
     );
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+    if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
+
     const response = await fetch(config.endpoint, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json'
-      },
+      headers,
       body: JSON.stringify({
         model: config.model,
         temperature: 0,
@@ -474,7 +484,7 @@ export class TranslationService {
         ]
       })
     });
-    const data = await this.readProviderJson(response, 'OpenAI compatible provider');
+    const data = await this.readProviderJson(response, provider.label);
     const content = data?.choices?.[0]?.message?.content;
     const translatedText = typeof content === 'string'
       ? content.trim()
@@ -482,7 +492,7 @@ export class TranslationService {
         ? content.map((part: any) => part?.text || '').join('').trim()
         : '';
     if (!translatedText) {
-      throw new TranslationProviderError('OpenAI compatible provider returned an invalid translation response');
+      throw new TranslationProviderError(`${provider.label} returned an invalid translation response`);
     }
 
     return {
@@ -498,7 +508,7 @@ export class TranslationService {
   }
 
   private async callGeminiAPI(request: TranslationRequest): Promise<TranslationResult> {
-    const config = this.getRequiredProviderConfig('gemini', request.providerConfig);
+    const config = this.getProviderRuntimeConfig('gemini', request.providerConfig);
     const sourceLanguage = request.sourceLang && request.sourceLang !== 'auto'
       ? this.getLanguageLabel(request.sourceLang)
       : 'the detected source language';
@@ -551,25 +561,340 @@ export class TranslationService {
     };
   }
 
-  private getRequiredProviderConfig(
-    providerId: 'deepl' | 'microsoft' | 'openai' | 'gemini',
+  private async callAzureOpenAIAPI(
+    request: TranslationRequest,
+    providerId: string
+  ): Promise<TranslationResult> {
+    const provider = getTranslationProvider(providerId)!;
+    const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
+    const sourceLanguage = request.sourceLang && request.sourceLang !== 'auto'
+      ? this.getLanguageLabel(request.sourceLang)
+      : 'the detected source language';
+    const targetLanguage = this.getLanguageLabel(request.targetLang);
+    const response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: {
+        'api-key': config.apiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        temperature: 0,
+        messages: [
+          {
+            role: 'system',
+            content: buildAiTranslationSystemPrompt(sourceLanguage, targetLanguage, request.aiPreferences)
+          },
+          {
+            role: 'user',
+            content: buildAiTranslationUserMessage(request.text, request.context, request.aiPreferences)
+          }
+        ]
+      })
+    });
+    const data = await this.readProviderJson(response, provider.label);
+    const translatedText = this.extractOpenAIMessageText(data?.choices?.[0]?.message?.content);
+    if (!translatedText) {
+      throw new TranslationProviderError(`${provider.label} returned an invalid translation response`);
+    }
+    return this.createProviderTranslationResult(request, translatedText);
+  }
+
+  private async callAnthropicAPI(
+    request: TranslationRequest,
+    providerId: string
+  ): Promise<TranslationResult> {
+    const provider = getTranslationProvider(providerId)!;
+    const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
+    const sourceLanguage = request.sourceLang && request.sourceLang !== 'auto'
+      ? this.getLanguageLabel(request.sourceLang)
+      : 'the detected source language';
+    const targetLanguage = this.getLanguageLabel(request.targetLang);
+    const response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: {
+        'x-api-key': config.apiKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: config.model,
+        max_tokens: 4096,
+        temperature: 0,
+        system: buildAiTranslationSystemPrompt(sourceLanguage, targetLanguage, request.aiPreferences),
+        messages: [{
+          role: 'user',
+          content: buildAiTranslationUserMessage(request.text, request.context, request.aiPreferences)
+        }]
+      })
+    });
+    const data = await this.readProviderJson(response, provider.label);
+    const translatedText = (data?.content || [])
+      .map((part: any) => typeof part?.text === 'string' ? part.text : '')
+      .join('')
+      .trim();
+    if (!translatedText) {
+      throw new TranslationProviderError(`${provider.label} returned an invalid translation response`);
+    }
+    return this.createProviderTranslationResult(request, translatedText);
+  }
+
+  private async callLibreTranslateAPI(
+    request: TranslationRequest,
+    providerId: string
+  ): Promise<TranslationResult> {
+    const provider = getTranslationProvider(providerId)!;
+    const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
+    const body: Record<string, string> = {
+      q: request.text,
+      source: request.sourceLang && request.sourceLang !== 'auto'
+        ? this.mapPortableLanguage(request.sourceLang)
+        : 'auto',
+      target: this.mapPortableLanguage(request.targetLang),
+      format: 'text'
+    };
+    if (config.apiKey) body['api_key'] = config.apiKey;
+
+    const response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await this.readProviderJson(response, provider.label);
+    if (typeof data?.translatedText !== 'string' || !data.translatedText.trim()) {
+      throw new TranslationProviderError(`${provider.label} returned an invalid translation response`);
+    }
+    return this.createProviderTranslationResult(
+      request,
+      data.translatedText.trim(),
+      data.detectedLanguage?.language
+    );
+  }
+
+  private async callYandexTranslateAPI(
+    request: TranslationRequest,
+    providerId: string
+  ): Promise<TranslationResult> {
+    const provider = getTranslationProvider(providerId)!;
+    const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
+    const body: Record<string, unknown> = {
+      texts: [request.text],
+      targetLanguageCode: this.mapPortableLanguage(request.targetLang)
+    };
+    if (request.sourceLang && request.sourceLang !== 'auto') {
+      body['sourceLanguageCode'] = this.mapPortableLanguage(request.sourceLang);
+    }
+    if (config.region) body['folderId'] = config.region;
+
+    const response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Api-Key ${config.apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+    const data = await this.readProviderJson(response, provider.label);
+    const translation = data?.translations?.[0];
+    if (typeof translation?.text !== 'string' || !translation.text.trim()) {
+      throw new TranslationProviderError(`${provider.label} returned an invalid translation response`);
+    }
+    return this.createProviderTranslationResult(
+      request,
+      translation.text.trim(),
+      translation.detectedLanguageCode
+    );
+  }
+
+  private async callNiuTransAPI(
+    request: TranslationRequest,
+    providerId: string
+  ): Promise<TranslationResult> {
+    const provider = getTranslationProvider(providerId)!;
+    const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
+    const body = new URLSearchParams({
+      from: request.sourceLang && request.sourceLang !== 'auto'
+        ? this.mapPortableLanguage(request.sourceLang)
+        : 'auto',
+      to: this.mapPortableLanguage(request.targetLang),
+      apikey: config.apiKey,
+      src_text: request.text
+    });
+    const response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    });
+    const data = await this.readProviderJson(response, provider.label);
+    if (typeof data?.tgt_text !== 'string' || !data.tgt_text.trim()) {
+      throw new TranslationProviderError(
+        typeof data?.error_msg === 'string' ? data.error_msg : `${provider.label} returned an invalid translation response`
+      );
+    }
+    return this.createProviderTranslationResult(request, data.tgt_text.trim());
+  }
+
+  private async callCaiyunAPI(
+    request: TranslationRequest,
+    providerId: string
+  ): Promise<TranslationResult> {
+    const provider = getTranslationProvider(providerId)!;
+    const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
+    const target = this.mapCaiyunLanguage(request.targetLang);
+    const source = request.sourceLang && request.sourceLang !== 'auto'
+      ? this.mapCaiyunLanguage(request.sourceLang)
+      : 'auto';
+    const response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: {
+        'x-authorization': `token ${config.apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        source: [request.text],
+        trans_type: `${source}2${target}`,
+        request_id: `lexibridge-${Date.now()}`,
+        detect: source === 'auto'
+      })
+    });
+    const data = await this.readProviderJson(response, provider.label);
+    const translatedText = Array.isArray(data?.target) ? data.target[0] : data?.target;
+    if (typeof translatedText !== 'string' || !translatedText.trim()) {
+      throw new TranslationProviderError(`${provider.label} returned an invalid translation response`);
+    }
+    return this.createProviderTranslationResult(request, translatedText.trim());
+  }
+
+  private async callModernMTAPI(
+    request: TranslationRequest,
+    providerId: string
+  ): Promise<TranslationResult> {
+    const provider = getTranslationProvider(providerId)!;
+    const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
+    const body = new URLSearchParams({
+      q: request.text,
+      source: request.sourceLang && request.sourceLang !== 'auto'
+        ? this.mapPortableLanguage(request.sourceLang)
+        : 'auto',
+      target: this.mapPortableLanguage(request.targetLang),
+      key: config.apiKey
+    });
+    if (request.context) body.set('context', request.context.slice(0, 4000));
+    const response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    });
+    const data = await this.readProviderJson(response, provider.label);
+    const translatedText = data?.data?.translation;
+    if (typeof translatedText !== 'string' || !translatedText.trim()) {
+      throw new TranslationProviderError(`${provider.label} returned an invalid translation response`);
+    }
+    return this.createProviderTranslationResult(request, translatedText.trim(), data?.data?.detectedLanguage);
+  }
+
+  private async callLingvanexAPI(
+    request: TranslationRequest,
+    providerId: string
+  ): Promise<TranslationResult> {
+    const provider = getTranslationProvider(providerId)!;
+    const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
+    const response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: config.apiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        platform: 'api',
+        from: request.sourceLang && request.sourceLang !== 'auto'
+          ? this.mapLingvanexLanguage(request.sourceLang)
+          : 'auto',
+        to: this.mapLingvanexLanguage(request.targetLang),
+        data: request.text
+      })
+    });
+    const data = await this.readProviderJson(response, provider.label);
+    const translatedText = Array.isArray(data?.result) ? data.result[0] : data?.result;
+    if (typeof translatedText !== 'string' || !translatedText.trim()) {
+      throw new TranslationProviderError(`${provider.label} returned an invalid translation response`);
+    }
+    return this.createProviderTranslationResult(request, translatedText.trim());
+  }
+
+  private extractOpenAIMessageText(content: unknown): string {
+    return typeof content === 'string'
+      ? content.trim()
+      : Array.isArray(content)
+        ? content.map((part: any) => part?.text || '').join('').trim()
+        : '';
+  }
+
+  private async createProviderTranslationResult(
+    request: TranslationRequest,
+    translatedText: string,
+    detectedLanguage?: string,
+    confidence: number = 0.9
+  ): Promise<TranslationResult> {
+    const sourceLang = detectedLanguage
+      ? this.normalizeProviderLanguage(detectedLanguage)
+      : request.sourceLang && request.sourceLang !== 'auto'
+        ? request.sourceLang
+        : await this.detectLanguage(request.text);
+    return {
+      originalText: request.text,
+      translatedText,
+      sourceLang,
+      targetLang: request.targetLang,
+      confidence,
+      alternatives: []
+    };
+  }
+
+  private mapPortableLanguage(language: string): string {
+    if (language === 'zh-CN' || language === 'zh-TW') return 'zh';
+    if (language === 'no') return 'nb';
+    return language.split('-')[0]!;
+  }
+
+  private mapLingvanexLanguage(language: string): string {
+    if (language === 'zh-CN') return 'zh-Hans';
+    if (language === 'zh-TW') return 'zh-Hant';
+    return language;
+  }
+
+  private mapCaiyunLanguage(language: string): string {
+    if (language === 'zh-CN') return 'zh';
+    if (language === 'zh-TW') return 'zh-Hant';
+    return language.split('-')[0]!;
+  }
+
+  private getProviderRuntimeConfig(
+    providerId: string,
     runtimeConfig?: TranslationProviderRuntimeConfig
   ): { apiKey: string; endpoint: string; model: string; region: string } {
-    const provider = getTranslationProvider(providerId)!;
+    const provider = getTranslationProvider(providerId);
+    if (!provider || provider.status !== 'available') {
+      throw new TranslationProviderError('Unknown or unavailable translation provider');
+    }
     const apiKey = runtimeConfig?.apiKey?.trim() || '';
-    if (!apiKey) {
+    if (provider.requiresApiKey && !apiKey) {
       throw new TranslationProviderError(`${provider.label} API key is not configured`);
     }
 
-    const endpoint = this.validateProviderEndpoint(
-      runtimeConfig?.endpoint?.trim() || provider.defaultEndpoint || '',
-      provider.label
-    );
+    const endpointValue = runtimeConfig?.endpoint?.trim() || provider.defaultEndpoint || '';
+    if (!endpointValue) {
+      throw new TranslationProviderError(`${provider.label} endpoint is not configured`);
+    }
+    const endpoint = this.validateProviderEndpoint(endpointValue, provider.label);
+    const model = runtimeConfig?.model?.trim() || provider.defaultModel || '';
+    if (provider.configFields?.includes('model') && !model) {
+      throw new TranslationProviderError(`${provider.label} model is not configured`);
+    }
 
     return {
       apiKey,
       endpoint,
-      model: runtimeConfig?.model?.trim() || provider.defaultModel || '',
+      model,
       region: runtimeConfig?.region?.trim() || ''
     };
   }
@@ -609,7 +934,8 @@ export class TranslationService {
       'zh-CN': isTarget ? 'ZH-HANS' : 'ZH',
       'zh-TW': isTarget ? 'ZH-HANT' : 'ZH',
       en: isTarget ? 'EN-US' : 'EN',
-      pt: isTarget ? 'PT-PT' : 'PT'
+      pt: isTarget ? 'PT-PT' : 'PT',
+      no: 'NB'
     };
     return mappings[language] || language.toUpperCase();
   }

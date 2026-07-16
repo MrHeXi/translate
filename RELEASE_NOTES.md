@@ -1,6 +1,6 @@
 # LexiBridge Translate Release Notes
 
-## 1.0.0 - 2026-07-08
+## 1.0.0 - 2026-07-17
 
 Initial productized release candidate for local testing and Chrome Web Store preparation.
 
@@ -12,7 +12,7 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Subtle, highlighted, and plain-text translation appearance presets that update existing page translations.
 - Exact-domain and wildcard site rules with per-site page translation allow/block, display mode, scope, style, and exclusion overrides.
 - Intelligent main-content detection with semantic-region priority, text/link density fallback, whole-page mode, and per-site scope overrides.
-- Immediate settings broadcasts to open tabs without exposing local translation provider credentials.
+- Immediate settings broadcasts to open tabs without exposing local translation provider secrets.
 - Bottom-right floating button with a visible "Translate page" hint.
 - Selected-text translation tooltip with vocabulary collection actions.
 - Control-hover paragraph translation for on-demand reading help.
@@ -26,9 +26,11 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Persisted offline OCR language selection for English, Simplified Chinese, Traditional Chinese, Japanese, and Korean, with PDF page progress and local worker cleanup on Stop.
 - Explicit Translate visible images command with hidden/offscreen/tiny/extension-owned filtering, duplicate-text request caching, and immediate batch cancellation when Image text stops.
 - 100+ target language choices in settings.
-- Six working provider integrations: Google Translate and MyMemory without credentials, plus user-configured DeepL, Microsoft Translator, OpenAI-compatible endpoints, and Google Gemini.
-- AI translation controls for OpenAI-compatible and Gemini providers, including opt-in neighboring page/document context, nine domain experts, normalized terminology mappings, custom instructions, and context-aware cache isolation.
-- Local-only API credential storage with masked settings summaries, explicit custom-endpoint host approval, and no credentialed-provider fallback to unrelated services.
+- 21 implemented provider adapters: Google Translate, MyMemory, DeepL, Microsoft Translator, OpenAI-compatible, Gemini, DeepSeek, OpenRouter, Groq, Qwen, Zhipu GLM, SiliconFlow, Ollama, Claude, Azure OpenAI, LibreTranslate, Yandex Cloud Translate, NiuTrans, Caiyun Translate, ModernMT, and Lingvanex.
+- AI translation controls for AI-capable providers, including opt-in neighboring page/document context, nine domain experts, normalized terminology mappings, custom instructions, and context-aware cache isolation.
+- Local-only API credential storage with masked settings summaries, explicit configured-host approval, keyless Ollama configuration, and no credentialed-provider fallback to unrelated services.
+- Provider-specific target-language filtering for published narrow capability sets, including DeepL and Caiyun, with Simplified/Traditional Chinese mappings preserved.
+- Automated request-contract coverage for every implemented provider adapter. Credentialed services still require valid user accounts and provider-side live availability.
 - Built-in CET4, CET6, GRE, IELTS, and TOEFL vocabulary dictionaries.
 - Vocabulary notebook, review page, learning progress, import/export, and settings.
 - Local-first data storage through Chrome storage, with Chrome sync support when enabled in the browser profile.
@@ -36,11 +38,11 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 
 ### Verification
 
-Verified on 2026-07-16:
+Verified on 2026-07-17:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 42 test suites and 296 tests.
+- `jest --runInBand --silent`: passed, 42 test suites and 310 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 
@@ -55,7 +57,7 @@ Expected build warnings:
 
 - Unpacked extension folder: `dist`
 - Test package: `chrome-translation-extension.zip`
-- ZIP size: `17,684,222` bytes
-- SHA-256: `1BBEBB7563D7ADBE7EF3498D772C8C00E802984BE7206530F1867BD38274002D`
+- ZIP size: `17,688,050` bytes
+- SHA-256: `889F86727FFC36D3E50344F4D133E4ED6D2E2FA9E0345CE3A9060CFD386ECC70`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

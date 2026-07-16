@@ -42,10 +42,10 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 
 - [ ] Link `PRIVACY.md` or hosted equivalent.
 - [ ] Disclose Chrome storage and Chrome sync use.
-- [ ] Disclose requests to Google Translate, MyMemory, DeepL, Microsoft Translator, OpenAI-compatible endpoints, and Gemini.
+- [ ] Disclose all 21 implemented provider adapters and distinguish pre-granted hosts from provider hosts requested when configuration is saved.
 - [ ] Disclose that provider API keys stay in local Chrome storage and are excluded from Chrome sync and learning-data exports.
 - [ ] Confirm AI neighboring context is off by default, is sent only for manual page/document translation when enabled, and is bounded before provider requests.
-- [ ] Confirm OpenAI-compatible and Gemini requests include the selected domain, normalized glossary, and custom instructions while keeping source/context in a separate untrusted-data message.
+- [ ] Confirm AI-capable provider requests include the selected domain, normalized glossary, and custom instructions while keeping source/context in a separate untrusted-data message.
 - [ ] Confirm changing AI translation settings clears the background translation cache and different contexts cannot share a cached result.
 - [ ] State that there is no default telemetry.
 - [ ] Confirm the listing privacy fields match the policy.
@@ -57,7 +57,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] `scripting` is explained by extension script/style refresh behavior.
 - [ ] `tabs` is explained by active-tab messaging.
 - [ ] Host permissions are limited to translation provider endpoints.
-- [ ] Optional custom-endpoint access is requested only for the exact HTTPS or localhost origin entered by the user.
+- [ ] Optional provider access is requested only for the configured HTTPS or localhost scheme and hostname when the user saves provider configuration.
 - [ ] No new permission has been added without a user-facing reason.
 
 ## Manual Smoke Test
@@ -75,7 +75,8 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Confirm `dist/ocr` includes the worker, SIMD/non-SIMD LSTM core files, five compressed language models, and license files.
 - [ ] Confirm Stop terminates an active image OCR session and removes all image overlays without starting work on another image.
 - [ ] Confirm selected text shows a translation tooltip.
-- [ ] Configure each credentialed provider with a test key or mock endpoint, verify masked-key display, and verify Remove credentials.
+- [ ] Configure each credentialed provider with a test key or mock endpoint, verify masked-key display, and verify Remove configuration.
+- [ ] Save Ollama without an API key, confirm Chrome requests `http://localhost/*`, and verify settings cannot activate it before provider configuration is saved.
 - [ ] Confirm Image text stays idle until Start plus a click, drag, or Translate visible images action; confirm Stop cancels the remaining visible-image batch and clears overlays.
 - [ ] Confirm Live captions captures only visible DOM captions after Start, merges incremental updates, retains cues after Stop, exports TXT/SRT/VTT/JSON locally, and clears without recording audio.
 - [ ] Confirm a word can be saved and appears in the vocabulary page.

@@ -32,10 +32,10 @@ Current batch:
 
 - Hover paragraph translation using a modifier-key interaction.
 - Input box translation using a deliberate shortcut.
-- Six working provider integrations: Google Translate, MyMemory, DeepL, Microsoft Translator, OpenAI-compatible endpoints, and Google Gemini.
-- OpenAI-compatible and Gemini context-aware translation with opt-in neighboring text, domain experts, terminology mappings, and custom instructions.
+- 21 implemented provider adapters spanning public machine translation, hosted AI, self-hosted AI, and local Ollama endpoints.
+- AI-capable provider context-aware translation with opt-in neighboring text, domain experts, terminology mappings, and custom instructions.
 - Local-only API credential storage with masked UI summaries and exact-origin permission requests for custom endpoints.
-- 20+ provider definitions and 100+ target language choices for engine/language expansion.
+- 100+ target language choices with provider-specific filtering where a provider publishes a narrower target set.
 - Configurable page display modes: bilingual, translation only, and original only.
 - Configurable page translation exclude selectors for areas that should remain original.
 - Subtle, highlighted, and plain-text page translation appearance presets.
@@ -86,16 +86,16 @@ Current batch:
 
 ### Batch C: Translation Engine Expansion
 
-- Done: add a provider registry with six working engines and 20+ additional provider definitions.
+- Done: add 21 implemented provider adapters: Google, MyMemory, DeepL, Microsoft, OpenAI-compatible, Gemini, DeepSeek, OpenRouter, Groq, Qwen, Zhipu, SiliconFlow, Ollama, Claude, Azure OpenAI, LibreTranslate, Yandex, NiuTrans, Caiyun, ModernMT, and Lingvanex.
 - Done: keep Google and MyMemory available without credentials and preserve fallback between those two public services.
-- Done: integrate DeepL, Microsoft Translator, OpenAI-compatible Chat Completions endpoints, and Google Gemini with provider-specific request formats.
+- Done: integrate OpenAI-compatible Chat Completions, Gemini, Claude Messages, Azure OpenAI, LibreTranslate, Yandex Cloud, NiuTrans, Caiyun, ModernMT, and Lingvanex request/response contracts.
 - Done: keep API keys in local storage, return only masked summaries to settings, and exclude keys from Chrome sync and learning-data export.
-- Done: request optional host permission for the exact user-configured HTTPS or localhost endpoint.
+- Done: request optional host permission for the configured HTTPS or localhost scheme and hostname when provider configuration is saved, including keyless Ollama and LibreTranslate configurations.
 - Done: prevent credentialed translation requests from silently falling back to another provider.
-- Done: add nine domain-specific AI translation experts for OpenAI-compatible and Gemini providers.
+- Done: add nine domain-specific AI translation experts for AI-capable providers.
 - Done: add normalized terminology mappings and bounded custom translation instructions.
 - Done: add opt-in neighboring page/document context, isolate source/context as untrusted request data, and include AI preferences in cache identity.
-- Remaining: implement the planned provider definitions and provider-specific language filtering or capability guidance.
+- Remaining: implement Papago, Baidu, Tencent Cloud TMT, Volcengine, Alibaba, Youdao, Amazon Translate, IBM Watson, Reverso, SYSTRAN, and ChatGLM; add dynamic language discovery for self-hosted LibreTranslate instances and broader source-target pair guidance; complete real-account smoke tests for credentialed services.
 
 ### Batch D: PDF and Document Translation
 

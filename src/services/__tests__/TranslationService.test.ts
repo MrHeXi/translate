@@ -4,6 +4,7 @@ import * as fc from 'fast-check';
 import { TranslationService } from '../TranslationService';
 import {
   AVAILABLE_TRANSLATION_PROVIDERS,
+  getProviderTargetLanguages,
   TRANSLATION_LANGUAGES,
   TRANSLATION_PROVIDERS
 } from '../TranslationProviderRegistry';
@@ -49,12 +50,36 @@ describe('TranslationService', () => {
         'deepl',
         'microsoft',
         'openai',
-        'gemini'
+        'gemini',
+        'deepseek',
+        'openrouter',
+        'groq',
+        'qwen',
+        'zhipu',
+        'siliconflow',
+        'ollama',
+        'claude',
+        'azure-openai',
+        'libretranslate',
+        'yandex',
+        'niutrans',
+        'caiyun',
+        'modernmt',
+        'lingvanex'
       ]);
+      expect(AVAILABLE_TRANSLATION_PROVIDERS).toHaveLength(21);
+      expect(AVAILABLE_TRANSLATION_PROVIDERS.every(provider => Boolean(provider.adapter))).toBe(true);
       expect(TRANSLATION_LANGUAGES.length).toBeGreaterThanOrEqual(100);
       expect(TRANSLATION_LANGUAGES.some(language => language.code === 'zh-CN')).toBe(true);
       expect(TRANSLATION_LANGUAGES.some(language => language.code === 'en')).toBe(true);
       expect(TRANSLATION_LANGUAGES.some(language => language.code === 'es')).toBe(true);
+      expect(getProviderTargetLanguages('caiyun').map(language => language.code)).toEqual([
+        'zh-CN',
+        'zh-TW',
+        'en',
+        'ja',
+        'ko'
+      ]);
     });
 
     it('uses the requested available provider before fallback providers', async () => {
@@ -203,6 +228,239 @@ describe('TranslationService', () => {
         textToTranslate: 'Hello world'
       });
       expect(result.translatedText).toBe('Bonjour le monde');
+    });
+
+    it('routes all configured OpenAI-compatible providers through their real default endpoints', async () => {
+      const cases = [
+        ['deepseek', 'https://api.deepseek.com/chat/completions', 'deepseek-chat', true],
+        ['openrouter', 'https://openrouter.ai/api/v1/chat/completions', 'openai/gpt-4o-mini', true],
+        ['groq', 'https://api.groq.com/openai/v1/chat/completions', 'llama-3.1-8b-instant', true],
+        ['qwen', 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', 'qwen-mt-turbo', true],
+        ['zhipu', 'https://open.bigmodel.cn/api/paas/v4/chat/completions', 'glm-4-flash', true],
+        ['siliconflow', 'https://api.siliconflow.cn/v1/chat/completions', 'Qwen/Qwen2.5-7B-Instruct', true],
+        ['ollama', 'http://localhost:11434/v1/chat/completions', 'qwen2.5:7b', false]
+      ] as const;
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: 'Compatible result' } }] })
+      }));
+      (global as any).fetch = fetchMock;
+
+      for (const [provider, endpoint, model, requiresKey] of cases) {
+        const result = await translationService.translate({
+          text: `Text for ${provider}`,
+          targetLang: 'fr',
+          provider,
+          providerConfig: requiresKey ? { apiKey: `${provider}-secret` } : undefined,
+          aiPreferences: { contextEnabled: false, domain: 'technical', glossary: [], customPrompt: '' }
+        });
+        expect(result.translatedText).toBe('Compatible result');
+
+        const [url, init] = fetchMock.mock.calls[fetchMock.mock.calls.length - 1] as [string, RequestInit];
+        const body = JSON.parse(String(init.body));
+        const headers = init.headers as Record<string, string>;
+        expect(url).toBe(endpoint);
+        expect(body.model).toBe(model);
+        expect(body.messages[0].content).toContain('Domain: Technical');
+        if (requiresKey) {
+          expect(headers.Authorization).toBe(`Bearer ${provider}-secret`);
+        } else {
+          expect(headers.Authorization).toBeUndefined();
+        }
+      }
+
+      expect(fetchMock).toHaveBeenCalledTimes(cases.length);
+    });
+
+    it('calls Claude Messages with Anthropic authentication and AI controls', async () => {
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({ content: [{ type: 'text', text: 'Texte Claude' }] })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: 'Hello Claude',
+        targetLang: 'fr',
+        provider: 'claude',
+        providerConfig: { apiKey: 'claude-secret' },
+        aiPreferences: { contextEnabled: false, domain: 'academic', glossary: [], customPrompt: '' }
+      });
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const headers = init.headers as Record<string, string>;
+      const body = JSON.parse(String(init.body));
+      expect(url).toBe('https://api.anthropic.com/v1/messages');
+      expect(headers['x-api-key']).toBe('claude-secret');
+      expect(headers['anthropic-version']).toBe('2023-06-01');
+      expect(body.model).toBe('claude-3-5-haiku-latest');
+      expect(body.system).toContain('Domain: Academic');
+      expect(result.translatedText).toBe('Texte Claude');
+    });
+
+    it('calls a user-configured Azure OpenAI deployment with api-key authentication', async () => {
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: 'Texte Azure' } }] })
+      }));
+      (global as any).fetch = fetchMock;
+      const endpoint = 'https://sample.openai.azure.com/openai/deployments/translator/chat/completions?api-version=2024-10-21';
+
+      const result = await translationService.translate({
+        text: 'Hello Azure',
+        targetLang: 'fr',
+        provider: 'azure-openai',
+        providerConfig: { apiKey: 'azure-secret', endpoint }
+      });
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(endpoint);
+      expect((init.headers as Record<string, string>)['api-key']).toBe('azure-secret');
+      expect(JSON.parse(String(init.body)).model).toBeUndefined();
+      expect(result.translatedText).toBe('Texte Azure');
+    });
+
+    it('calls LibreTranslate with an optional key and portable language codes', async () => {
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({ translatedText: 'Libre result', detectedLanguage: { language: 'en' } })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: 'Hello',
+        targetLang: 'zh-CN',
+        provider: 'libretranslate',
+        providerConfig: { apiKey: 'optional-key' }
+      });
+
+      const body = JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body));
+      expect(body).toEqual(expect.objectContaining({
+        q: 'Hello', source: 'auto', target: 'zh', api_key: 'optional-key'
+      }));
+      expect(result.translatedText).toBe('Libre result');
+    });
+
+    it('calls Yandex Cloud Translate with folder and API key settings', async () => {
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({ translations: [{ text: 'Yandex result', detectedLanguageCode: 'en' }] })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: 'Hello', targetLang: 'de', provider: 'yandex',
+        providerConfig: { apiKey: 'yandex-secret', region: 'folder-id' }
+      });
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect((init.headers as Record<string, string>).Authorization).toBe('Api-Key yandex-secret');
+      expect(JSON.parse(String(init.body))).toEqual({
+        texts: ['Hello'], targetLanguageCode: 'de', folderId: 'folder-id'
+      });
+      expect(result.translatedText).toBe('Yandex result');
+    });
+
+    it('calls NiuTrans with its form-encoded API contract', async () => {
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({ tgt_text: 'Niu result' })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: 'Hello', targetLang: 'zh-CN', provider: 'niutrans',
+        providerConfig: { apiKey: 'niu-secret' }
+      });
+
+      const body = String((fetchMock.mock.calls[0]?.[1] as RequestInit).body);
+      expect(body).toContain('apikey=niu-secret');
+      expect(body).toContain('src_text=Hello');
+      expect(body).toContain('to=zh');
+      expect(result.translatedText).toBe('Niu result');
+    });
+
+    it('calls Caiyun with its token header and strict target language contract', async () => {
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({ target: ['Caiyun result'] })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: 'Hello', targetLang: 'zh-TW', provider: 'caiyun',
+        providerConfig: { apiKey: 'caiyun-secret' }
+      });
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect((init.headers as Record<string, string>)['x-authorization']).toBe('token caiyun-secret');
+      expect(JSON.parse(String(init.body))).toEqual(expect.objectContaining({
+        source: ['Hello'], trans_type: 'auto2zh-Hant', detect: true
+      }));
+      expect(result.translatedText).toBe('Caiyun result');
+
+      await translationService.translate({
+        text: '繁體中文', sourceLang: 'zh-TW', targetLang: 'en', provider: 'caiyun',
+        providerConfig: { apiKey: 'caiyun-secret' }
+      });
+      const [, explicitInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+      expect(JSON.parse(String(explicitInit.body))).toEqual(expect.objectContaining({
+        source: ['繁體中文'], trans_type: 'zh-Hant2en', detect: false
+      }));
+    });
+
+    it('calls ModernMT with context and its form response contract', async () => {
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({ data: { translation: 'Modern result', detectedLanguage: 'en' } })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: 'Hello', context: 'Document context', targetLang: 'it', provider: 'modernmt',
+        providerConfig: { apiKey: 'modern-secret' }
+      });
+
+      const body = String((fetchMock.mock.calls[0]?.[1] as RequestInit).body);
+      expect(body).toContain('key=modern-secret');
+      expect(body).toContain('context=Document+context');
+      expect(result.translatedText).toBe('Modern result');
+    });
+
+    it('calls Lingvanex with its JSON API contract', async () => {
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({ result: 'Lingvanex result' })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: 'Hello', targetLang: 'zh-TW', provider: 'lingvanex',
+        providerConfig: { apiKey: 'lingvanex-secret' }
+      });
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect((init.headers as Record<string, string>).Authorization).toBe('lingvanex-secret');
+      expect(JSON.parse(String(init.body))).toEqual({
+        platform: 'api', from: 'auto', to: 'zh-Hant', data: 'Hello'
+      });
+      expect(result.translatedText).toBe('Lingvanex result');
+    });
+
+    it('rejects target languages outside a provider capability before sending text', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const fetchMock = jest.fn();
+      (global as any).fetch = fetchMock;
+
+      await expect(translationService.translate({
+        text: 'Hello', targetLang: 'fr', provider: 'caiyun',
+        providerConfig: { apiKey: 'caiyun-secret' }
+      })).rejects.toThrow('Caiyun Translate does not support French');
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
     });
 
     it('calls Gemini without placing the API key in the URL', async () => {

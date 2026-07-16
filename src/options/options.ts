@@ -1,6 +1,7 @@
 // Chrome翻译插件选项页面脚本
 
 import {
+  getProviderTargetLanguages,
   getTranslationProvider,
   TRANSLATION_LANGUAGES,
   TRANSLATION_PROVIDERS,
@@ -343,7 +344,7 @@ class OptionsController {
       );
     } catch (error) {
       this.providerConfigSummaries.clear();
-      console.error('Could not load translation provider credentials:', error);
+      console.error('Could not load translation provider configurations:', error);
     }
   }
 
@@ -572,6 +573,7 @@ class OptionsController {
   private updateProviderConfigurationUI(): void {
     const providerId = (document.getElementById('translationProvider') as HTMLSelectElement | null)?.value || 'google';
     this.updateAiTranslationControlAvailability(providerId);
+    this.updateTargetLanguageAvailability(providerId);
     const provider = getTranslationProvider(providerId);
     const panel = document.getElementById('providerConfigPanel');
     const configFields = provider?.configFields || [];
@@ -590,10 +592,10 @@ class OptionsController {
     const modelInput = document.getElementById('providerModel') as HTMLInputElement | null;
     const regionInput = document.getElementById('providerRegion') as HTMLInputElement | null;
 
-    if (title) title.textContent = `${provider.label} credentials`;
+    if (title) title.textContent = `${provider.label} configuration`;
     if (status) {
       status.textContent = summary?.configured
-        ? `Configured (${summary.apiKeyHint})`
+        ? summary.apiKeyHint ? `Configured (${summary.apiKeyHint})` : 'Configured'
         : 'Not configured';
     }
     if (removeButton) removeButton.disabled = !summary?.configured;
@@ -616,7 +618,7 @@ class OptionsController {
   }
 
   private updateAiTranslationControlAvailability(providerId: string): void {
-    const isAiProvider = providerId === 'openai' || providerId === 'gemini';
+    const isAiProvider = Boolean(getTranslationProvider(providerId)?.supportsAiPreferences);
     const section = document.querySelector<HTMLElement>('.ai-translation-section');
     section?.classList.toggle('is-disabled', !isAiProvider);
     section?.setAttribute('aria-disabled', String(!isAiProvider));
@@ -629,6 +631,22 @@ class OptionsController {
       const control = document.getElementById(elementId) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
       if (control) control.disabled = !isAiProvider;
     });
+  }
+
+  private updateTargetLanguageAvailability(providerId: string): void {
+    const targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement | null;
+    if (!targetLanguage) return;
+
+    const supportedCodes = new Set(getProviderTargetLanguages(providerId).map(language => language.code));
+    Array.from(targetLanguage.options).forEach(option => {
+      option.disabled = !supportedCodes.has(option.value);
+    });
+    if (!supportedCodes.has(targetLanguage.value)) {
+      const fallback = supportedCodes.has('zh-CN')
+        ? 'zh-CN'
+        : Array.from(targetLanguage.options).find(option => !option.disabled)?.value;
+      if (fallback) targetLanguage.value = fallback;
+    }
   }
 
   private setProviderFieldVisibility(elementId: string, isVisible: boolean): void {
@@ -656,7 +674,7 @@ class OptionsController {
 
     const endpoint = config.endpoint || provider.defaultEndpoint || '';
     if (provider.configFields.includes('endpoint')) {
-      const permissionGranted = await this.ensureProviderEndpointPermission(endpoint, provider.defaultEndpoint || '');
+      const permissionGranted = await this.ensureProviderEndpointPermission(endpoint);
       if (!permissionGranted) {
         this.showProviderConfigMessage('Host access was not granted for this endpoint', true);
         return;
@@ -669,17 +687,17 @@ class OptionsController {
         data: { providerId, config }
       });
       if (!response?.success) {
-        this.showProviderConfigMessage(response?.error || 'Could not save provider credentials', true);
+        this.showProviderConfigMessage(response?.error || 'Could not save provider configuration', true);
         return;
       }
 
       const summary = response.data as TranslationProviderConfigSummary;
       this.providerConfigSummaries.set(providerId, summary);
       this.updateProviderConfigurationUI();
-      this.showProviderConfigMessage(`${provider.label} credentials saved locally`);
+      this.showProviderConfigMessage(`${provider.label} configuration saved locally`);
     } catch (error) {
       this.showProviderConfigMessage(
-        error instanceof Error ? error.message : 'Could not save provider credentials',
+        error instanceof Error ? error.message : 'Could not save provider configuration',
         true
       );
     }
@@ -696,22 +714,22 @@ class OptionsController {
         data: { providerId }
       });
       if (!response?.success) {
-        this.showProviderConfigMessage(response?.error || 'Could not remove provider credentials', true);
+        this.showProviderConfigMessage(response?.error || 'Could not remove provider configuration', true);
         return;
       }
 
       this.providerConfigSummaries.delete(providerId);
       this.updateProviderConfigurationUI();
-      this.showProviderConfigMessage(`${provider.label} credentials removed`);
+      this.showProviderConfigMessage(`${provider.label} configuration removed`);
     } catch (error) {
       this.showProviderConfigMessage(
-        error instanceof Error ? error.message : 'Could not remove provider credentials',
+        error instanceof Error ? error.message : 'Could not remove provider configuration',
         true
       );
     }
   }
 
-  private async ensureProviderEndpointPermission(endpoint: string, defaultEndpoint: string): Promise<boolean> {
+  private async ensureProviderEndpointPermission(endpoint: string): Promise<boolean> {
     let endpointUrl: URL;
     try {
       endpointUrl = new URL(endpoint);
@@ -731,10 +749,9 @@ class OptionsController {
       'https://generativelanguage.googleapis.com'
     ];
     if (preGrantedOrigins.includes(endpointUrl.origin)) return true;
-    if (defaultEndpoint && new URL(defaultEndpoint).origin === endpointUrl.origin) return true;
     if (!chrome.permissions?.request) return false;
 
-    const originPattern = `${endpointUrl.origin}/*`;
+    const originPattern = `${endpointUrl.protocol}//${endpointUrl.hostname}/*`;
     return new Promise<boolean>(resolve => {
       chrome.permissions.request({ origins: [originPattern] }, resolve);
     });
@@ -956,8 +973,8 @@ class OptionsController {
     try {
       const settings = this.collectSettingsFromUI();
       const provider = getTranslationProvider(settings.translationProvider);
-      if (provider?.requiresApiKey && !this.providerConfigSummaries.get(provider.id)?.configured) {
-        this.showMessage(`Configure ${provider.label} credentials before selecting it`, 'error');
+      if (provider?.configFields?.length && !this.providerConfigSummaries.get(provider.id)?.configured) {
+        this.showMessage(`Save ${provider.label} provider configuration before selecting it`, 'error');
         return false;
       }
       const response = await this.sendMessage({

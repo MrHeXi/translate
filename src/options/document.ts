@@ -10,7 +10,11 @@ import {
   PdfPageSummary,
   pdfDocumentService
 } from '../services/PdfDocumentService';
-import { AVAILABLE_TRANSLATION_PROVIDERS, TRANSLATION_LANGUAGES } from '../services/TranslationProviderRegistry';
+import {
+  AVAILABLE_TRANSLATION_PROVIDERS,
+  getProviderTargetLanguages,
+  TRANSLATION_LANGUAGES
+} from '../services/TranslationProviderRegistry';
 
 type DisplayMode = 'bilingual' | 'translation-only' | 'original-only';
 
@@ -152,6 +156,7 @@ class DocumentTranslatorController {
       if (this.ocrLanguage) {
         this.ocrLanguage.value = settings.documentOcrLanguage || 'eng';
       }
+      this.updateTargetLanguageAvailability();
     } catch (error) {
       this.showMessage('Could not load settings. Using defaults.', 'error');
     }
@@ -177,6 +182,7 @@ class DocumentTranslatorController {
     this.clearButton?.addEventListener('click', () => this.clearDocument());
     this.displayMode?.addEventListener('change', () => this.applyDisplayMode());
     this.ocrLanguage?.addEventListener('change', () => void this.handleOcrLanguageChange());
+    this.translationProvider?.addEventListener('change', () => this.updateTargetLanguageAvailability());
 
     const openOptions = document.getElementById('openOptions');
     openOptions?.addEventListener('click', () => chrome.runtime.openOptionsPage());
@@ -658,6 +664,22 @@ class DocumentTranslatorController {
     return BUNDLED_OCR_LANGUAGES.some(language => language.code === selected)
       ? selected as BundledOcrLanguageCode
       : 'eng';
+  }
+
+  private updateTargetLanguageAvailability(): void {
+    if (!this.targetLanguage) return;
+    const supportedCodes = new Set(
+      getProviderTargetLanguages(this.translationProvider?.value).map(language => language.code)
+    );
+    Array.from(this.targetLanguage.options).forEach(option => {
+      option.disabled = !supportedCodes.has(option.value);
+    });
+    if (!supportedCodes.has(this.targetLanguage.value)) {
+      const fallback = supportedCodes.has('zh-CN')
+        ? 'zh-CN'
+        : Array.from(this.targetLanguage.options).find(option => !option.disabled)?.value;
+      if (fallback) this.targetLanguage.value = fallback;
+    }
   }
 
   private showOcrProgress(fileName: string, progress: PdfOcrProgress): void {

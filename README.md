@@ -35,8 +35,8 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Skip configured page areas such as navigation, comments, ads, or `[data-no-translate]` regions during manual page translation.
 - Create exact-domain or wildcard site rules that can block page translation or override display mode, translation scope, style, and excluded selectors.
 - Choose from 100+ target language options in settings.
-- Use Google Translate or MyMemory without a key, or configure DeepL, Microsoft Translator, an OpenAI-compatible endpoint, or Google Gemini with your own API credentials.
-- With OpenAI-compatible or Gemini translation, choose a domain expert, enforce a local terminology glossary, add custom translation instructions, and optionally use neighboring page or document text as reference context.
+- Choose from 21 implemented provider adapters: Google Translate, MyMemory, DeepL, Microsoft Translator, OpenAI-compatible, Gemini, DeepSeek, OpenRouter, Groq, Qwen, Zhipu GLM, SiliconFlow, Ollama, Claude, Azure OpenAI, LibreTranslate, Yandex Cloud Translate, NiuTrans, Caiyun Translate, ModernMT, and Lingvanex.
+- With AI-capable providers, choose a domain expert, enforce a local terminology glossary, add custom translation instructions, and optionally use neighboring page or document text as reference context.
 - Keep neighboring-context sharing off by default. Context is collected only after a manual page or document translation starts and is bounded before it is sent to the selected AI provider.
 - Keep provider API keys in local Chrome storage only; keys are excluded from Chrome sync and learning-data exports.
 
@@ -160,14 +160,14 @@ The generated test package is `chrome-translation-extension.zip`.
 
 ### Configure a Translation Provider
 
-1. Open the options page and choose DeepL, Microsoft Translator, OpenAI compatible, or Google Gemini.
-2. Enter the provider API key and any provider-specific endpoint, model, or region setting.
-3. Save credentials before saving that provider as the active translation engine.
-4. A custom OpenAI-compatible or DeepL endpoint must use HTTPS, except for HTTP endpoints on localhost. LexiBridge requests access only to that endpoint's origin.
+1. Open the options page and choose one of the 21 implemented providers.
+2. Enter the provider API key and any provider-specific endpoint, model, or region setting. Ollama requires an endpoint and model but no API key; LibreTranslate accepts an optional key for instances that require one.
+3. Save provider configuration before saving any configurable provider as the active translation engine. This is also when Chrome asks for access to that provider host.
+4. Provider endpoints must use HTTPS, except for HTTP endpoints on `localhost` or `127.0.0.1`. Chrome host match patterns grant the configured scheme and host for all paths; they do not restrict access to one URL path or port.
 
-Google Translate and MyMemory remain available without user credentials. Credentialed providers do not silently fall back to another service when authentication or configuration fails.
+Google Translate and MyMemory remain available without provider configuration. Credentialed providers do not silently fall back to another service when authentication or configuration fails. Provider request formats and failure behavior are covered by automated contract tests; live use still depends on a valid provider account, API plan, endpoint, model, and regional availability.
 
-For OpenAI-compatible and Gemini providers, the AI translation controls in settings can select a subject domain, define terminology as `source term => required translation`, and add custom instructions. Neighboring context is opt-in and applies to manually translated page batches and document blocks only.
+For AI-capable providers, the AI translation controls in settings can select a subject domain, define terminology as `source term => required translation`, and add custom instructions. Neighboring context is opt-in and applies to manually translated page batches and document blocks only.
 
 ### Configure Site Rules
 

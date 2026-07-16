@@ -166,7 +166,7 @@ export class StorageManager {
 
     return Object.entries(configs).map(([providerId, config]) => ({
       providerId,
-      configured: Boolean(config.apiKey?.trim()),
+      configured: this.isTranslationProviderConfigured(providerId, config),
       apiKeyHint: this.maskApiKey(config.apiKey || ''),
       endpoint: config.endpoint || '',
       model: config.model || '',
@@ -196,17 +196,39 @@ export class StorageManager {
       model: config.model?.trim() || currentConfig.model || provider.defaultModel || '',
       region: config.region?.trim() || currentConfig.region || ''
     };
+    if (provider.configFields?.includes('endpoint') && !savedConfig.endpoint) {
+      throw new Error(`${provider.label} endpoint is required`);
+    }
+    if (provider.configFields?.includes('model') && !savedConfig.model) {
+      throw new Error(`${provider.label} model is required`);
+    }
     configs[providerId] = savedConfig;
     await chrome.storage.local.set({ [this.providerConfigStorageKey]: configs });
 
     return {
       providerId,
-      configured: true,
+      configured: this.isTranslationProviderConfigured(providerId, savedConfig),
       apiKeyHint: this.maskApiKey(apiKey),
       endpoint: savedConfig.endpoint || '',
       model: savedConfig.model || '',
       region: savedConfig.region || ''
     };
+  }
+
+  private isTranslationProviderConfigured(
+    providerId: string,
+    config: TranslationProviderRuntimeConfig
+  ): boolean {
+    const provider = getTranslationProvider(providerId);
+    if (!provider || provider.status !== 'available') return false;
+    if (provider.requiresApiKey && !config.apiKey?.trim()) return false;
+    if (provider.configFields?.includes('endpoint') && !config.endpoint?.trim() && !provider.defaultEndpoint) {
+      return false;
+    }
+    if (provider.configFields?.includes('model') && !config.model?.trim() && !provider.defaultModel) {
+      return false;
+    }
+    return true;
   }
 
   async removeTranslationProviderConfig(providerId: string): Promise<void> {

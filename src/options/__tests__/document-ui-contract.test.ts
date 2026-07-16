@@ -236,6 +236,24 @@ describe('document translator page', () => {
     );
   });
 
+  it('filters document target languages by the selected provider capability', async () => {
+    require('../document');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    const provider = document.getElementById('translationProvider') as HTMLSelectElement;
+    const target = document.getElementById('targetLanguage') as HTMLSelectElement;
+    expect(Array.from(provider.options).some(option => option.value === 'caiyun')).toBe(true);
+
+    target.value = 'fr';
+    provider.value = 'caiyun';
+    provider.dispatchEvent(new Event('change'));
+
+    expect(target.value).toBe('zh-CN');
+    expect(Array.from(target.options).find(option => option.value === 'fr')?.disabled).toBe(true);
+    expect(Array.from(target.options).find(option => option.value === 'ja')?.disabled).toBe(false);
+  });
+
   it('applies translation-only display mode to rendered blocks', async () => {
     require('../document');
     document.dispatchEvent(new Event('DOMContentLoaded'));

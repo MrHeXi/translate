@@ -16,6 +16,7 @@ import { performanceManager } from '../services/PerformanceManager';
 import { errorHandler, ErrorType, ErrorSeverity } from '../services/ErrorHandler';
 import { offlineManager } from '../services/OfflineManager';
 import { normalizeAiTranslationPreferences } from '../services/AiTranslationPreferences';
+import { getTranslationProvider } from '../services/TranslationProviderRegistry';
 
 // 消息类型定义（保留兼容性）
 interface MessageRequest {
@@ -485,7 +486,7 @@ class BackgroundService {
       const providerConfig = provider
         ? await this.storageManager.getTranslationProviderConfig(provider)
         : undefined;
-      const settings = provider === 'openai' || provider === 'gemini'
+      const settings = getTranslationProvider(provider)?.supportsAiPreferences
         ? await this.storageManager.getSettings()
         : null;
       const aiPreferences = settings

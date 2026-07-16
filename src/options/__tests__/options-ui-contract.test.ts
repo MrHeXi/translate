@@ -1,6 +1,7 @@
 describe('options UI settings contract', () => {
   const setupDom = (): void => {
     document.body.innerHTML = `
+      <main class="options-main"></main>
       <button id="saveSettings"></button>
       <button id="resetToDefault"></button>
       <button id="exportData"></button>
@@ -602,6 +603,12 @@ describe('options UI settings contract', () => {
     translationProvider.value = 'openai';
     translationProvider.dispatchEvent(new Event('change'));
     expect(aiTranslationDomain.disabled).toBe(false);
+    translationProvider.value = 'caiyun';
+    translationProvider.dispatchEvent(new Event('change'));
+    expect(targetLanguage.value).toBe('zh-CN');
+    expect(Array.from(targetLanguage.options).find(option => option.value === 'fr')?.disabled).toBe(true);
+    expect(Array.from(targetLanguage.options).find(option => option.value === 'ja')?.disabled).toBe(false);
+    expect(aiTranslationDomain.disabled).toBe(true);
   });
 
   it('shows only a masked key summary and the fields required by the selected provider', async () => {
@@ -668,6 +675,47 @@ describe('options UI settings contract', () => {
     expect((document.getElementById('providerRegionField') as HTMLElement).hidden).toBe(true);
   });
 
+  it('requires a saved provider configuration before activating a keyless endpoint', async () => {
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getSettings') {
+        callback({ success: true, data: createSettings() });
+        return;
+      }
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({ success: true, data: [] });
+        return;
+      }
+      if (message.action === 'getLearningStats') {
+        callback({ success: true, data: createStats() });
+        return;
+      }
+      if (message.action === 'getDictionaryProgress') {
+        callback({ success: true, data: {} });
+        return;
+      }
+      callback({ success: true });
+    });
+
+    (global as any).chrome = {
+      runtime: { sendMessage, lastError: null }
+    };
+
+    require('../options');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    const provider = document.getElementById('translationProvider') as HTMLSelectElement;
+    provider.value = 'ollama';
+    provider.dispatchEvent(new Event('change'));
+    document.getElementById('saveSettings')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    expect(sendMessage.mock.calls.some(([message]) => message.action === 'updateSettings')).toBe(false);
+    expect(document.querySelector('.message')?.textContent).toContain(
+      'Save Ollama local model provider configuration'
+    );
+  });
+
   it('requests exact host access and saves an OpenAI-compatible endpoint locally', async () => {
     const savedSummary = {
       providerId: 'openai',
@@ -695,7 +743,17 @@ describe('options UI settings contract', () => {
         return;
       }
       if (message.action === 'updateTranslationProviderConfig') {
-        callback({ success: true, data: savedSummary });
+        callback({
+          success: true,
+          data: {
+            ...savedSummary,
+            providerId: message.data.providerId,
+            apiKeyHint: message.data.config.apiKey ? savedSummary.apiKeyHint : '',
+            endpoint: message.data.config.endpoint,
+            model: message.data.config.model,
+            region: message.data.config.region
+          }
+        });
         return;
       }
       callback({ success: true });
@@ -738,9 +796,59 @@ describe('options UI settings contract', () => {
     }, expect.any(Function));
     expect((document.getElementById('providerApiKey') as HTMLInputElement).value).toBe('');
     expect(document.getElementById('providerConfigMessage')?.textContent).toContain('saved locally');
+
+    provider.value = 'deepseek';
+    provider.dispatchEvent(new Event('change'));
+    (document.getElementById('providerApiKey') as HTMLInputElement).value = 'deepseek-secret';
+    document.getElementById('saveProviderConfig')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    expect(request).toHaveBeenCalledWith(
+      { origins: ['https://api.deepseek.com/*'] },
+      expect.any(Function)
+    );
+    expect(sendMessage).toHaveBeenCalledWith({
+      action: 'updateTranslationProviderConfig',
+      data: {
+        providerId: 'deepseek',
+        config: {
+          apiKey: 'deepseek-secret',
+          endpoint: 'https://api.deepseek.com/chat/completions',
+          model: 'deepseek-chat',
+          region: ''
+        }
+      }
+    }, expect.any(Function));
+
+    provider.value = 'ollama';
+    provider.dispatchEvent(new Event('change'));
+    document.getElementById('saveProviderConfig')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    expect(request).toHaveBeenCalledWith(
+      { origins: ['http://localhost/*'] },
+      expect.any(Function)
+    );
+    expect(sendMessage).toHaveBeenCalledWith({
+      action: 'updateTranslationProviderConfig',
+      data: {
+        providerId: 'ollama',
+        config: {
+          apiKey: '',
+          endpoint: 'http://localhost:11434/v1/chat/completions',
+          model: 'qwen2.5:7b',
+          region: ''
+        }
+      }
+    }, expect.any(Function));
+
+    document.getElementById('saveSettings')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+    expect(sendMessage.mock.calls.find(([message]) => message.action === 'updateSettings')?.[0].data)
+      .toEqual(expect.objectContaining({ translationProvider: 'ollama' }));
   });
 
-  it('removes saved provider credentials through the background message channel', async () => {
+  it('removes a saved provider configuration through the background message channel', async () => {
     const sendMessage = jest.fn((message, callback) => {
       if (message.action === 'getSettings') {
         callback({ success: true, data: createSettings({ translationProvider: 'deepl' }) });

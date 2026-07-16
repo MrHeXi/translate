@@ -1,5 +1,20 @@
 export type TranslationProviderStatus = 'available' | 'planned';
 export type TranslationProviderConfigField = 'apiKey' | 'endpoint' | 'model' | 'region';
+export type TranslationProviderAdapter =
+  | 'google'
+  | 'mymemory'
+  | 'deepl'
+  | 'microsoft'
+  | 'openai-compatible'
+  | 'azure-openai'
+  | 'gemini'
+  | 'anthropic'
+  | 'libretranslate'
+  | 'yandex'
+  | 'niutrans'
+  | 'caiyun'
+  | 'modernmt'
+  | 'lingvanex';
 
 export interface TranslationProviderRuntimeConfig {
   apiKey?: string;
@@ -14,6 +29,9 @@ export interface TranslationProviderDefinition {
   status: TranslationProviderStatus;
   requiresApiKey: boolean;
   supportsAutoDetect: boolean;
+  adapter?: TranslationProviderAdapter;
+  supportsAiPreferences?: boolean;
+  supportedTargetLanguages?: string[];
   configFields?: TranslationProviderConfigField[];
   defaultEndpoint?: string;
   defaultModel?: string;
@@ -25,14 +43,26 @@ export interface TranslationLanguageDefinition {
 }
 
 export const TRANSLATION_PROVIDERS: TranslationProviderDefinition[] = [
-  { id: 'google', label: 'Google Translate', status: 'available', requiresApiKey: false, supportsAutoDetect: true },
-  { id: 'mymemory', label: 'MyMemory', status: 'available', requiresApiKey: false, supportsAutoDetect: true },
+  {
+    id: 'google', label: 'Google Translate', status: 'available', adapter: 'google',
+    requiresApiKey: false, supportsAutoDetect: true
+  },
+  {
+    id: 'mymemory', label: 'MyMemory', status: 'available', adapter: 'mymemory',
+    requiresApiKey: false, supportsAutoDetect: true
+  },
   {
     id: 'deepl',
     label: 'DeepL',
     status: 'available',
+    adapter: 'deepl',
     requiresApiKey: true,
     supportsAutoDetect: true,
+    supportedTargetLanguages: [
+      'bg', 'cs', 'da', 'de', 'el', 'en', 'es', 'et', 'fi', 'fr', 'hu', 'id', 'it',
+      'ja', 'ko', 'lt', 'lv', 'nl', 'no', 'pl', 'pt', 'ro', 'ru', 'sk', 'sl', 'sv',
+      'tr', 'uk', 'zh-CN', 'zh-TW'
+    ],
     configFields: ['apiKey', 'endpoint'],
     defaultEndpoint: 'https://api-free.deepl.com/v2/translate'
   },
@@ -40,6 +70,7 @@ export const TRANSLATION_PROVIDERS: TranslationProviderDefinition[] = [
     id: 'microsoft',
     label: 'Microsoft Translator',
     status: 'available',
+    adapter: 'microsoft',
     requiresApiKey: true,
     supportsAutoDetect: true,
     configFields: ['apiKey', 'region'],
@@ -49,6 +80,8 @@ export const TRANSLATION_PROVIDERS: TranslationProviderDefinition[] = [
     id: 'openai',
     label: 'OpenAI compatible',
     status: 'available',
+    adapter: 'openai-compatible',
+    supportsAiPreferences: true,
     requiresApiKey: true,
     supportsAutoDetect: true,
     configFields: ['apiKey', 'endpoint', 'model'],
@@ -59,30 +92,109 @@ export const TRANSLATION_PROVIDERS: TranslationProviderDefinition[] = [
     id: 'gemini',
     label: 'Google Gemini',
     status: 'available',
+    adapter: 'gemini',
+    supportsAiPreferences: true,
     requiresApiKey: true,
     supportsAutoDetect: true,
     configFields: ['apiKey', 'model'],
     defaultEndpoint: 'https://generativelanguage.googleapis.com/v1beta/models',
     defaultModel: 'gemini-2.5-flash'
   },
-  { id: 'libretranslate', label: 'LibreTranslate', status: 'planned', requiresApiKey: false, supportsAutoDetect: true },
-  { id: 'yandex', label: 'Yandex Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
+  {
+    id: 'deepseek', label: 'DeepSeek', status: 'available', adapter: 'openai-compatible',
+    supportsAiPreferences: true, requiresApiKey: true, supportsAutoDetect: true,
+    configFields: ['apiKey', 'endpoint', 'model'],
+    defaultEndpoint: 'https://api.deepseek.com/chat/completions', defaultModel: 'deepseek-chat'
+  },
+  {
+    id: 'openrouter', label: 'OpenRouter', status: 'available', adapter: 'openai-compatible',
+    supportsAiPreferences: true, requiresApiKey: true, supportsAutoDetect: true,
+    configFields: ['apiKey', 'endpoint', 'model'],
+    defaultEndpoint: 'https://openrouter.ai/api/v1/chat/completions', defaultModel: 'openai/gpt-4o-mini'
+  },
+  {
+    id: 'groq', label: 'Groq', status: 'available', adapter: 'openai-compatible',
+    supportsAiPreferences: true, requiresApiKey: true, supportsAutoDetect: true,
+    configFields: ['apiKey', 'endpoint', 'model'],
+    defaultEndpoint: 'https://api.groq.com/openai/v1/chat/completions', defaultModel: 'llama-3.1-8b-instant'
+  },
+  {
+    id: 'qwen', label: 'Qwen', status: 'available', adapter: 'openai-compatible',
+    supportsAiPreferences: true, requiresApiKey: true, supportsAutoDetect: true,
+    configFields: ['apiKey', 'endpoint', 'model'],
+    defaultEndpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', defaultModel: 'qwen-mt-turbo'
+  },
+  {
+    id: 'zhipu', label: 'Zhipu GLM', status: 'available', adapter: 'openai-compatible',
+    supportsAiPreferences: true, requiresApiKey: true, supportsAutoDetect: true,
+    configFields: ['apiKey', 'endpoint', 'model'],
+    defaultEndpoint: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', defaultModel: 'glm-4-flash'
+  },
+  {
+    id: 'siliconflow', label: 'SiliconFlow', status: 'available', adapter: 'openai-compatible',
+    supportsAiPreferences: true, requiresApiKey: true, supportsAutoDetect: true,
+    configFields: ['apiKey', 'endpoint', 'model'],
+    defaultEndpoint: 'https://api.siliconflow.cn/v1/chat/completions', defaultModel: 'Qwen/Qwen2.5-7B-Instruct'
+  },
+  {
+    id: 'ollama', label: 'Ollama local model', status: 'available', adapter: 'openai-compatible',
+    supportsAiPreferences: true, requiresApiKey: false, supportsAutoDetect: true,
+    configFields: ['endpoint', 'model'],
+    defaultEndpoint: 'http://localhost:11434/v1/chat/completions', defaultModel: 'qwen2.5:7b'
+  },
+  {
+    id: 'claude', label: 'Claude', status: 'available', adapter: 'anthropic',
+    supportsAiPreferences: true, requiresApiKey: true, supportsAutoDetect: true,
+    configFields: ['apiKey', 'endpoint', 'model'],
+    defaultEndpoint: 'https://api.anthropic.com/v1/messages', defaultModel: 'claude-3-5-haiku-latest'
+  },
+  {
+    id: 'azure-openai', label: 'Azure OpenAI', status: 'available', adapter: 'azure-openai',
+    supportsAiPreferences: true, requiresApiKey: true, supportsAutoDetect: true,
+    configFields: ['apiKey', 'endpoint']
+  },
+  {
+    id: 'libretranslate', label: 'LibreTranslate', status: 'available', adapter: 'libretranslate',
+    requiresApiKey: false, supportsAutoDetect: true, configFields: ['apiKey', 'endpoint'],
+    defaultEndpoint: 'https://libretranslate.com/translate'
+  },
+  {
+    id: 'yandex', label: 'Yandex Cloud Translate', status: 'available', adapter: 'yandex',
+    requiresApiKey: true, supportsAutoDetect: true, configFields: ['apiKey', 'endpoint', 'region'],
+    defaultEndpoint: 'https://translate.api.cloud.yandex.net/translate/v2/translate'
+  },
+  {
+    id: 'niutrans', label: 'NiuTrans', status: 'available', adapter: 'niutrans',
+    requiresApiKey: true, supportsAutoDetect: true, configFields: ['apiKey', 'endpoint'],
+    defaultEndpoint: 'https://api.niutrans.com/NiuTransServer/translation'
+  },
+  {
+    id: 'caiyun', label: 'Caiyun Translate', status: 'available', adapter: 'caiyun',
+    requiresApiKey: true, supportsAutoDetect: true, configFields: ['apiKey', 'endpoint'],
+    defaultEndpoint: 'https://api.interpreter.caiyunai.com/v1/translator',
+    supportedTargetLanguages: ['zh-CN', 'zh-TW', 'en', 'ja', 'ko']
+  },
+  {
+    id: 'modernmt', label: 'ModernMT', status: 'available', adapter: 'modernmt',
+    requiresApiKey: true, supportsAutoDetect: true, configFields: ['apiKey', 'endpoint'],
+    defaultEndpoint: 'https://api.modernmt.com/translate'
+  },
+  {
+    id: 'lingvanex', label: 'Lingvanex', status: 'available', adapter: 'lingvanex',
+    requiresApiKey: true, supportsAutoDetect: true, configFields: ['apiKey', 'endpoint'],
+    defaultEndpoint: 'https://api-b2b.backenster.com/b1/api/v3/translate'
+  },
   { id: 'papago', label: 'Naver Papago', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
   { id: 'baidu', label: 'Baidu Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
   { id: 'tencent', label: 'Tencent Cloud TMT', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
   { id: 'volcengine', label: 'Volcengine Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
   { id: 'alibaba', label: 'Alibaba Machine Translation', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
   { id: 'youdao', label: 'Youdao Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
-  { id: 'caiyun', label: 'Caiyun Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
-  { id: 'niutrans', label: 'NiuTrans', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
   { id: 'aws', label: 'Amazon Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
   { id: 'ibm', label: 'IBM Watson Language Translator', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
-  { id: 'modernmt', label: 'ModernMT', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
-  { id: 'lingvanex', label: 'Lingvanex', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
   { id: 'reverso', label: 'Reverso Context', status: 'planned', requiresApiKey: false, supportsAutoDetect: true },
   { id: 'systran', label: 'SYSTRAN Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
   { id: 'chatglm', label: 'ChatGLM', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
-  { id: 'ollama', label: 'Ollama local model', status: 'planned', requiresApiKey: false, supportsAutoDetect: true }
 ];
 
 export const TRANSLATION_LANGUAGES: TranslationLanguageDefinition[] = [
@@ -231,3 +343,15 @@ export const getTranslationProvider = (providerId: string | undefined): Translat
 
 export const isAvailableTranslationProvider = (providerId: string | undefined): boolean =>
   AVAILABLE_TRANSLATION_PROVIDERS.some(provider => provider.id === providerId);
+
+export const providerSupportsTargetLanguage = (
+  providerId: string | undefined,
+  languageCode: string
+): boolean => {
+  const provider = getTranslationProvider(providerId);
+  return !provider?.supportedTargetLanguages || provider.supportedTargetLanguages.includes(languageCode);
+};
+
+export const getProviderTargetLanguages = (providerId: string | undefined): TranslationLanguageDefinition[] => (
+  TRANSLATION_LANGUAGES.filter(language => providerSupportsTargetLanguage(providerId, language.code))
+);
