@@ -14,7 +14,7 @@ It is best for:
 - Translating pasted or uploaded text documents, HTML files, JSON files, DOCX files, EPUB files, subtitle files, and simple text-based PDFs.
 - Translating video captions when the page exposes subtitle/caption tracks or common DOM-rendered captions.
 - Translating live caption text that is already visible in a page.
-- Translating text from selected images, SVGs, and canvases when readable text or browser OCR is available.
+- Translating text from selected or currently visible images, SVGs, and canvases when readable text or browser OCR is available.
 - Collecting useful words from real context.
 - Reviewing CET4, CET6, GRE, IELTS, TOEFL vocabulary.
 - Keeping a local-first vocabulary notebook with Chrome storage sync support.
@@ -82,8 +82,11 @@ It is not marketed as a full scanned-PDF OCR translator, layout-perfect Office/e
 - Start or stop image text translation manually from the popup.
 - Click an image, canvas, or SVG to translate extracted text.
 - Drag over an image or canvas to translate only the selected region, useful for comic speech bubbles or dense screenshots.
+- Click Translate visible images to process eligible images, canvases, and SVGs currently intersecting the viewport.
+- Skip hidden, offscreen, tiny, and extension-owned graphics during a visible-image batch, and stop the batch as soon as image mode is turned off.
 - Use browser `TextDetector` OCR when available, with SVG text and image accessibility text as fallbacks.
 - Render separate translation overlays for detected OCR text blocks when the browser provides bounding boxes.
+- Keep every OCR action explicit; opening or scrolling a page never starts image translation.
 - Full scanned-document OCR and automatic manga panel segmentation are planned for later batches.
 
 ### Vocabulary Learning
@@ -189,8 +192,8 @@ The generated test package is `chrome-translation-extension.zip`.
 
 1. Open the extension popup.
 2. Click Start in Image text.
-3. Click an image, canvas, or SVG that contains readable text, or drag over a specific image region.
-4. Click the same control again to exit image text translation mode.
+3. Click an image, canvas, or SVG, drag over a specific image region, or click Translate visible images to process eligible graphics in the current viewport.
+4. Click Stop to cancel any active visible-image batch, remove its overlays, and exit image text translation mode.
 
 ### Study Vocabulary
 

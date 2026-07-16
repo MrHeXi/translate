@@ -1,8 +1,8 @@
 # LexiBridge Translate Privacy Policy
 
-Last updated: 2026-07-06
+Last updated: 2026-07-16
 
-LexiBridge Translate is a browser extension for user-triggered page translation, document text translation, selected image text translation, video subtitle text translation, live caption text translation, selection translation, vocabulary collection, and vocabulary review.
+LexiBridge Translate is a browser extension for user-triggered page translation, document text translation, selected or currently visible image text translation, video subtitle text translation, live caption text translation, selection translation, vocabulary collection, and vocabulary review.
 
 ## Data Stored by the Extension
 
@@ -17,16 +17,16 @@ Chrome storage may sync data through the user's browser profile if Chrome sync i
 
 ## Translation Provider Requests
 
-Translation provider requests happen only after the user asks LexiBridge to translate selected text, document text, selected image text, available video subtitle text, visible live caption text, or a page.
+Translation provider requests happen only after the user asks LexiBridge to translate selected text, document text, selected image text, eligible currently visible image text, available video subtitle text, visible live caption text, or a page.
 
-When the user translates selected text, starts page translation, translates a document in the document translator, manually starts image text translation and clicks an image or drags over an image region, manually starts video subtitle translation for a page with available caption tracks, or manually starts live caption translation for caption text already visible on a page, LexiBridge sends the requested text to the selected translation provider.
+When the user translates selected text, starts page translation, translates a document in the document translator, manually starts image text translation and then clicks an image, drags over an image region, or clicks Translate visible images, manually starts video subtitle translation for a page with available caption tracks, or manually starts live caption translation for caption text already visible on a page, LexiBridge sends the requested text to the selected translation provider.
 
 Current provider hosts:
 
 - `translate.googleapis.com`
 - `api.mymemory.translated.net`
 
-The extension sends the text needed for the requested translation and the selected target language. Uploaded document files are read locally in the browser; the extension sends only the extracted text blocks that the user asks to translate. HTML files are parsed locally so readable body text can be translated without sending scripts, styles, or markup as separate content. JSON files are parsed locally to extract readable string values; LexiBridge does not execute JSON content or rewrite JSON structure. DOCX and EPUB files are read locally as document archives so readable paragraph or spine text can be extracted; LexiBridge does not rewrite the original Office or eBook file. Uploaded subtitle files are parsed locally to keep cue timing for local translated `.srt` or `.vtt` export. For simple text-based PDFs, page and coordinate metadata may be used locally to render layout-aware blocks, but the translation request sends the extracted text. Image text translation extracts text locally from browser OCR when available, SVG text, or image accessibility text, then sends only the extracted text after the user clicks the image or selects a region. OCR bounding boxes, when available, are used locally to position image-region overlays and are not sent as a separate data payload. Video subtitle and live caption translation send caption text only after the user turns the feature on. Meeting-style live caption adapters keep speaker labels locally when available, but send only the caption text for translation. Video subtitle export creates a local `.srt` download from subtitle cues already translated in the current page session; it does not upload audio or request a transcript service. LexiBridge does not record audio, join calls, or create meeting transcripts for these features. Translation provider handling is governed by the provider's own terms and privacy practices.
+The extension sends the text needed for the requested translation and the selected target language. Uploaded document files are read locally in the browser; the extension sends only the extracted text blocks that the user asks to translate. HTML files are parsed locally so readable body text can be translated without sending scripts, styles, or markup as separate content. JSON files are parsed locally to extract readable string values; LexiBridge does not execute JSON content or rewrite JSON structure. DOCX and EPUB files are read locally as document archives so readable paragraph or spine text can be extracted; LexiBridge does not rewrite the original Office or eBook file. Uploaded subtitle files are parsed locally to keep cue timing for local translated `.srt` or `.vtt` export. For simple text-based PDFs, page and coordinate metadata may be used locally to render layout-aware blocks, but the translation request sends the extracted text. Image text translation extracts text locally from browser OCR when available, SVG text, or image accessibility text, then sends only the extracted text after the user clicks an image, selects a region, or explicitly runs Translate visible images. A visible-image batch considers only eligible graphics intersecting the current viewport and skips hidden, offscreen, tiny, and extension-owned graphics. OCR bounding boxes, when available, are used locally to position image-region overlays and are not sent as a separate data payload. Video subtitle and live caption translation send caption text only after the user turns the feature on. Meeting-style live caption adapters keep speaker labels locally when available, but send only the caption text for translation. Video subtitle export creates a local `.srt` download from subtitle cues already translated in the current page session; it does not upload audio or request a transcript service. LexiBridge does not record audio, join calls, or create meeting transcripts for these features. Translation provider handling is governed by the provider's own terms and privacy practices.
 
 ## No Default Telemetry
 
@@ -38,7 +38,7 @@ If optional analytics are added later, they must be opt-in and documented before
 
 The extension runs a content script on pages so it can show the floating button, translate selected text, highlight enabled dictionary words, and insert user-requested page translations.
 
-LexiBridge does not translate pages automatically. Page translation starts only after user action from the popup or floating button. Image text, video subtitle, and live caption translation also start only after user action from the popup.
+LexiBridge does not translate pages automatically. Page translation starts only after user action from the popup or floating button. Image text, video subtitle, and live caption translation also start only after user action from the popup. Opening or scrolling a page never starts image OCR; the visible-image batch requires a separate click after Image text mode is enabled, and Stop prevents further images from being processed.
 
 ## Permissions
 

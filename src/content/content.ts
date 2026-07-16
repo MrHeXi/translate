@@ -9,7 +9,7 @@ import { InputBoxTranslator } from './components/InputBoxTranslator';
 import { DocumentPagePrompt } from './components/DocumentPagePrompt';
 import { VideoSubtitleTranslator } from './components/VideoSubtitleTranslator';
 import { LiveCaptionTranslator } from './components/LiveCaptionTranslator';
-import { ImageTranslator } from './components/ImageTranslator';
+import { ImageTranslator, VisibleImageTranslationResult } from './components/ImageTranslator';
 import { messageManager } from '../services/MessageManager';
 import { performanceManager } from '../services/PerformanceManager';
 import { errorHandler, ErrorType, ErrorSeverity } from '../services/ErrorHandler';
@@ -176,6 +176,10 @@ class ContentScript {
         const state = await this.toggleImageTranslation();
         return { success: true, data: state };
       },
+      'translateVisibleImages': async () => {
+        const result = await this.translateVisibleImages();
+        return { success: true, data: result };
+      },
       'updateSettings': async (request) => {
         this.userSettings = { ...this.userSettings, ...request.data };
         await this.applySettingsChanges();
@@ -262,6 +266,12 @@ class ContentScript {
         case 'toggleImageTranslation': {
           const state = await this.toggleImageTranslation();
           sendResponse({ success: true, ...state });
+          break;
+        }
+
+        case 'translateVisibleImages': {
+          const result = await this.translateVisibleImages();
+          sendResponse({ success: true, ...result });
           break;
         }
         
@@ -359,6 +369,10 @@ class ContentScript {
 
   private async toggleImageTranslation(): Promise<{ isActive: boolean; hasImage: boolean; message: string }> {
     return this.imageTranslator.toggle((text) => this.translateInteractiveText(text));
+  }
+
+  private async translateVisibleImages(): Promise<VisibleImageTranslationResult> {
+    return this.imageTranslator.translateVisibleImages();
   }
 
   private async initializeLearningMode(): Promise<void> {

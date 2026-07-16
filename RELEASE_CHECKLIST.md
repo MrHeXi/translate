@@ -61,6 +61,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Confirm page translation does not start automatically.
 - [ ] Confirm the floating button starts translation and the next click stops it.
 - [ ] Confirm selected text shows a translation tooltip.
+- [ ] Confirm Image text stays idle until Start plus a click, drag, or Translate visible images action; confirm Stop cancels the remaining visible-image batch and clears overlays.
 - [ ] Confirm a word can be saved and appears in the vocabulary page.
 - [ ] Confirm review page can load due or new words.
 - [ ] Confirm export and import controls are reachable.

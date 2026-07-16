@@ -17,7 +17,8 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Video subtitle translation for pages that expose caption/subtitle text tracks or common DOM-rendered caption containers.
 - SRT export for translated video subtitle cues from the current session.
 - Live caption translation for caption text already visible in the page DOM, with Google Meet, Zoom, and Teams-style speaker label handling.
-- Manual image text translation for selected images, canvases, SVGs, and dragged image regions, using browser OCR when available, including separate OCR block overlays when bounding boxes are available.
+- Manual image text translation for selected images, canvases, SVGs, dragged image regions, and eligible graphics currently visible in the viewport, using browser OCR when available and retaining separate per-image or OCR-block overlays.
+- Explicit Translate visible images command with hidden/offscreen/tiny/extension-owned filtering, duplicate-text request caching, and immediate batch cancellation when Image text stops.
 - 100+ target language choices in settings.
 - Provider registry with Google Translate and MyMemory available today plus a 20+ provider expansion roadmap.
 - Built-in CET4, CET6, GRE, IELTS, and TOEFL vocabulary dictionaries.
@@ -27,11 +28,11 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 
 ### Verification
 
-Verified on 2026-07-10:
+Verified on 2026-07-16:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 34 test suites and 238 tests.
+- `jest --runInBand --silent`: passed, 35 test suites and 243 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 

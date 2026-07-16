@@ -104,6 +104,9 @@ Current batch:
 - Done: render translated overlays near the selected image target.
 - Done: support manual drag-to-select OCR regions for images and canvases.
 - Done: render separate OCR text-block overlays when the browser returns bounding boxes.
+- Done: add an explicit Translate visible images command for eligible images, canvases, and SVGs intersecting the current viewport.
+- Done: retain per-image overlays, reuse duplicate-text translations, and cancel remaining visible-image work when image mode stops.
+- Done: skip hidden, offscreen, tiny, nested SVG, and extension-owned graphics during visible-image batches.
 - Done: keep all OCR-triggering actions explicit.
 - Remaining: full scanned-document OCR and automatic manga panel segmentation.
 

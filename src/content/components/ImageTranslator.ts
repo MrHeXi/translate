@@ -4,6 +4,15 @@ export interface ImageTranslatorState {
   message: string;
 }
 
+export interface VisibleImageTranslationResult {
+  isActive: boolean;
+  visibleImageCount: number;
+  translatedImageCount: number;
+  unreadableImageCount: number;
+  failedImageCount: number;
+  message: string;
+}
+
 type TranslateText = (text: string) => Promise<string>;
 
 interface DetectedText {
@@ -56,6 +65,8 @@ interface ImageBitmapMapping {
   viewportHeight: number;
 }
 
+type ImageTranslationOutcome = 'translated' | 'failed' | 'cancelled';
+
 declare global {
   interface Window {
     TextDetector?: new () => TextDetectorLike;
@@ -65,15 +76,17 @@ declare global {
 export class ImageTranslator {
   private isActive = false;
   private translateText: TranslateText | null = null;
-  private overlayElement: HTMLElement | null = null;
-  private regionalOverlayElements: HTMLElement[] = [];
+  private overlayElements: Map<Element, HTMLElement[]> = new Map();
   private styleElement: HTMLStyleElement | null = null;
   private selectionElement: HTMLElement | null = null;
   private selectionState: ImageSelectionState | null = null;
   private suppressNextClick = false;
-  private lastImageText = '';
   private translationCache: Map<string, string> = new Map();
   private pendingTranslationCache: Map<string, Promise<string>> = new Map();
+  private targetTranslationRuns: WeakMap<Element, number> = new WeakMap();
+  private nextTargetTranslationRun = 0;
+  private visibleImageRun = 0;
+  private nextOverlayId = 0;
   private boundHandleClick = (event: MouseEvent): void => {
     void this.handleImageClick(event);
   };
@@ -121,20 +134,19 @@ export class ImageTranslator {
 
   disable(): void {
     this.isActive = false;
+    this.visibleImageRun += 1;
     document.removeEventListener('mousedown', this.boundHandleMouseDown, true);
     document.removeEventListener('mousemove', this.boundHandleMouseMove, true);
     document.removeEventListener('mouseup', this.boundHandleMouseUp, true);
     document.removeEventListener('click', this.boundHandleClick, true);
     document.body.classList.remove('lexibridge-image-translation-mode');
-    this.overlayElement?.remove();
-    this.overlayElement = null;
-    this.removeRegionalOverlays();
+    this.removeAllOverlays();
     this.removeSelectionBox();
     this.selectionState = null;
     this.suppressNextClick = false;
     this.styleElement?.remove();
     this.styleElement = null;
-    this.lastImageText = '';
+    this.targetTranslationRuns = new WeakMap();
   }
 
   getStatus(): ImageTranslatorState {
@@ -149,6 +161,78 @@ export class ImageTranslator {
     this.disable();
     this.translationCache.clear();
     this.pendingTranslationCache.clear();
+  }
+
+  async translateVisibleImages(): Promise<VisibleImageTranslationResult> {
+    if (!this.isActive || !this.translateText) {
+      return {
+        isActive: false,
+        visibleImageCount: 0,
+        translatedImageCount: 0,
+        unreadableImageCount: 0,
+        failedImageCount: 0,
+        message: 'Start image translation first'
+      };
+    }
+
+    const candidates = this.findVisibleImageCandidates();
+    if (candidates.length === 0) {
+      return {
+        isActive: true,
+        visibleImageCount: 0,
+        translatedImageCount: 0,
+        unreadableImageCount: 0,
+        failedImageCount: 0,
+        message: 'No visible images found'
+      };
+    }
+
+    const runId = ++this.visibleImageRun;
+    let translatedImageCount = 0;
+    let unreadableImageCount = 0;
+    let failedImageCount = 0;
+
+    this.targetTranslationRuns = new WeakMap();
+    this.removeAllOverlays();
+
+    for (const target of candidates) {
+      if (!this.isVisibleImageRunActive(runId)) break;
+
+      const imageBlocks = await this.extractImageTextBlocks(target);
+      if (!this.isVisibleImageRunActive(runId)) break;
+
+      if (imageBlocks.length === 0) {
+        unreadableImageCount += 1;
+        continue;
+      }
+
+      const outcome = await this.translateImageBlocks(target, imageBlocks);
+      if (outcome === 'translated') {
+        translatedImageCount += 1;
+      } else if (outcome === 'failed') {
+        failedImageCount += 1;
+      } else {
+        break;
+      }
+    }
+
+    const isActive = this.isVisibleImageRunActive(runId);
+
+    return {
+      isActive: this.isActive,
+      visibleImageCount: candidates.length,
+      translatedImageCount,
+      unreadableImageCount,
+      failedImageCount,
+      message: isActive
+        ? this.getVisibleImageResultMessage(
+          candidates.length,
+          translatedImageCount,
+          unreadableImageCount,
+          failedImageCount
+        )
+        : 'Image translation stopped'
+    };
   }
 
   private async handleImageClick(event: MouseEvent): Promise<void> {
@@ -171,7 +255,6 @@ export class ImageTranslator {
 
     const imageBlocks = await this.extractImageTextBlocks(target);
     if (imageBlocks.length === 0) {
-      this.lastImageText = '';
       this.renderStatus(target, 'No readable image text found');
       return;
     }
@@ -224,7 +307,6 @@ export class ImageTranslator {
 
     const imageBlocks = await this.extractImageTextBlocks(selectionState.target, region);
     if (imageBlocks.length === 0) {
-      this.lastImageText = '';
       this.renderStatus(selectionState.target, 'No readable text found in selection', region);
       return;
     }
@@ -232,13 +314,15 @@ export class ImageTranslator {
     await this.translateImageBlocks(selectionState.target, imageBlocks, region);
   }
 
-  private async translateImageBlocks(target: Element, imageBlocks: ImageTextBlock[], region?: ImageSelectionRegion): Promise<void> {
-    if (!this.translateText) return;
+  private async translateImageBlocks(
+    target: Element,
+    imageBlocks: ImageTextBlock[],
+    region?: ImageSelectionRegion
+  ): Promise<ImageTranslationOutcome> {
+    if (!this.translateText || !this.isActive) return 'cancelled';
 
-    const imageText = this.getImageBlocksSignature(imageBlocks);
-    if (imageText === this.lastImageText) return;
-
-    this.lastImageText = imageText;
+    const targetRunId = ++this.nextTargetTranslationRun;
+    this.targetTranslationRuns.set(target, targetRunId);
     this.renderImageBlocks(target, imageBlocks, imageBlocks.map(() => 'Translating...'), region);
 
     try {
@@ -246,13 +330,19 @@ export class ImageTranslator {
         imageBlocks.map(block => this.translateCachedImageText(block.text))
       );
 
-      if (this.isActive && this.lastImageText === imageText) {
+      if (this.isTargetTranslationRunActive(target, targetRunId)) {
         this.renderImageBlocks(target, imageBlocks, translatedBlocks, region);
+        return 'translated';
       }
+
+      return 'cancelled';
     } catch (error) {
-      if (this.isActive && this.lastImageText === imageText) {
+      if (this.isTargetTranslationRunActive(target, targetRunId)) {
         this.renderImageBlocks(target, imageBlocks, imageBlocks.map(() => 'Image translation failed'), region);
+        return 'failed';
       }
+
+      return 'cancelled';
     }
   }
 
@@ -260,7 +350,7 @@ export class ImageTranslator {
     if (!this.translateText) return '';
 
     let translatedText = this.translationCache.get(text);
-    if (!translatedText) {
+    if (translatedText === undefined) {
       let pendingTranslation = this.pendingTranslationCache.get(text);
       if (!pendingTranslation) {
         pendingTranslation = this.translateText(text)
@@ -281,7 +371,7 @@ export class ImageTranslator {
 
   private getImageTarget(event: MouseEvent): Element | null {
     const target = event.target as Element | null;
-    if (!target || target.closest('#lexibridge-image-translation-overlay')) {
+    if (!target || this.isExtensionOwnedElement(target)) {
       return null;
     }
 
@@ -294,7 +384,68 @@ export class ImageTranslator {
   }
 
   private findImageCandidates(): Element[] {
-    return Array.from(document.querySelectorAll('img, canvas, svg, picture'));
+    return Array.from(document.querySelectorAll('img, canvas, svg'))
+      .filter(element => !this.isExtensionOwnedElement(element))
+      .filter(element => !(element instanceof SVGSVGElement && element.parentElement?.closest('svg')));
+  }
+
+  private findVisibleImageCandidates(): Element[] {
+    return this.findImageCandidates().filter(element => this.isVisibleImageCandidate(element));
+  }
+
+  private isVisibleImageCandidate(element: Element): boolean {
+    if (!element.isConnected || this.isElementHidden(element)) return false;
+
+    const rect = element.getBoundingClientRect();
+    if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height)) return false;
+    if (rect.width < 24 || rect.height < 24) return false;
+
+    return rect.bottom > 0 &&
+      rect.right > 0 &&
+      rect.top < window.innerHeight &&
+      rect.left < window.innerWidth;
+  }
+
+  private isElementHidden(element: Element): boolean {
+    let current: Element | null = element;
+
+    while (current && current !== document.documentElement) {
+      if ((current instanceof HTMLElement && current.hidden) || current.getAttribute('aria-hidden') === 'true') {
+        return true;
+      }
+
+      const style = window.getComputedStyle(current);
+      if (
+        style.display === 'none' ||
+        style.visibility === 'hidden' ||
+        style.visibility === 'collapse' ||
+        Number.parseFloat(style.opacity || '1') === 0
+      ) {
+        return true;
+      }
+
+      current = current.parentElement;
+    }
+
+    return false;
+  }
+
+  private isExtensionOwnedElement(element: Element): boolean {
+    let current: Element | null = element;
+
+    while (current && current !== document.body && current !== document.documentElement) {
+      if (
+        current.id.startsWith('lexibridge-') ||
+        Array.from(current.classList).some(className => className.startsWith('lexibridge-')) ||
+        current.getAttribute('data-lexibridge-owned') === 'true'
+      ) {
+        return true;
+      }
+
+      current = current.parentElement;
+    }
+
+    return false;
   }
 
   private async extractImageTextBlocks(element: Element, region?: ImageSelectionRegion): Promise<ImageTextBlock[]> {
@@ -492,13 +643,6 @@ export class ImageTranslator {
       });
   }
 
-  private getImageBlocksSignature(blocks: ImageTextBlock[]): string {
-    return blocks
-      .map(block => this.getImageBlockKey(block))
-      .join('\n')
-      .trim();
-  }
-
   private getImageBlockKey(block: ImageTextBlock): string {
     const rect = block.viewportRect;
     const rectKey = rect
@@ -562,22 +706,18 @@ export class ImageTranslator {
   }
 
   private renderStatus(target: Element, message: string, region?: ImageSelectionRegion): void {
-    this.removeRegionalOverlays();
-    this.createOverlay(target, region);
-    if (!this.overlayElement) return;
+    this.removeTargetOverlays(target);
+    const overlay = this.createOverlay(target, region);
 
-    this.overlayElement.replaceChildren();
-    this.overlayElement.textContent = message;
-    this.overlayElement.style.opacity = '0.88';
+    overlay.textContent = message;
+    overlay.style.opacity = '0.88';
   }
 
   private renderResult(target: Element, originalText: string, translatedText: string, region?: ImageSelectionRegion): void {
-    this.removeRegionalOverlays();
-    this.createOverlay(target, region);
-    if (!this.overlayElement) return;
+    this.removeTargetOverlays(target);
+    const overlay = this.createOverlay(target, region);
 
-    this.overlayElement.replaceChildren();
-    this.overlayElement.style.opacity = '1';
+    overlay.style.opacity = '1';
 
     const original = document.createElement('div');
     original.className = 'lexibridge-image-translation-original';
@@ -590,7 +730,7 @@ export class ImageTranslator {
     translation.style.marginTop = '6px';
     translation.style.fontWeight = '600';
 
-    this.overlayElement.append(original, translation);
+    overlay.append(original, translation);
   }
 
   private renderImageBlocks(
@@ -610,9 +750,9 @@ export class ImageTranslator {
       return;
     }
 
-    this.overlayElement?.remove();
-    this.overlayElement = null;
-    this.removeRegionalOverlays();
+    this.removeTargetOverlays(target);
+
+    const overlays: HTMLElement[] = [];
 
     originalBlocks.forEach((block, index) => {
       const rect = block.viewportRect || region?.viewportRect || target.getBoundingClientRect();
@@ -637,41 +777,44 @@ export class ImageTranslator {
 
       overlay.append(original, translation);
       document.body.appendChild(overlay);
-      this.regionalOverlayElements.push(overlay);
+      overlays.push(overlay);
     });
+
+    this.overlayElements.set(target, overlays);
   }
 
-  private createOverlay(target: Element, region?: ImageSelectionRegion): void {
-    if (!this.overlayElement) {
-      const overlay = document.createElement('div');
-      overlay.id = 'lexibridge-image-translation-overlay';
-      Object.assign(overlay.style, {
-        position: 'fixed',
-        zIndex: '2147482998',
-        width: '360px',
-        maxWidth: '90vw',
-        padding: '10px 12px',
-        borderRadius: '8px',
-        background: 'rgba(15, 23, 42, 0.92)',
-        color: '#ffffff',
-        font: '14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-        lineHeight: '1.45',
-        pointerEvents: 'none',
-        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
-        whiteSpace: 'pre-wrap'
-      });
-
-      document.body.appendChild(overlay);
-      this.overlayElement = overlay;
-    }
+  private createOverlay(target: Element, region?: ImageSelectionRegion): HTMLElement {
+    const overlay = document.createElement('div');
+    const baseId = 'lexibridge-image-translation-overlay';
+    overlay.id = document.getElementById(baseId) ? `${baseId}-${++this.nextOverlayId}` : baseId;
+    overlay.className = 'lexibridge-image-translation-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      zIndex: '2147482998',
+      width: '360px',
+      maxWidth: '90vw',
+      padding: '10px 12px',
+      borderRadius: '8px',
+      background: 'rgba(15, 23, 42, 0.92)',
+      color: '#ffffff',
+      font: '14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      lineHeight: '1.45',
+      pointerEvents: 'none',
+      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
+      whiteSpace: 'pre-wrap'
+    });
 
     const rect = region?.viewportRect || target.getBoundingClientRect();
     const left = Math.min(Math.max(rect.left, 16), Math.max(window.innerWidth - 376, 16));
     const preferredTop = rect.bottom + 10;
     const top = preferredTop < window.innerHeight - 80 ? preferredTop : Math.max(rect.top - 120, 16);
 
-    this.overlayElement.style.left = `${left}px`;
-    this.overlayElement.style.top = `${top}px`;
+    overlay.style.left = `${left}px`;
+    overlay.style.top = `${top}px`;
+    document.body.appendChild(overlay);
+    this.overlayElements.set(target, [overlay]);
+
+    return overlay;
   }
 
   private updateSelectionBox(selectionState: ImageSelectionState): void {
@@ -700,9 +843,49 @@ export class ImageTranslator {
     this.selectionElement = null;
   }
 
-  private removeRegionalOverlays(): void {
-    this.regionalOverlayElements.forEach(overlay => overlay.remove());
-    this.regionalOverlayElements = [];
+  private removeTargetOverlays(target: Element): void {
+    this.overlayElements.get(target)?.forEach(overlay => overlay.remove());
+    this.overlayElements.delete(target);
+  }
+
+  private removeAllOverlays(): void {
+    this.overlayElements.forEach(overlays => overlays.forEach(overlay => overlay.remove()));
+    this.overlayElements.clear();
+  }
+
+  private isTargetTranslationRunActive(target: Element, runId: number): boolean {
+    return this.isActive && this.targetTranslationRuns.get(target) === runId;
+  }
+
+  private isVisibleImageRunActive(runId: number): boolean {
+    return this.isActive && this.visibleImageRun === runId;
+  }
+
+  private getVisibleImageResultMessage(
+    visibleImageCount: number,
+    translatedImageCount: number,
+    unreadableImageCount: number,
+    failedImageCount: number
+  ): string {
+    const imageLabel = visibleImageCount === 1 ? 'image' : 'images';
+
+    if (translatedImageCount === visibleImageCount) {
+      return `Translated ${translatedImageCount} visible ${imageLabel}`;
+    }
+
+    if (translatedImageCount > 0) {
+      return `Translated ${translatedImageCount} of ${visibleImageCount} visible ${imageLabel}`;
+    }
+
+    if (failedImageCount > 0 && unreadableImageCount > 0) {
+      return 'No visible image text could be translated';
+    }
+
+    if (failedImageCount > 0) {
+      return `Could not translate ${failedImageCount} visible ${failedImageCount === 1 ? 'image' : 'images'}`;
+    }
+
+    return 'No readable text found in visible images';
   }
 
   private getSelectionRegion(selectionState: ImageSelectionState): ImageSelectionRegion | null {

@@ -93,11 +93,12 @@ Capture a safe sample page where captions are already visible after manually sta
 
 ### Image Text
 
-Capture a safe sample image or SVG after manually starting Image text from the popup and clicking the image or dragging over a region:
+Capture a safe sample page after manually starting Image text from the popup and clicking an image, dragging over a region, or clicking Translate visible images:
 
-- The image text translation overlay visible.
+- The Translate visible images command visible in the popup, or multiple image text translation overlays visible after that explicit command.
 - If the browser OCR sample provides bounding boxes, separate region overlays visible on detected text blocks.
-- The source image, canvas, or SVG visible enough to show the user-triggered click or selected region target.
+- The source images, canvases, or SVGs visible enough to show the user-triggered targets.
+- No hidden, offscreen, tiny, or extension-owned graphic presented as a translated batch result.
 - No claim that every scanned document, manga page, or image can be OCR-translated automatically.
 
 ### Vocabulary Notebook

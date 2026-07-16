@@ -614,6 +614,7 @@ describe('Content script direct runtime message contract', () => {
 
   it('toggles subtitle, live-caption, and image translation through the direct runtime message contract', async () => {
     const listeners: Array<(request: any, sender: any, sendResponse: (response: any) => void) => boolean> = [];
+    const registerHandlers = jest.fn();
     const addListener = jest.fn((listener) => {
       listeners.push(listener);
     });
@@ -685,7 +686,7 @@ describe('Content script direct runtime message contract', () => {
 
     jest.doMock('../../services/MessageManager', () => ({
       messageManager: {
-        registerHandlers: jest.fn(),
+        registerHandlers,
         sendToBackground: jest.fn(async (request) => ({
           success: true,
           data: {
@@ -734,6 +735,19 @@ describe('Content script direct runtime message contract', () => {
 
     await import('../content');
     await flushPromises();
+
+    const registeredHandlers = registerHandlers.mock.calls[0][0];
+    await expect(registeredHandlers.translateVisibleImages()).resolves.toEqual({
+      success: true,
+      data: {
+        isActive: false,
+        visibleImageCount: 0,
+        translatedImageCount: 0,
+        unreadableImageCount: 0,
+        failedImageCount: 0,
+        message: 'Start image translation first'
+      }
+    });
 
     const directListener = listeners[listeners.length - 1]!;
     const sendDirectMessage = (request: any): Promise<any> => new Promise(resolve => {
@@ -807,6 +821,17 @@ describe('Content script direct runtime message contract', () => {
       isActive: true,
       hasImage: false,
       message: 'No image found'
+    });
+
+    const visibleImageResponse = await sendDirectMessage({ action: 'translateVisibleImages' });
+    expect(visibleImageResponse).toEqual({
+      success: true,
+      isActive: true,
+      visibleImageCount: 0,
+      translatedImageCount: 0,
+      unreadableImageCount: 0,
+      failedImageCount: 0,
+      message: 'No visible images found'
     });
 
     const imageStatusResponse = await sendDirectMessage({ action: 'getTranslationStatus' });

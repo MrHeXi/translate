@@ -20,6 +20,29 @@ const mouse = (target: EventTarget, type: string, clientX: number, clientY: numb
   }));
 };
 
+const setRect = (
+  element: Element,
+  left: number,
+  top: number,
+  width: number,
+  height: number
+): void => {
+  Object.defineProperty(element, 'getBoundingClientRect', {
+    value: () => ({
+      x: left,
+      y: top,
+      left,
+      top,
+      right: left + width,
+      bottom: top + height,
+      width,
+      height,
+      toJSON: () => ({})
+    }),
+    configurable: true
+  });
+};
+
 describe('ImageTranslator', () => {
   let translator: ImageTranslator;
 
@@ -44,8 +67,123 @@ describe('ImageTranslator', () => {
     click(image);
     await flushPromises();
 
+    const result = await translator.translateVisibleImages();
+
     expect(translateText).not.toHaveBeenCalled();
     expect(document.getElementById('lexibridge-image-translation-overlay')).toBeNull();
+    expect(result).toEqual({
+      isActive: false,
+      visibleImageCount: 0,
+      translatedImageCount: 0,
+      unreadableImageCount: 0,
+      failedImageCount: 0,
+      message: 'Start image translation first'
+    });
+  });
+
+  it('translates only visible, readable page images in a manual batch', async () => {
+    document.body.innerHTML = `
+      <img id="visible" alt="Visible image text">
+      <img id="offscreen" alt="Offscreen image text">
+      <img id="hidden" alt="Hidden image text" style="display: none">
+      <img id="tiny" alt="Tiny image text">
+      <div id="lexibridge-floating-control"><svg id="owned" aria-label="Extension icon"></svg></div>
+    `;
+
+    setRect(document.getElementById('visible')!, 40, 50, 240, 120);
+    setRect(document.getElementById('offscreen')!, window.innerWidth + 40, 50, 240, 120);
+    setRect(document.getElementById('hidden')!, 40, 200, 240, 120);
+    setRect(document.getElementById('tiny')!, 40, 350, 12, 12);
+    setRect(document.getElementById('owned')!, 40, 400, 48, 48);
+
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+    translator.enable(translateText);
+
+    const result = await translator.translateVisibleImages();
+
+    expect(result).toEqual({
+      isActive: true,
+      visibleImageCount: 1,
+      translatedImageCount: 1,
+      unreadableImageCount: 0,
+      failedImageCount: 0,
+      message: 'Translated 1 visible image'
+    });
+    expect(translateText).toHaveBeenCalledTimes(1);
+    expect(translateText).toHaveBeenCalledWith('Visible image text');
+    expect(document.querySelectorAll('.lexibridge-image-translation-overlay')).toHaveLength(1);
+    expect(document.body.textContent).not.toContain('Translated: Offscreen image text');
+    expect(document.body.textContent).not.toContain('Translated: Hidden image text');
+    expect(document.body.textContent).not.toContain('Translated: Tiny image text');
+    expect(document.body.textContent).not.toContain('Translated: Extension icon');
+  });
+
+  it('reuses cached text while keeping an overlay for every visible image', async () => {
+    document.body.innerHTML = `
+      <img id="first" alt="Repeated label">
+      <img id="second" alt="Repeated label">
+    `;
+
+    setRect(document.getElementById('first')!, 20, 20, 180, 90);
+    setRect(document.getElementById('second')!, 240, 20, 180, 90);
+
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+    translator.enable(translateText);
+
+    const result = await translator.translateVisibleImages();
+
+    expect(result.translatedImageCount).toBe(2);
+    expect(result.message).toBe('Translated 2 visible images');
+    expect(translateText).toHaveBeenCalledTimes(1);
+    expect(document.querySelectorAll('.lexibridge-image-translation-overlay')).toHaveLength(2);
+    expect(document.querySelectorAll('.lexibridge-image-translation-result')).toHaveLength(2);
+  });
+
+  it('stops a visible-image batch before processing the next image', async () => {
+    document.body.innerHTML = `
+      <img id="first" alt="First image text">
+      <img id="second" alt="Second image text">
+    `;
+
+    setRect(document.getElementById('first')!, 20, 20, 180, 90);
+    setRect(document.getElementById('second')!, 240, 20, 180, 90);
+
+    let resolveFirstTranslation!: (value: string) => void;
+    const firstTranslation = new Promise<string>(resolve => {
+      resolveFirstTranslation = resolve;
+    });
+    const translateText = jest.fn(() => firstTranslation);
+    translator.enable(translateText);
+
+    const pendingBatch = translator.translateVisibleImages();
+    await flushPromises();
+    expect(translateText).toHaveBeenCalledWith('First image text');
+
+    translator.disable();
+    resolveFirstTranslation('Translated: First image text');
+
+    const result = await pendingBatch;
+
+    expect(result.isActive).toBe(false);
+    expect(result.translatedImageCount).toBe(0);
+    expect(result.message).toBe('Image translation stopped');
+    expect(translateText).toHaveBeenCalledTimes(1);
+    expect(translateText).not.toHaveBeenCalledWith('Second image text');
+    expect(document.querySelectorAll('.lexibridge-image-translation-overlay')).toHaveLength(0);
+  });
+
+  it('reports an empty visible-image batch without making translation requests', async () => {
+    document.body.innerHTML = '<img id="offscreen" alt="Outside viewport">';
+    setRect(document.getElementById('offscreen')!, window.innerWidth + 10, 20, 180, 90);
+
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+    translator.enable(translateText);
+
+    const result = await translator.translateVisibleImages();
+
+    expect(result.visibleImageCount).toBe(0);
+    expect(result.message).toBe('No visible images found');
+    expect(translateText).not.toHaveBeenCalled();
   });
 
   it('translates readable image metadata after manual enablement', async () => {

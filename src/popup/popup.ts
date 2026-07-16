@@ -27,7 +27,9 @@ class PopupController {
   private isTogglingVideoSubtitles: boolean = false;
   private isTogglingLiveCaptions: boolean = false;
   private isTogglingImageTranslation: boolean = false;
+  private isTranslatingVisibleImages: boolean = false;
   private isExportingVideoSubtitles: boolean = false;
+  private loadingButtonStates: Map<HTMLButtonElement, boolean> = new Map();
 
   constructor() {
     this.initialize();
@@ -64,6 +66,9 @@ class PopupController {
 
     const toggleImageTranslation = document.getElementById('toggleImageTranslation') as HTMLButtonElement;
     toggleImageTranslation?.addEventListener('click', () => this.toggleImageTranslationMode());
+
+    const translateVisibleImages = document.getElementById('translateVisibleImages') as HTMLButtonElement;
+    translateVisibleImages?.addEventListener('click', () => this.translateVisibleImages());
 
     // 快速翻译
     const translateBtn = document.getElementById('translateBtn') as HTMLButtonElement;
@@ -273,9 +278,11 @@ class PopupController {
       if (tab?.id) {
         const response = await this.sendMessageToTabWithInjection(tab, { action: 'toggleImageTranslation' });
         if (response?.success) {
-          const isActive = response.isActive ?? response.data?.isActive;
+          const state = response.data || response;
+          const isActive = state.isActive;
           this.isImageTranslationActive = Boolean(isActive);
           this.updateImageTranslationStatusUI();
+          this.setImageTranslationMessage(state.message || (isActive ? 'Image translation started' : 'Image translation stopped'));
         } else {
           this.showError(response?.error || 'Could not toggle image translation.');
         }
@@ -287,6 +294,45 @@ class PopupController {
       this.showError(error instanceof Error ? error.message : 'Could not toggle image translation.');
     } finally {
       this.setImageTranslationToggleBusy(false);
+    }
+  }
+
+  private async translateVisibleImages(): Promise<void> {
+    if (this.isTranslatingVisibleImages) return;
+
+    if (!this.isImageTranslationActive) {
+      this.setImageTranslationMessage('Start image translation first');
+      return;
+    }
+
+    this.setVisibleImageTranslationBusy(true);
+
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) {
+        this.showError('No active page found.');
+        return;
+      }
+
+      const response = await this.sendMessageToTabWithInjection(tab, { action: 'translateVisibleImages' });
+      const result = response?.data || response;
+
+      if (!response?.success) {
+        this.showError(response?.error || 'Could not translate visible images.');
+        return;
+      }
+
+      if (typeof result?.isActive === 'boolean') {
+        this.isImageTranslationActive = result.isActive;
+        this.updateImageTranslationStatusUI();
+      }
+
+      this.setImageTranslationMessage(result?.message || 'Visible image translation finished');
+    } catch (error) {
+      console.error('Could not translate visible images:', error);
+      this.showError(error instanceof Error ? error.message : 'Could not translate visible images.');
+    } finally {
+      this.setVisibleImageTranslationBusy(false);
     }
   }
 
@@ -467,6 +513,7 @@ class PopupController {
   private updateImageTranslationStatusUI(): void {
     const statusElement = document.getElementById('imageTranslationStatus');
     const toggleBtn = document.getElementById('toggleImageTranslation') as HTMLButtonElement;
+    const translateVisibleBtn = document.getElementById('translateVisibleImages') as HTMLButtonElement;
 
     if (statusElement && toggleBtn) {
       if (this.isImageTranslationActive) {
@@ -478,6 +525,17 @@ class PopupController {
         toggleBtn.textContent = 'Start';
         toggleBtn.classList.remove('active');
       }
+    }
+
+    if (translateVisibleBtn) {
+      translateVisibleBtn.disabled = !this.isImageTranslationActive || this.isTranslatingVisibleImages;
+    }
+  }
+
+  private setImageTranslationMessage(message: string): void {
+    const messageElement = document.getElementById('imageTranslationMessage');
+    if (messageElement) {
+      messageElement.textContent = message;
     }
   }
 
@@ -728,16 +786,30 @@ class PopupController {
     }
   }
 
+  private setVisibleImageTranslationBusy(isBusy: boolean): void {
+    this.isTranslatingVisibleImages = isBusy;
+
+    const button = document.getElementById('translateVisibleImages') as HTMLButtonElement;
+    if (button) {
+      button.disabled = isBusy || !this.isImageTranslationActive;
+      button.textContent = isBusy ? 'Translating...' : 'Translate visible images';
+    }
+  }
+
   private showLoadingState(): void {
-    // 可以在这里添加加载动画或禁用按钮
-    const buttons = document.querySelectorAll('button');
-    buttons.forEach(btn => btn.disabled = true);
+    this.loadingButtonStates.clear();
+    const buttons = document.querySelectorAll<HTMLButtonElement>('button');
+    buttons.forEach(button => {
+      this.loadingButtonStates.set(button, button.disabled);
+      button.disabled = true;
+    });
   }
 
   private hideLoadingState(): void {
-    // 恢复按钮状态
-    const buttons = document.querySelectorAll('button');
-    buttons.forEach(btn => btn.disabled = false);
+    this.loadingButtonStates.forEach((wasDisabled, button) => {
+      button.disabled = wasDisabled;
+    });
+    this.loadingButtonStates.clear();
   }
 
   private showError(message: string): void {
