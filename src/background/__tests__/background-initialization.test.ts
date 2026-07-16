@@ -25,6 +25,8 @@ describe('BackgroundService initialization', () => {
       sender: chrome.runtime.MessageSender,
       sendResponse: (response: any) => void
     ) => boolean | void> = [];
+    const commandListeners: Array<(command: string) => void> = [];
+    const openSidePanel = jest.fn().mockResolvedValue(undefined);
     const vocabularyLoad = createDeferred<void>();
     const reviewItems = [{
       word: 'ability',
@@ -49,6 +51,13 @@ describe('BackgroundService initialization', () => {
         onStartup: { addListener: jest.fn() },
         openOptionsPage: jest.fn()
       },
+      commands: {
+        onCommand: {
+          addListener: jest.fn(listener => commandListeners.push(listener))
+        }
+      },
+      sidePanel: { open: openSidePanel },
+      windows: { WINDOW_ID_CURRENT: -2 },
       storage: {
         local: {
           get: jest.fn().mockResolvedValue({}),
@@ -173,5 +182,10 @@ describe('BackgroundService initialization', () => {
 
     expect((global as any).chrome.runtime.openOptionsPage).toHaveBeenCalled();
     expect(settingsResponse).toHaveBeenCalledWith({ success: true });
+
+    expect(commandListeners).toHaveLength(1);
+    commandListeners[0]!('openTranslationSidePanel');
+    await flushPromises();
+    expect(openSidePanel).toHaveBeenCalledWith({ windowId: -2 });
   });
 });

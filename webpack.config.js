@@ -17,7 +17,8 @@ module.exports = (env, argv) => {
       options: './src/options/options.ts',
       vocabulary: './src/options/vocabulary.ts',
       review: './src/options/review.ts',
-      document: './src/options/document.ts'
+      document: './src/options/document.ts',
+      sidepanel: './src/sidepanel/sidepanel.ts'
     },
     
     output: {
@@ -99,6 +100,14 @@ module.exports = (env, argv) => {
           {
             from: 'src/options/document.css',
             to: 'document.css'
+          },
+          {
+            from: 'src/sidepanel/sidepanel.html',
+            to: 'sidepanel.html'
+          },
+          {
+            from: 'src/sidepanel/sidepanel.css',
+            to: 'sidepanel.css'
           },
           {
             from: 'src/content/content.css',

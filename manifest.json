@@ -7,7 +7,8 @@
     "storage",
     "activeTab",
     "scripting",
-    "tabs"
+    "tabs",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://translate.googleapis.com/*",
@@ -28,6 +29,17 @@
   },
   "background": {
     "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "commands": {
+    "openTranslationSidePanel": {
+      "suggested_key": {
+        "default": "Alt+S"
+      },
+      "description": "Open the LexiBridge translation side panel"
+    }
   },
   "content_scripts": [
     {

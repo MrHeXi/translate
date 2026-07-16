@@ -34,6 +34,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Selection translation tooltip.
 - [ ] Control-hover paragraph translation.
 - [ ] Input box translation shortcut.
+- [ ] Side-panel text translation with provider/target controls and a translated result.
 - [ ] Vocabulary notebook page.
 - [ ] Review page.
 - [ ] Options page with dictionary settings.
@@ -56,6 +57,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] `activeTab` is explained by current-tab user actions.
 - [ ] `scripting` is explained by extension script/style refresh behavior.
 - [ ] `tabs` is explained by active-tab messaging.
+- [ ] `sidePanel` is explained by the user-invoked popup button and `Alt+S` command.
 - [ ] Host permissions are limited to translation provider endpoints.
 - [ ] Optional provider access is requested only for the configured HTTPS or localhost scheme and hostname when the user saves provider configuration.
 - [ ] No new permission has been added without a user-facing reason.
@@ -75,6 +77,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Confirm `dist/ocr` includes the worker, SIMD/non-SIMD LSTM core files, five compressed language models, and license files.
 - [ ] Confirm Stop terminates an active image OCR session and removes all image overlays without starting work on another image.
 - [ ] Confirm selected text shows a translation tooltip.
+- [ ] Open the side panel from the popup and with `Alt+S`; confirm opening sends no translation request, configured providers are selectable, `Ctrl+Enter` translates, and Copy/Clear work.
 - [ ] Configure each credentialed provider with a test key or mock endpoint, verify masked-key display, and verify Remove configuration.
 - [ ] Save Ollama without an API key, confirm Chrome requests `http://localhost/*`, and verify settings cannot activate it before provider configuration is saved.
 - [ ] Confirm Image text stays idle until Start plus a click, drag, or Translate visible images action; confirm Stop cancels the remaining visible-image batch and clears overlays.

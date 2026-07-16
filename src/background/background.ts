@@ -17,6 +17,7 @@ import { errorHandler, ErrorType, ErrorSeverity } from '../services/ErrorHandler
 import { offlineManager } from '../services/OfflineManager';
 import { normalizeAiTranslationPreferences } from '../services/AiTranslationPreferences';
 import { getTranslationProvider } from '../services/TranslationProviderRegistry';
+import { openTranslationSidePanel } from '../services/SidePanelManager';
 
 // 消息类型定义（保留兼容性）
 interface MessageRequest {
@@ -142,6 +143,20 @@ class BackgroundService {
     // 扩展启动时的处理
     chrome.runtime.onStartup.addListener(() => {
       this.handleExtensionStartup();
+    });
+
+    chrome.commands?.onCommand?.addListener(command => {
+      if (command === 'openTranslationSidePanel') {
+        void openTranslationSidePanel()
+          .then(opened => {
+            if (!opened) {
+              chrome.tabs.create({ url: chrome.runtime.getURL('sidepanel.html') });
+            }
+          })
+          .catch(error => {
+            console.error('Could not open translation side panel:', error);
+          });
+      }
     });
   }
 

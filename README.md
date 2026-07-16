@@ -52,6 +52,13 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Type three trailing spaces in a supported input box, textarea, or editable field to translate the typed text.
 - Keep both interactions deliberate so pages and forms are never translated automatically.
 
+### Side Panel Text Translation
+
+- Open the Chrome side panel from the popup header or with `Alt+S`.
+- Paste or type text, choose any configured provider and supported target language, then translate explicitly.
+- Use `Ctrl+Enter` to submit, copy the result, or clear the current text without storing a side-panel history.
+- Keep side-panel translation idle when the panel opens; no text is sent until the user submits it.
+
 ### Document Translation
 
 - Open the document translator from the popup or from detected document URLs.
@@ -157,6 +164,13 @@ The generated test package is `chrome-translation-extension.zip`.
 1. Type text into a supported input, textarea, or editable field.
 2. Press Space three times at the end of the text.
 3. LexiBridge replaces the typed text with the translation.
+
+### Translate Text in the Side Panel
+
+1. Click the side-panel button in the popup header or press `Alt+S`.
+2. Choose a configured provider and target language.
+3. Enter text and click Translate or press `Ctrl+Enter`.
+4. Copy the translation or clear the panel when finished.
 
 ### Configure a Translation Provider
 

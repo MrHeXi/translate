@@ -2,7 +2,7 @@
 
 Last updated: 2026-07-17
 
-LexiBridge Translate is a browser extension for user-triggered page translation, document text translation, selected or currently visible image text translation, video subtitle text translation, live caption text translation and local transcript export, selection translation, vocabulary collection, and vocabulary review.
+LexiBridge Translate is a browser extension for user-triggered page translation, side-panel text translation, document text translation, selected or currently visible image text translation, video subtitle text translation, live caption text translation and local transcript export, selection translation, vocabulary collection, and vocabulary review.
 
 ## Data Stored by the Extension
 
@@ -20,9 +20,9 @@ Translation provider API keys are stored separately in `chrome.storage.local`. T
 
 ## Translation Provider Requests
 
-Translation provider requests happen only after the user asks LexiBridge to translate selected text, document text, selected image text, eligible currently visible image text, available video subtitle text, visible live caption text, or a page.
+Translation provider requests happen only after the user asks LexiBridge to translate side-panel text, selected text, document text, selected image text, eligible currently visible image text, available video subtitle text, visible live caption text, or a page.
 
-When the user translates selected text, starts page translation, translates a document in the document translator, manually starts image text translation and then clicks an image, drags over an image region, or clicks Translate visible images, manually starts video subtitle translation for a page with available caption tracks, or manually starts live caption translation for caption text already visible on a page, LexiBridge sends the requested text to the selected translation provider.
+When the user submits text from the side panel, translates selected text, starts page translation, translates a document in the document translator, manually starts image text translation and then clicks an image, drags over an image region, or clicks Translate visible images, manually starts video subtitle translation for a page with available caption tracks, or manually starts live caption translation for caption text already visible on a page, LexiBridge sends the requested text to the selected translation provider.
 
 Pre-granted provider hosts:
 
@@ -51,7 +51,7 @@ If optional analytics are added later, they must be opt-in and documented before
 
 ## Page Access
 
-The extension runs a content script on pages so it can show the floating button, translate selected text, highlight enabled dictionary words, and insert user-requested page translations.
+The extension runs a content script on pages so it can show the floating button, translate selected text, highlight enabled dictionary words, and insert user-requested page translations. The Chrome side panel is an extension page and does not read the active web page. Opening it loads settings and masked provider configuration summaries only; it does not send source text to a provider until the user submits text.
 
 LexiBridge does not translate pages automatically. Page translation starts only after user action from the popup or floating button. Image text, video subtitle, and live caption translation also start only after user action from the popup. Opening or scrolling a page never starts image OCR; the visible-image batch requires a separate click after Image text mode is enabled, and Stop prevents further images from being processed.
 
@@ -67,6 +67,7 @@ LexiBridge requests these permissions:
 - `activeTab`: interact with the current tab after user action.
 - `scripting`: inject or refresh extension scripts and styles when needed.
 - `tabs`: find the active tab and send extension messages.
+- `sidePanel`: show the user-invoked text translation panel from the popup or `Alt+S` command.
 
 Required host permissions are limited to the pre-granted translation provider endpoints listed above. Optional host permission patterns let the user approve the scheme and hostname for an additional configured HTTPS or localhost translation endpoint.
 

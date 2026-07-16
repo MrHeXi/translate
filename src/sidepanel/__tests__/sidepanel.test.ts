@@ -1,0 +1,147 @@
+import { readFileSync } from 'fs';
+import path from 'path';
+
+const sidePanelHtml = readFileSync(
+  path.join(__dirname, '..', 'sidepanel.html'),
+  'utf8'
+);
+const body = sidePanelHtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] || sidePanelHtml;
+
+const flushPromises = async (): Promise<void> => {
+  await Promise.resolve();
+  await new Promise(resolve => setTimeout(resolve, 0));
+};
+
+describe('translation side panel', () => {
+  beforeEach(() => {
+    jest.resetModules();
+    document.body.innerHTML = body;
+  });
+
+  it('loads configured providers without translating until the user submits text', async () => {
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({
+          success: true,
+          data: [{ providerId: 'openai', configured: true }]
+        });
+        return;
+      }
+      if (message.action === 'getSettings') {
+        callback({
+          success: true,
+          data: { translationProvider: 'openai', defaultTargetLanguage: 'fr' }
+        });
+        return;
+      }
+      if (message.action === 'translate') {
+        callback({ success: true, data: { translatedText: 'Bonjour le monde' } });
+        return;
+      }
+      callback({ success: true });
+    });
+
+    (global as any).chrome = {
+      runtime: {
+        sendMessage,
+        lastError: null,
+        openOptionsPage: jest.fn()
+      }
+    };
+
+    require('../sidepanel');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+    await flushPromises();
+
+    const provider = document.getElementById('translationProvider') as HTMLSelectElement;
+    const target = document.getElementById('targetLanguage') as HTMLSelectElement;
+    expect(provider.options).toHaveLength(21);
+    expect(provider.value).toBe('openai');
+    expect(target.value).toBe('fr');
+    expect(Array.from(provider.options).find(option => option.value === 'openai')?.disabled).toBe(false);
+    expect(Array.from(provider.options).find(option => option.value === 'ollama')?.disabled).toBe(true);
+    expect(sendMessage.mock.calls.some(([message]) => message.action === 'translate')).toBe(false);
+
+    const sourceText = document.getElementById('sourceText') as HTMLTextAreaElement;
+    sourceText.value = 'Hello world';
+    sourceText.dispatchEvent(new Event('input'));
+    document.getElementById('translateText')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    expect(sendMessage).toHaveBeenCalledWith({
+      action: 'translate',
+      data: {
+        text: 'Hello world',
+        sourceLang: 'auto',
+        targetLang: 'fr',
+        provider: 'openai'
+      }
+    }, expect.any(Function));
+    expect(document.getElementById('translationResult')?.textContent).toBe('Bonjour le monde');
+    expect((document.getElementById('resultSection') as HTMLElement).hidden).toBe(false);
+    expect(document.getElementById('characterCount')?.textContent).toBe('11 characters');
+  });
+
+  it('filters target languages and supports copy, clear, settings, and Ctrl+Enter', async () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText }
+    });
+    const openOptionsPage = jest.fn();
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({
+          success: true,
+          data: [{ providerId: 'caiyun', configured: true }]
+        });
+        return;
+      }
+      if (message.action === 'getSettings') {
+        callback({
+          success: true,
+          data: { translationProvider: 'caiyun', defaultTargetLanguage: 'fr' }
+        });
+        return;
+      }
+      if (message.action === 'translate') {
+        callback({ success: true, data: { translatedText: 'Translated result' } });
+        return;
+      }
+      callback({ success: true });
+    });
+
+    (global as any).chrome = {
+      runtime: { sendMessage, lastError: null, openOptionsPage }
+    };
+
+    require('../sidepanel');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+    await flushPromises();
+
+    const target = document.getElementById('targetLanguage') as HTMLSelectElement;
+    expect(target.value).toBe('zh-CN');
+    expect(Array.from(target.options).find(option => option.value === 'fr')?.disabled).toBe(true);
+    expect(Array.from(target.options).find(option => option.value === 'ko')?.disabled).toBe(false);
+
+    const sourceText = document.getElementById('sourceText') as HTMLTextAreaElement;
+    sourceText.value = 'Hello';
+    sourceText.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
+    await flushPromises();
+
+    expect(sendMessage.mock.calls.filter(([message]) => message.action === 'translate')).toHaveLength(1);
+    document.getElementById('copyTranslation')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+    expect(writeText).toHaveBeenCalledWith('Translated result');
+
+    document.getElementById('openSettings')!.dispatchEvent(new Event('click'));
+    expect(openOptionsPage).toHaveBeenCalledTimes(1);
+
+    document.getElementById('clearText')!.dispatchEvent(new Event('click'));
+    expect(sourceText.value).toBe('');
+    expect((document.getElementById('resultSection') as HTMLElement).hidden).toBe(true);
+    expect((document.getElementById('copyTranslation') as HTMLButtonElement).disabled).toBe(true);
+  });
+});

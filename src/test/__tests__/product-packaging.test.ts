@@ -15,7 +15,12 @@ describe('product packaging contract', () => {
     expect(manifest.description).toBe(
       'Translate web pages, collect unknown words, and review CET, GRE, IELTS, and TOEFL vocabulary.'
     );
-    expect(manifest.permissions).toEqual(['storage', 'activeTab', 'scripting', 'tabs']);
+    expect(manifest.permissions).toEqual(['storage', 'activeTab', 'scripting', 'tabs', 'sidePanel']);
+    expect(manifest.side_panel).toEqual({ default_path: 'sidepanel.html' });
+    expect(manifest.commands.openTranslationSidePanel).toEqual({
+      suggested_key: { default: 'Alt+S' },
+      description: 'Open the LexiBridge translation side panel'
+    });
     expect(manifest.host_permissions).toEqual([
       'https://translate.googleapis.com/*',
       'https://api.mymemory.translated.net/*',
@@ -68,6 +73,8 @@ describe('product packaging contract', () => {
     expect(readme).toContain('They never start translation when a page opens');
     expect(readme).toContain('Hold Control while hovering');
     expect(readme).toContain('Press Space three times');
+    expect(readme).toContain('Side Panel Text Translation');
+    expect(readme).toContain('no text is sent until the user submits it');
     expect(readme).toContain('Document Translation');
     expect(readme).toContain('Video Subtitle Translation');
     expect(readme).toContain('Export translated subtitle cues from the current session as an `.srt` file');
@@ -111,6 +118,8 @@ describe('product packaging contract', () => {
     expect(privacy).toContain('No default telemetry');
     expect(privacy).toContain('Chrome storage');
     expect(privacy).toContain('Translation provider requests');
+    expect(privacy).toContain('side-panel text');
+    expect(privacy).toContain('Opening it loads settings and masked provider configuration summaries only');
     expect(privacy).toContain('translate.googleapis.com');
     expect(privacy).toContain('api.mymemory.translated.net');
     expect(privacy).toContain('api-free.deepl.com');
@@ -157,6 +166,7 @@ describe('product packaging contract', () => {
     expect(listing).toContain('Selection translation tooltip');
     expect(listing).toContain('Control-hover paragraph translation');
     expect(listing).toContain('Input box translation');
+    expect(listing).toContain('User-invoked Chrome side panel');
     expect(listing).toContain('Document translator');
     expect(listing).toContain('HTML files');
     expect(listing).toContain('JSON string values');
@@ -208,9 +218,9 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('42 test suites and 310 tests');
-    expect(releaseNotes).toContain('17,688,050');
-    expect(releaseNotes).toContain('889F86727FFC36D3E50344F4D133E4ED6D2E2FA9E0345CE3A9060CFD386ECC70');
+    expect(releaseNotes).toContain('44 test suites and 314 tests');
+    expect(releaseNotes).toContain('17,694,408');
+    expect(releaseNotes).toContain('2CE049151C7C71AB21852DC6B06B6203695D0D152A19D5DC91C6F3D849585704');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -221,6 +231,7 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('Selection Translation');
     expect(screenshotGuide).toContain('Hover Translation');
     expect(screenshotGuide).toContain('Input Box Translation');
+    expect(screenshotGuide).toContain('Side Panel Text Translation');
     expect(screenshotGuide).toContain('Document Translator');
     expect(screenshotGuide).toContain('without raw tags or script/style content');
     expect(screenshotGuide).toContain('readable string values');
@@ -323,5 +334,10 @@ describe('product packaging contract', () => {
     expect(optionsHtml).toContain('id="aiCustomPrompt"');
     expect(optionsHtml).toContain('Save provider configuration');
     expect(optionsHtml).toContain('Remove configuration');
+    expect(webpackConfig).toContain("sidepanel: './src/sidepanel/sidepanel.ts'");
+    expect(webpackConfig).toContain("from: 'src/sidepanel/sidepanel.html'");
+    expect(readProjectFile('src/sidepanel/sidepanel.html')).toContain('id="translateText"');
+    expect(readProjectFile('src/sidepanel/sidepanel.html')).toContain('id="copyTranslation"');
+    expect(readProjectFile('src/popup/popup.html')).toContain('id="openSidePanelBtn"');
   });
 });

@@ -1,5 +1,7 @@
 // Chrome翻译插件弹出窗口脚本
 
+import { openTranslationSidePanel } from '../services/SidePanelManager';
+
 // 学习统计接口定义
 interface LearningStats {
   totalWordsLearned: number;
@@ -94,6 +96,9 @@ class PopupController {
 
     const documentTranslatorBtn = document.getElementById('documentTranslatorBtn') as HTMLButtonElement;
     documentTranslatorBtn?.addEventListener('click', () => this.openDocumentTranslator());
+
+    const openSidePanelBtn = document.getElementById('openSidePanelBtn') as HTMLButtonElement;
+    openSidePanelBtn?.addEventListener('click', () => void this.openSidePanel());
 
     // 设置按钮
     const settingsBtn = document.getElementById('settingsBtn') as HTMLButtonElement;
@@ -773,6 +778,18 @@ class PopupController {
 
   private isDocumentUrl(url: string): boolean {
     return /\.(pdf|txt|md|markdown|html|htm|json|docx|epub|srt|vtt)([?#].*)?$/i.test(url);
+  }
+
+  private async openSidePanel(): Promise<void> {
+    try {
+      const opened = await openTranslationSidePanel();
+      if (!opened) {
+        chrome.tabs.create({ url: chrome.runtime.getURL('sidepanel.html') });
+      }
+    } catch (error) {
+      console.error('Could not open translation side panel:', error);
+      chrome.tabs.create({ url: chrome.runtime.getURL('sidepanel.html') });
+    }
   }
 
   private openSettings(): void {

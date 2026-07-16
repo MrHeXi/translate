@@ -60,6 +60,15 @@ Capture a supported input box, textarea, or editable field with:
 - The translated text inserted back into the field.
 - No private form data visible.
 
+### Side Panel Text Translation
+
+Capture the Chrome side panel after an explicit text translation with:
+
+- Provider and target-language controls visible.
+- Safe source text and its translated result visible.
+- Copy, clear, settings, and Translate controls visible.
+- No private text or implication that opening the panel translates automatically.
+
 ### Document Translator
 
 Capture the document translator page with:

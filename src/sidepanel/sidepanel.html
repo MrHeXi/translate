@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LexiBridge Text Translator</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div class="side-panel">
+    <header class="panel-header">
+      <div>
+        <span class="brand-name">LexiBridge</span>
+        <h1>Text translation</h1>
+      </div>
+      <button id="openSettings" class="icon-button" type="button" title="Provider settings" aria-label="Provider settings">&#9881;</button>
+    </header>
+
+    <main class="panel-main">
+      <section class="translation-controls" aria-label="Translation settings">
+        <label>
+          Provider
+          <select id="translationProvider"></select>
+        </label>
+        <label>
+          Translate to
+          <select id="targetLanguage"></select>
+        </label>
+      </section>
+
+      <section class="source-section">
+        <div class="section-heading">
+          <label for="sourceText">Source text</label>
+          <button id="clearText" class="icon-button icon-button-dark" type="button" title="Clear text" aria-label="Clear text">&#10005;</button>
+        </div>
+        <textarea id="sourceText" rows="10" placeholder="Enter or paste text" spellcheck="true"></textarea>
+        <div class="source-actions">
+          <span id="characterCount" class="character-count">0 characters</span>
+          <button id="translateText" class="primary-button" type="button">Translate</button>
+        </div>
+      </section>
+
+      <section id="resultSection" class="result-section" hidden>
+        <div class="section-heading">
+          <h2>Translation</h2>
+          <button id="copyTranslation" class="icon-button icon-button-dark" type="button" title="Copy translation" aria-label="Copy translation" disabled>&#10697;</button>
+        </div>
+        <div id="translationResult" class="translation-result" tabindex="0"></div>
+      </section>
+
+      <p id="panelStatus" class="panel-status" role="status" aria-live="polite"></p>
+    </main>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
