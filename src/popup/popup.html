@@ -44,6 +44,17 @@
           <span id="liveCaptionStatus" class="status-value">Off</span>
           <button id="toggleLiveCaptions" class="toggle-btn">Start</button>
         </div>
+        <div class="live-transcript-actions">
+          <select id="liveCaptionExportFormat" aria-label="Live caption transcript format">
+            <option value="txt">TXT</option>
+            <option value="srt">SRT</option>
+            <option value="vtt">VTT</option>
+            <option value="json">JSON</option>
+          </select>
+          <button id="exportLiveCaptionTranscript" class="export-btn" disabled>Export</button>
+          <button id="clearLiveCaptionTranscript" class="export-btn" disabled>Clear</button>
+        </div>
+        <p id="liveCaptionTranscriptStatus" class="transcript-status" aria-live="polite">No transcript yet</p>
         <p class="helper-text">Translates caption text already visible on the page; no audio recording.</p>
       </section>
 

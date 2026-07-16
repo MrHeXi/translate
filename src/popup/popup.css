@@ -136,6 +136,34 @@ body {
   margin-top: 8px;
 }
 
+.live-transcript-actions {
+  display: grid;
+  grid-template-columns: minmax(72px, 1fr) auto auto;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.live-transcript-actions select {
+  min-width: 0;
+  height: 30px;
+  padding: 3px 6px;
+  border: 1px solid #cfd8e3;
+  border-radius: 4px;
+  background-color: #fff;
+  color: #334155;
+  font-size: 12px;
+}
+
+.transcript-status {
+  margin-top: 7px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.live-caption-status .helper-text {
+  margin-top: 4px;
+}
+
 .export-btn {
   padding: 4px 8px;
   border: 1px solid #cfd8e3;

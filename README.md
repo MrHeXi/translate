@@ -13,7 +13,7 @@ It is best for:
 - Reading English web pages, technical articles, documentation, and study material.
 - Translating pasted or uploaded text documents, HTML files, JSON files, DOCX files, EPUB files, subtitle files, and simple text-based PDFs.
 - Translating video captions when the page exposes subtitle/caption tracks or common DOM-rendered captions.
-- Translating live caption text that is already visible in a page.
+- Translating and locally exporting live caption text that is already visible in a page.
 - Translating text from selected or currently visible images, SVGs, and canvases when readable text or browser OCR is available.
 - Collecting useful words from real context.
 - Reviewing CET4, CET6, GRE, IELTS, TOEFL vocabulary.
@@ -73,9 +73,11 @@ It is not marketed as a full scanned-PDF OCR translator, layout-perfect Office/e
 
 - Start or stop live caption translation manually from the popup.
 - Translate caption text that is already present in the page DOM, such as browser or meeting-page live captions.
-- Preserve common meeting speaker labels while translating Google Meet, Zoom, and Teams-style caption containers.
-- Render a bilingual overlay without recording audio, joining calls, or creating transcripts.
-- Deeper meeting caption timing and transcript workflows are planned for later batches.
+- Preserve common meeting speaker labels while translating Google Meet, Zoom, Microsoft Teams, and Webex-style caption containers.
+- Capture timestamped bilingual cues only while Live captions is enabled, coalescing incremental word-by-word caption updates.
+- Export the current tab's in-memory transcript as TXT, SRT, VTT, or structured JSON, and clear it explicitly from the popup.
+- Keep transcript capture local to the current page session without recording audio, joining calls, or transcribing speech.
+- Broader site-specific meeting adapters remain planned for later batches.
 
 ### Image Text Translation
 
@@ -186,7 +188,8 @@ The generated test package is `chrome-translation-extension.zip`.
 1. Open a page that is already showing live captions.
 2. Open the extension popup.
 3. Click Start in Live captions.
-4. Click the same control again to remove the overlay and stop live caption translation.
+4. Reopen the popup to export captured bilingual cues as TXT, SRT, VTT, or JSON, or clear the current tab's transcript.
+5. Click Stop to remove the overlay and stop capturing new cues; already captured cues remain available until cleared or the page closes.
 
 ### Translate Image Text
 

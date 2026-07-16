@@ -16,7 +16,8 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Text-based document translator for pasted text, text files, HTML files, JSON string values with structure-preserving export, DOCX paragraph text and EPUB spine documents with translated source-file export, subtitle files with timing-preserving export, and simple PDFs, including page/coordinate metadata for simple text-based PDF blocks.
 - Video subtitle translation for pages that expose caption/subtitle text tracks or common DOM-rendered caption containers.
 - SRT export for translated video subtitle cues from the current session.
-- Live caption translation for caption text already visible in the page DOM, with Google Meet, Zoom, and Teams-style speaker label handling.
+- Live caption translation for caption text already visible in the page DOM, with Google Meet, Zoom, Microsoft Teams, and Webex-style speaker label handling.
+- Timestamped bilingual live-caption transcripts with incremental-caption coalescing, in-memory session retention after Stop, explicit Clear, and local TXT/SRT/VTT/JSON export.
 - Manual image text translation for selected images, canvases, SVGs, dragged image regions, and eligible graphics currently visible in the viewport, using browser OCR when available and retaining separate per-image or OCR-block overlays.
 - Explicit Translate visible images command with hidden/offscreen/tiny/extension-owned filtering, duplicate-text request caching, and immediate batch cancellation when Image text stops.
 - 100+ target language choices in settings.
@@ -32,7 +33,7 @@ Verified on 2026-07-16:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 35 test suites and 243 tests.
+- `jest --runInBand --silent`: passed, 36 test suites and 249 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 

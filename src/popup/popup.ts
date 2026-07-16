@@ -23,12 +23,15 @@ class PopupController {
   private isVideoSubtitleActive: boolean = false;
   private isLiveCaptionActive: boolean = false;
   private isImageTranslationActive: boolean = false;
+  private liveCaptionCueCount: number = 0;
   private isTogglingTranslation: boolean = false;
   private isTogglingVideoSubtitles: boolean = false;
   private isTogglingLiveCaptions: boolean = false;
   private isTogglingImageTranslation: boolean = false;
   private isTranslatingVisibleImages: boolean = false;
   private isExportingVideoSubtitles: boolean = false;
+  private isExportingLiveCaptionTranscript: boolean = false;
+  private isClearingLiveCaptionTranscript: boolean = false;
   private loadingButtonStates: Map<HTMLButtonElement, boolean> = new Map();
 
   constructor() {
@@ -38,6 +41,7 @@ class PopupController {
   private async initialize(): Promise<void> {
     // 加载当前状态
     await this.loadCurrentState();
+    await this.loadLiveCaptionTranscriptStatus();
     
     // 绑定事件监听器
     this.bindEventListeners();
@@ -63,6 +67,12 @@ class PopupController {
 
     const toggleLiveCaptions = document.getElementById('toggleLiveCaptions') as HTMLButtonElement;
     toggleLiveCaptions?.addEventListener('click', () => this.toggleLiveCaptionMode());
+
+    const exportLiveCaptionTranscript = document.getElementById('exportLiveCaptionTranscript') as HTMLButtonElement;
+    exportLiveCaptionTranscript?.addEventListener('click', () => this.exportLiveCaptionTranscript());
+
+    const clearLiveCaptionTranscript = document.getElementById('clearLiveCaptionTranscript') as HTMLButtonElement;
+    clearLiveCaptionTranscript?.addEventListener('click', () => this.clearLiveCaptionTranscript());
 
     const toggleImageTranslation = document.getElementById('toggleImageTranslation') as HTMLButtonElement;
     toggleImageTranslation?.addEventListener('click', () => this.toggleImageTranslationMode());
@@ -154,6 +164,24 @@ class PopupController {
       }
 
       console.error('Could not load current state:', error);
+    }
+  }
+
+  private async loadLiveCaptionTranscriptStatus(): Promise<void> {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) return;
+
+      const response = await this.sendTabMessage(tab.id, { action: 'getLiveCaptionTranscriptStatus' });
+      if (response?.success) {
+        this.applyLiveCaptionTranscriptState(response.data || response);
+      }
+    } catch (error) {
+      if (!this.isMissingContentScriptReceiverError(error)) {
+        console.error('Could not load live caption transcript status:', error);
+      }
+    } finally {
+      this.updateLiveCaptionTranscriptUI();
     }
   }
 
@@ -251,9 +279,13 @@ class PopupController {
       if (tab?.id) {
         const response = await this.sendMessageToTabWithInjection(tab, { action: 'toggleLiveCaptionTranslation' });
         if (response?.success) {
-          const isActive = response.isActive ?? response.data?.isActive;
-          this.isLiveCaptionActive = Boolean(isActive);
+          const state = response.data || response;
+          this.isLiveCaptionActive = Boolean(state.isActive);
+          if (typeof state.cueCount === 'number') {
+            this.liveCaptionCueCount = state.cueCount;
+          }
           this.updateLiveCaptionStatusUI();
+          this.updateLiveCaptionTranscriptUI();
         } else {
           this.showError(response?.error || 'Could not toggle live captions.');
         }
@@ -265,6 +297,77 @@ class PopupController {
       this.showError(error instanceof Error ? error.message : 'Could not toggle live captions.');
     } finally {
       this.setLiveCaptionToggleBusy(false);
+    }
+  }
+
+  private async exportLiveCaptionTranscript(): Promise<void> {
+    if (this.isExportingLiveCaptionTranscript) return;
+
+    this.setLiveCaptionTranscriptExportBusy(true);
+
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) {
+        this.showError('No active page found.');
+        return;
+      }
+
+      const format = (document.getElementById('liveCaptionExportFormat') as HTMLSelectElement | null)?.value || 'txt';
+      const response = await this.sendMessageToTabWithInjection(tab, {
+        action: 'exportLiveCaptionTranscript',
+        data: { format }
+      });
+      const exported = response?.data || response;
+      const content = typeof exported?.content === 'string' ? exported.content : '';
+
+      if (!response?.success || !content.trim()) {
+        this.liveCaptionCueCount = typeof exported?.cueCount === 'number' ? exported.cueCount : 0;
+        this.updateLiveCaptionTranscriptUI();
+        this.showError(exported?.message || response?.error || 'No live caption transcript to export yet.');
+        return;
+      }
+
+      this.liveCaptionCueCount = typeof exported.cueCount === 'number'
+        ? exported.cueCount
+        : this.liveCaptionCueCount;
+      this.downloadTextFile(
+        content,
+        exported.filename || `lexibridge-live-captions.${format}`,
+        this.getTranscriptMimeType(format)
+      );
+      this.updateLiveCaptionTranscriptUI(exported.message);
+    } catch (error) {
+      console.error('Could not export live caption transcript:', error);
+      this.showError(error instanceof Error ? error.message : 'Could not export live caption transcript.');
+    } finally {
+      this.setLiveCaptionTranscriptExportBusy(false);
+    }
+  }
+
+  private async clearLiveCaptionTranscript(): Promise<void> {
+    if (this.isClearingLiveCaptionTranscript) return;
+
+    this.setLiveCaptionTranscriptClearBusy(true);
+
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) {
+        this.showError('No active page found.');
+        return;
+      }
+
+      const response = await this.sendMessageToTabWithInjection(tab, { action: 'clearLiveCaptionTranscript' });
+      if (!response?.success) {
+        this.showError(response?.error || 'Could not clear live caption transcript.');
+        return;
+      }
+
+      this.applyLiveCaptionTranscriptState(response.data || response);
+    } catch (error) {
+      console.error('Could not clear live caption transcript:', error);
+      this.showError(error instanceof Error ? error.message : 'Could not clear live caption transcript.');
+    } finally {
+      this.setLiveCaptionTranscriptClearBusy(false);
     }
   }
 
@@ -508,6 +611,41 @@ class PopupController {
         toggleBtn.classList.remove('active');
       }
     }
+  }
+
+  private applyLiveCaptionTranscriptState(state: any): void {
+    if (typeof state?.cueCount === 'number') {
+      this.liveCaptionCueCount = Math.max(0, state.cueCount);
+    }
+
+    this.updateLiveCaptionTranscriptUI(state?.message);
+  }
+
+  private updateLiveCaptionTranscriptUI(message?: string): void {
+    const status = document.getElementById('liveCaptionTranscriptStatus');
+    const exportButton = document.getElementById('exportLiveCaptionTranscript') as HTMLButtonElement;
+    const clearButton = document.getElementById('clearLiveCaptionTranscript') as HTMLButtonElement;
+
+    if (status) {
+      status.textContent = message || (this.liveCaptionCueCount > 0
+        ? `${this.liveCaptionCueCount} ${this.liveCaptionCueCount === 1 ? 'cue' : 'cues'} captured`
+        : 'No transcript yet');
+    }
+
+    if (exportButton) {
+      exportButton.disabled = this.isExportingLiveCaptionTranscript || this.liveCaptionCueCount === 0;
+    }
+
+    if (clearButton) {
+      clearButton.disabled = this.isClearingLiveCaptionTranscript || this.liveCaptionCueCount === 0;
+    }
+  }
+
+  private getTranscriptMimeType(format: string): string {
+    if (format === 'json') return 'application/json;charset=utf-8';
+    if (format === 'srt') return 'application/x-subrip;charset=utf-8';
+    if (format === 'vtt') return 'text/vtt;charset=utf-8';
+    return 'text/plain;charset=utf-8';
   }
 
   private updateImageTranslationStatusUI(): void {
@@ -774,6 +912,26 @@ class PopupController {
     const toggleBtn = document.getElementById('toggleLiveCaptions') as HTMLButtonElement;
     if (toggleBtn) {
       toggleBtn.disabled = isBusy;
+    }
+  }
+
+  private setLiveCaptionTranscriptExportBusy(isBusy: boolean): void {
+    this.isExportingLiveCaptionTranscript = isBusy;
+
+    const button = document.getElementById('exportLiveCaptionTranscript') as HTMLButtonElement;
+    if (button) {
+      button.disabled = isBusy || this.liveCaptionCueCount === 0;
+      button.textContent = isBusy ? 'Exporting...' : 'Export';
+    }
+  }
+
+  private setLiveCaptionTranscriptClearBusy(isBusy: boolean): void {
+    this.isClearingLiveCaptionTranscript = isBusy;
+
+    const button = document.getElementById('clearLiveCaptionTranscript') as HTMLButtonElement;
+    if (button) {
+      button.disabled = isBusy || this.liveCaptionCueCount === 0;
+      button.textContent = isBusy ? 'Clearing...' : 'Clear';
     }
   }
 

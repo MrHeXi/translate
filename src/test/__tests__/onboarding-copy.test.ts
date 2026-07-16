@@ -32,6 +32,7 @@ describe('first-run and empty-state copy', () => {
     expect(popupHtml).toContain('Video subtitles');
     expect(popupHtml).toContain('Export SRT');
     expect(popupHtml).toContain('Live captions');
+    expect(popupHtml).toContain('Live caption transcript format');
     expect(popupHtml).toContain('Image text');
     expect(popupHtml).toContain('Translate visible images');
     expect(popupHtml).toContain('manual floating button');

@@ -748,6 +748,15 @@ describe('Content script direct runtime message contract', () => {
         message: 'Start image translation first'
       }
     });
+    await expect(registeredHandlers.getLiveCaptionTranscriptStatus()).resolves.toEqual({
+      success: true,
+      data: {
+        isActive: false,
+        cueCount: 0,
+        sessionStartedAt: null,
+        message: 'No live caption transcript yet'
+      }
+    });
 
     const directListener = listeners[listeners.length - 1]!;
     const sendDirectMessage = (request: any): Promise<any> => new Promise(resolve => {
@@ -794,7 +803,39 @@ describe('Content script direct runtime message contract', () => {
       success: true,
       isActive: true,
       hasCaption: false,
+      cueCount: 0,
       message: 'Waiting for live captions'
+    });
+
+    const liveCaptionTranscriptStatus = await sendDirectMessage({ action: 'getLiveCaptionTranscriptStatus' });
+    expect(liveCaptionTranscriptStatus).toEqual({
+      success: true,
+      isActive: true,
+      cueCount: 0,
+      sessionStartedAt: null,
+      message: 'No live caption transcript yet'
+    });
+
+    const emptyTranscriptExport = await sendDirectMessage({
+      action: 'exportLiveCaptionTranscript',
+      data: { format: 'json' }
+    });
+    expect(emptyTranscriptExport).toEqual({
+      success: true,
+      format: 'json',
+      cueCount: 0,
+      filename: 'meeting-lexibridge-live-captions.json',
+      content: '',
+      message: 'No live caption transcript to export yet'
+    });
+
+    const clearTranscriptResponse = await sendDirectMessage({ action: 'clearLiveCaptionTranscript' });
+    expect(clearTranscriptResponse).toEqual({
+      success: true,
+      isActive: true,
+      cueCount: 0,
+      sessionStartedAt: null,
+      message: 'Live caption transcript cleared'
     });
 
     const liveCaptionStatusResponse = await sendDirectMessage({ action: 'getTranslationStatus' });
@@ -812,6 +853,7 @@ describe('Content script direct runtime message contract', () => {
       success: true,
       isActive: false,
       hasCaption: false,
+      cueCount: 0,
       message: 'Live caption translation stopped'
     });
 

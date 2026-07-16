@@ -89,7 +89,8 @@ Capture a safe sample page where captions are already visible after manually sta
 
 - The bilingual live caption overlay visible.
 - The original caption text visible on the page or clearly represented in the sample, with a safe speaker label if demonstrating meeting captions.
-- No private names, meeting details, audio recording indicator, or transcript export claim.
+- The cue count, TXT/SRT/VTT/JSON format menu, Export, and Clear controls visible in the popup.
+- No private names, meeting details, audio recording indicator, or implication that audio is being transcribed.
 
 ### Image Text
 
@@ -133,7 +134,7 @@ Capture the options page with:
 - Unsupported feature claims beyond web page translation, text-based document translation, selected-text translation, vocabulary collection, review, import/export, and Chrome storage sync.
 - Claims for full scanned PDF OCR, automatic manga segmentation, or layout-preserving PDF translation.
 - Claims for layout-perfect Office/eBook conversion.
-- Claims for audio transcription, automatic subtitle generation, meeting translation, or guaranteed support for every video site.
+- Claims for audio transcription, automatic subtitle generation, meeting bots, or guaranteed support for every video site.
 - Console errors, developer tools, or local file explorer windows.
 
 ## Final Check

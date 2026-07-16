@@ -8,7 +8,12 @@ import { HoverTranslator } from './components/HoverTranslator';
 import { InputBoxTranslator } from './components/InputBoxTranslator';
 import { DocumentPagePrompt } from './components/DocumentPagePrompt';
 import { VideoSubtitleTranslator } from './components/VideoSubtitleTranslator';
-import { LiveCaptionTranslator } from './components/LiveCaptionTranslator';
+import {
+  LiveCaptionTranscriptExport,
+  LiveCaptionTranscriptFormat,
+  LiveCaptionTranscriptStatus,
+  LiveCaptionTranslator
+} from './components/LiveCaptionTranslator';
 import { ImageTranslator, VisibleImageTranslationResult } from './components/ImageTranslator';
 import { messageManager } from '../services/MessageManager';
 import { performanceManager } from '../services/PerformanceManager';
@@ -172,6 +177,15 @@ class ContentScript {
         const state = await this.toggleLiveCaptionTranslation();
         return { success: true, data: state };
       },
+      'getLiveCaptionTranscriptStatus': async () => {
+        return { success: true, data: this.getLiveCaptionTranscriptStatus() };
+      },
+      'exportLiveCaptionTranscript': async (request) => {
+        return { success: true, data: this.exportLiveCaptionTranscript(request.data?.format) };
+      },
+      'clearLiveCaptionTranscript': async () => {
+        return { success: true, data: this.clearLiveCaptionTranscript() };
+      },
       'toggleImageTranslation': async () => {
         const state = await this.toggleImageTranslation();
         return { success: true, data: state };
@@ -262,6 +276,18 @@ class ContentScript {
           sendResponse({ success: true, ...state });
           break;
         }
+
+        case 'getLiveCaptionTranscriptStatus':
+          sendResponse({ success: true, ...this.getLiveCaptionTranscriptStatus() });
+          break;
+
+        case 'exportLiveCaptionTranscript':
+          sendResponse({ success: true, ...this.exportLiveCaptionTranscript(request.data?.format) });
+          break;
+
+        case 'clearLiveCaptionTranscript':
+          sendResponse({ success: true, ...this.clearLiveCaptionTranscript() });
+          break;
 
         case 'toggleImageTranslation': {
           const state = await this.toggleImageTranslation();
@@ -363,8 +389,30 @@ class ContentScript {
     return this.videoSubtitleTranslator.exportSubtitles();
   }
 
-  private async toggleLiveCaptionTranslation(): Promise<{ isActive: boolean; hasCaption: boolean; message: string }> {
+  private async toggleLiveCaptionTranslation(): Promise<{
+    isActive: boolean;
+    hasCaption: boolean;
+    cueCount: number;
+    message: string;
+  }> {
     return this.liveCaptionTranslator.toggle((text) => this.translateInteractiveText(text));
+  }
+
+  private getLiveCaptionTranscriptStatus(): LiveCaptionTranscriptStatus {
+    return this.liveCaptionTranslator.getTranscriptStatus();
+  }
+
+  private exportLiveCaptionTranscript(format: unknown): LiveCaptionTranscriptExport {
+    const supportedFormats: LiveCaptionTranscriptFormat[] = ['txt', 'srt', 'vtt', 'json'];
+    const transcriptFormat = supportedFormats.includes(format as LiveCaptionTranscriptFormat)
+      ? format as LiveCaptionTranscriptFormat
+      : 'txt';
+
+    return this.liveCaptionTranslator.exportTranscript(transcriptFormat);
+  }
+
+  private clearLiveCaptionTranscript(): LiveCaptionTranscriptStatus {
+    return this.liveCaptionTranslator.clearTranscript();
   }
 
   private async toggleImageTranslation(): Promise<{ isActive: boolean; hasImage: boolean; message: string }> {

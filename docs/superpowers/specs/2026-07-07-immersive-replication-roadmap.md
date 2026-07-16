@@ -115,8 +115,12 @@ Current batch:
 - Done: detect live captions when available in the page DOM.
 - Done: preserve common meeting speaker labels while translating Google Meet, Zoom, and Teams-style caption containers.
 - Done: translate visible caption text in near real time after the user starts Live captions from the popup.
-- Done: avoid recording, joining calls, storing audio, or generating meeting transcripts.
-- Remaining: deeper meeting timing, transcript workflows, and broader site-specific caption adapters.
+- Done: add a Webex-style caption adapter.
+- Done: coalesce word-by-word caption growth into timestamped bilingual cues instead of duplicate fragments.
+- Done: retain the current tab's transcript after Stop and export it locally as TXT, SRT, VTT, or structured JSON.
+- Done: clear the in-memory transcript explicitly without stopping live caption translation.
+- Done: avoid recording, joining calls, storing audio, or transcribing speech.
+- Remaining: broader site-specific caption adapters and persistent cross-session transcript organization.
 
 ## Non-Negotiable Product Rules
 

@@ -53,7 +53,9 @@ describe('product packaging contract', () => {
     expect(readme).toContain('Export translated subtitle cues from the current session as an `.srt` file');
     expect(readme).toContain('common DOM-rendered captions');
     expect(readme).toContain('Live Caption Translation');
-    expect(readme).toContain('Google Meet, Zoom, and Teams-style caption containers');
+    expect(readme).toContain('Google Meet, Zoom, Microsoft Teams, and Webex-style caption containers');
+    expect(readme).toContain('TXT, SRT, VTT, or structured JSON');
+    expect(readme).toContain('coalescing incremental word-by-word caption updates');
     expect(readme).toContain('Image Text Translation');
     expect(readme).toContain('Translate visible images');
     expect(readme).toContain('opening or scrolling a page never starts image translation');
@@ -120,13 +122,14 @@ describe('product packaging contract', () => {
     expect(listing).toContain('SRT export for translated cues from the current session');
     expect(listing).toContain('Live caption translation');
     expect(listing).toContain('common meeting speaker labels');
+    expect(listing).toContain('local TXT/SRT/VTT/JSON transcript export');
     expect(listing).toContain('Manual image text translation');
     expect(listing).toContain('user-triggered visible-image batch');
     expect(listing).toContain('Opening or scrolling a page never starts OCR');
     expect(listing).toContain('OCR depends on browser support');
     expect(listing).toContain('separate OCR block overlays');
     expect(listing).toContain('does not record audio');
-    expect(listing).toContain('does not record audio, join calls, or create meeting transcripts');
+    expect(listing).toContain('does not record audio, join calls, or transcribe speech');
     expect(listing).toContain('100+ target language choices');
     expect(listing).toContain('20+ provider definitions');
     expect(listing).toContain('Vocabulary notebook');
@@ -149,7 +152,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-08');
-    expect(releaseNotes).toContain('35 test suites and 243 tests');
+    expect(releaseNotes).toContain('36 test suites and 249 tests');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -172,6 +175,7 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('Video Subtitles');
     expect(screenshotGuide).toContain('Export SRT');
     expect(screenshotGuide).toContain('Live Captions');
+    expect(screenshotGuide).toContain('TXT/SRT/VTT/JSON format menu');
     expect(screenshotGuide).toContain('Image Text');
     expect(screenshotGuide).toContain('Translate visible images');
     expect(screenshotGuide).toContain('separate region overlays');
@@ -203,6 +207,8 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('SRT export for translated subtitle cues');
     expect(roadmap).toContain('Meeting subtitle translation');
     expect(roadmap).toContain('meeting caption adapters with speaker-label preservation');
+    expect(roadmap).toContain('timestamped bilingual cues');
+    expect(roadmap).toContain('TXT, SRT, VTT, or structured JSON');
     expect(roadmap).toContain('Image, manga, and OCR translation');
     expect(roadmap).toContain('separate OCR text-block overlays');
     expect(roadmap).toContain('Translate visible images');
