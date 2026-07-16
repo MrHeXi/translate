@@ -18,6 +18,8 @@ Page translation is always user-triggered. Start from the extension popup or the
 
 The document translator supports pasted text, text files, Markdown, HTML files, JSON string values, DOCX paragraph text, EPUB spine documents, subtitle files, and PDFs. Bundled Mozilla PDF.js code renders PDF pages locally and extracts positioned text lines. The document page can show original and translated PDF pages side by side, recognize image-only pages with browser OCR or bundled offline Tesseract OCR, and export translated pages as a flattened visual PDF. Bundled OCR supports selectable English, Simplified Chinese, Traditional Chinese, Japanese, and Korean models with local progress reporting. Subtitle files can be exported after translation as `.srt` or `.vtt` files with their original cue timing preserved. JSON files can be exported after translation with the original object and array structure preserved. DOCX and EPUB files can be exported after translation by writing translated readable blocks into a new document archive. HTML files are reduced to readable body text blocks before translation, skipping scripts, styles, and markup. Image text translation can use browser or bundled offline OCR, plus SVG and accessibility text fallbacks, and it can place separate translation overlays on OCR text blocks when coordinates are available. After enabling Image text, the user can explicitly run Translate visible images; hidden, offscreen, tiny, and extension-owned graphics are skipped, and Stop cancels the remaining batch and terminates its local OCR worker. OCR accuracy is not guaranteed for every scan, exported translated PDFs are flattened, and automatic manga panel segmentation, image inpainting, audio transcription, and meeting bots are not included yet.
 
+OpenAI-compatible and Gemini translation can use an optional bounded window of neighboring page or document text, a selectable subject-domain expert, mandatory terminology mappings, and custom translation instructions. Neighboring context is off by default and is collected only after the user manually starts page or document translation.
+
 The extension includes built-in CET4, CET6, GRE, IELTS, and TOEFL vocabulary sets. Enable the dictionaries you care about, collect useful words from the pages you read, and review saved or due words from the review page.
 
 Core features:
@@ -36,6 +38,7 @@ Core features:
 - Manual image text translation using browser OCR or bundled offline OCR, plus SVG and accessibility text fallbacks, with click/drag selection, a user-triggered visible-image batch, and separate OCR block overlays when coordinates are available.
 - 100+ target language choices in settings.
 - Google Translate and MyMemory work without a key. DeepL, Microsoft Translator, OpenAI-compatible endpoints, and Google Gemini can be configured with user-supplied API credentials.
+- AI translation controls for OpenAI-compatible and Gemini providers: opt-in neighboring context, nine domain experts, terminology mappings, and custom instructions.
 - Vocabulary notebook for saved words, translations, examples, mastery level, and review schedule.
 - Built-in CET4, CET6, GRE, IELTS, and TOEFL dictionaries.
 - Review page for due words and new dictionary words.

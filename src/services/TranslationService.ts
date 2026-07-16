@@ -6,6 +6,12 @@ import {
   TRANSLATION_LANGUAGES,
   TranslationProviderRuntimeConfig
 } from './TranslationProviderRegistry';
+import {
+  AiTranslationPreferences,
+  buildAiTranslationSystemPrompt,
+  buildAiTranslationUserMessage,
+  normalizeAiTranslationPreferences
+} from './AiTranslationPreferences';
 
 export interface TranslationRequest {
   text: string;
@@ -14,6 +20,7 @@ export interface TranslationRequest {
   provider?: string | undefined;
   providerConfig?: TranslationProviderRuntimeConfig | undefined;
   context?: string;
+  aiPreferences?: Partial<AiTranslationPreferences>;
 }
 
 export interface TranslationResult {
@@ -182,7 +189,12 @@ export class TranslationService {
       request.providerConfig?.region || ''
     ].join('|');
 
-    return `${request.provider || 'auto-provider'}_${providerVariant}_${request.text}_${request.sourceLang || 'auto'}_${request.targetLang}`;
+    const aiVariant = JSON.stringify({
+      context: request.context || '',
+      preferences: normalizeAiTranslationPreferences(request.aiPreferences)
+    });
+
+    return `${request.provider || 'auto-provider'}_${providerVariant}_${aiVariant}_${request.text}_${request.sourceLang || 'auto'}_${request.targetLang}`;
   }
 
   private setCacheItem(key: string, result: TranslationResult): void {
@@ -434,6 +446,16 @@ export class TranslationService {
       ? this.getLanguageLabel(request.sourceLang)
       : 'the detected source language';
     const targetLanguage = this.getLanguageLabel(request.targetLang);
+    const systemPrompt = buildAiTranslationSystemPrompt(
+      sourceLanguage,
+      targetLanguage,
+      request.aiPreferences
+    );
+    const userMessage = buildAiTranslationUserMessage(
+      request.text,
+      request.context,
+      request.aiPreferences
+    );
     const response = await fetch(config.endpoint, {
       method: 'POST',
       headers: {
@@ -446,9 +468,9 @@ export class TranslationService {
         messages: [
           {
             role: 'system',
-            content: `Translate from ${sourceLanguage} to ${targetLanguage}. Return only the translated text without commentary.`
+            content: systemPrompt
           },
-          { role: 'user', content: request.text }
+          { role: 'user', content: userMessage }
         ]
       })
     });
@@ -481,6 +503,16 @@ export class TranslationService {
       ? this.getLanguageLabel(request.sourceLang)
       : 'the detected source language';
     const targetLanguage = this.getLanguageLabel(request.targetLang);
+    const systemPrompt = buildAiTranslationSystemPrompt(
+      sourceLanguage,
+      targetLanguage,
+      request.aiPreferences
+    );
+    const userMessage = buildAiTranslationUserMessage(
+      request.text,
+      request.context,
+      request.aiPreferences
+    );
     const endpoint = `${config.endpoint.replace(/\/$/, '')}/${encodeURIComponent(config.model)}:generateContent`;
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -491,10 +523,10 @@ export class TranslationService {
       body: JSON.stringify({
         systemInstruction: {
           parts: [{
-            text: `Translate from ${sourceLanguage} to ${targetLanguage}. Return only the translated text without commentary.`
+            text: systemPrompt
           }]
         },
-        contents: [{ role: 'user', parts: [{ text: request.text }] }],
+        contents: [{ role: 'user', parts: [{ text: userMessage }] }],
         generationConfig: { temperature: 0 }
       })
     });

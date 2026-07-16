@@ -89,6 +89,31 @@
             </div>
           </div>
 
+          <fieldset class="ai-translation-section">
+            <legend>AI translation</legend>
+            <div class="ai-translation-grid">
+              <label class="ai-translation-toggle" for="aiContextEnabled">
+                Neighboring context
+                <input id="aiContextEnabled" type="checkbox">
+              </label>
+
+              <label class="ai-translation-field" for="aiTranslationDomain">
+                Domain expert
+                <select id="aiTranslationDomain"></select>
+              </label>
+
+              <label class="ai-translation-field ai-translation-field-wide" for="translationGlossary">
+                Terminology glossary
+                <textarea id="translationGlossary" rows="4" spellcheck="false" placeholder="source term => required translation"></textarea>
+              </label>
+
+              <label class="ai-translation-field ai-translation-field-wide" for="aiCustomPrompt">
+                Custom translation instructions
+                <textarea id="aiCustomPrompt" rows="4" maxlength="2000"></textarea>
+              </label>
+            </div>
+          </fieldset>
+
           <div class="setting-item">
             <label for="pageTranslationDisplayMode">Page translation display:</label>
             <select id="pageTranslationDisplayMode">

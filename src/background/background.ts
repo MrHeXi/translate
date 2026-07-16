@@ -15,6 +15,7 @@ import { ReviewService } from '../services/ReviewService';
 import { performanceManager } from '../services/PerformanceManager';
 import { errorHandler, ErrorType, ErrorSeverity } from '../services/ErrorHandler';
 import { offlineManager } from '../services/OfflineManager';
+import { normalizeAiTranslationPreferences } from '../services/AiTranslationPreferences';
 
 // 消息类型定义（保留兼容性）
 interface MessageRequest {
@@ -484,7 +485,23 @@ class BackgroundService {
       const providerConfig = provider
         ? await this.storageManager.getTranslationProviderConfig(provider)
         : undefined;
-      const translationRequest = { ...request.data, providerConfig };
+      const settings = provider === 'openai' || provider === 'gemini'
+        ? await this.storageManager.getSettings()
+        : null;
+      const aiPreferences = settings
+        ? normalizeAiTranslationPreferences({
+          contextEnabled: settings.aiContextEnabled,
+          domain: settings.aiTranslationDomain,
+          glossary: settings.translationGlossary,
+          customPrompt: settings.aiCustomPrompt
+        })
+        : undefined;
+      const translationRequest = {
+        ...request.data,
+        context: aiPreferences?.contextEnabled ? request.data.context : undefined,
+        aiPreferences,
+        providerConfig
+      };
       const translate = () => this.translationService.translate(translationRequest);
       const result = provider && !['google', 'mymemory'].includes(provider)
         ? await translate()
@@ -570,6 +587,7 @@ class BackgroundService {
 
   private async handleUpdateSettingsRequest(request: MessageRequest): Promise<MessageResponse> {
     await this.storageManager.saveSettings(request.data);
+    this.translationService.clearCache();
     await this.broadcastSettingsUpdate(request.data);
     return { success: true };
   }
@@ -718,6 +736,10 @@ class BackgroundService {
       translationStyle: 'subtle' as const,
       pageTranslationScope: 'main-content' as const,
       documentOcrLanguage: 'eng' as const,
+      aiContextEnabled: false,
+      aiTranslationDomain: 'general' as const,
+      translationGlossary: [],
+      aiCustomPrompt: '',
       autoTranslate: false,
       showFloatingIcon: true,
       pageTranslationExcludeSelectors: [],
@@ -774,6 +796,10 @@ class BackgroundService {
       translationStyle: 'subtle' as const,
       pageTranslationScope: 'main-content' as const,
       documentOcrLanguage: 'eng' as const,
+      aiContextEnabled: false,
+      aiTranslationDomain: 'general' as const,
+      translationGlossary: [],
+      aiCustomPrompt: '',
       autoTranslate: false,
       showFloatingIcon: true,
       pageTranslationExcludeSelectors: [],

@@ -36,6 +36,8 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Create exact-domain or wildcard site rules that can block page translation or override display mode, translation scope, style, and excluded selectors.
 - Choose from 100+ target language options in settings.
 - Use Google Translate or MyMemory without a key, or configure DeepL, Microsoft Translator, an OpenAI-compatible endpoint, or Google Gemini with your own API credentials.
+- With OpenAI-compatible or Gemini translation, choose a domain expert, enforce a local terminology glossary, add custom translation instructions, and optionally use neighboring page or document text as reference context.
+- Keep neighboring-context sharing off by default. Context is collected only after a manual page or document translation starts and is bounded before it is sent to the selected AI provider.
 - Keep provider API keys in local Chrome storage only; keys are excluded from Chrome sync and learning-data exports.
 
 ### Selection Translation
@@ -164,6 +166,8 @@ The generated test package is `chrome-translation-extension.zip`.
 4. A custom OpenAI-compatible or DeepL endpoint must use HTTPS, except for HTTP endpoints on localhost. LexiBridge requests access only to that endpoint's origin.
 
 Google Translate and MyMemory remain available without user credentials. Credentialed providers do not silently fall back to another service when authentication or configuration fails.
+
+For OpenAI-compatible and Gemini providers, the AI translation controls in settings can select a subject domain, define terminology as `source term => required translation`, and add custom instructions. Neighboring context is opt-in and applies to manually translated page batches and document blocks only.
 
 ### Configure Site Rules
 

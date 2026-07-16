@@ -699,13 +699,18 @@ class ContentScript {
         }
 
         const batch = textNodes.slice(i, i + batchSize);
+        const contextNodes = textNodes.slice(
+          Math.max(0, i - 2),
+          Math.min(textNodes.length, i + batchSize + 2)
+        );
+        const context = this.createTranslationContext(contextNodes);
         const currentBatch = Math.floor(i / batchSize) + 1;
         
         // 更新进度
         const progress = 10 + (currentBatch / totalBatches) * 80;
         loadingManager.updateProgress(loadingId, progress, `正在翻译第 ${currentBatch}/${totalBatches} 批内容...`);
         
-        await this.translateTextNodeBatch(batch, runId);
+        await this.translateTextNodeBatch(batch, runId, context);
 
         if (!this.isCurrentTranslationRun(runId)) {
           return;
@@ -773,7 +778,11 @@ class ContentScript {
     return result.translatedText;
   }
 
-  private async translateTextNodeBatch(textNodes: Text[], runId?: number): Promise<void> {
+  private async translateTextNodeBatch(
+    textNodes: Text[],
+    runId?: number,
+    context: string = this.createTranslationContext(textNodes)
+  ): Promise<void> {
     const promises = textNodes.map(async (node) => {
       if (runId !== undefined && !this.isCurrentTranslationRun(runId)) {
         return;
@@ -785,7 +794,7 @@ class ContentScript {
           let translation = this.translationCache.get(node.textContent);
           
           if (!translation) {
-            const result = await this.requestTranslation(node.textContent);
+            const result = await this.requestTranslation(node.textContent, context);
             translation = result.translatedText;
             this.translationCache.set(node.textContent, translation);
           }
@@ -887,13 +896,14 @@ class ContentScript {
     }
   }
 
-  private async requestTranslation(text: string): Promise<TranslationResult> {
+  private async requestTranslation(text: string, context?: string): Promise<TranslationResult> {
     const startTime = Date.now();
     try {
       const response = await messageManager.sendToBackground({
         action: 'translate',
         data: {
           text: text,
+          context,
           targetLang: this.userSettings?.defaultTargetLanguage || 'zh-CN',
           provider: this.userSettings?.translationProvider || 'google'
         }
@@ -976,6 +986,14 @@ class ContentScript {
     if (!translationTarget) return;
     const textNodes = this.getTextNodes(translationTarget);
     await this.translateTextNodeBatch(textNodes, this.translationRunId);
+  }
+
+  private createTranslationContext(textNodes: Text[]): string {
+    return textNodes
+      .map(node => node.textContent?.replace(/\s+/g, ' ').trim() || '')
+      .filter(Boolean)
+      .join('\n')
+      .slice(0, 4000);
   }
 
   private async applySettingsChanges(): Promise<void> {

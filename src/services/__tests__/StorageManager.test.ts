@@ -10,6 +10,7 @@ import {
   UserData
 } from '../StorageManager';
 import type { BundledOcrLanguageCode } from '../BundledOcrService';
+import type { TranslationDomain } from '../AiTranslationPreferences';
 
 // 模拟 Chrome Storage API
 const mockChromeStorage = {
@@ -44,6 +45,21 @@ const ocrLanguageArbitrary = fc.constantFrom<BundledOcrLanguageCode>(
   'jpn',
   'kor'
 );
+const translationDomainArbitrary = fc.constantFrom<TranslationDomain>(
+  'general',
+  'academic',
+  'technical',
+  'software',
+  'business',
+  'finance',
+  'legal',
+  'medical',
+  'creative'
+);
+const glossaryArbitrary = fc.array(fc.record({
+  source: fc.string({ minLength: 1, maxLength: 20 }),
+  target: fc.string({ minLength: 1, maxLength: 20 })
+}), { maxLength: 5 });
 const siteTranslationRuleArbitrary: fc.Arbitrary<SiteTranslationRule> = fc.record({
   pattern: fc.constantFrom('example.com', 'docs.example.com', '*.example.org'),
   translationEnabled: fc.boolean(),
@@ -69,20 +85,38 @@ describe('StorageManager', () => {
       expect(storageManager).toBeInstanceOf(StorageManager);
     });
 
-    it('defaults the bundled OCR language to English and restores a saved choice', async () => {
+    it('defaults and restores OCR and AI translation preferences', async () => {
       mockChromeStorage.sync.get.mockResolvedValue({});
       mockChromeStorage.local.get.mockResolvedValue({});
 
       await expect(storageManager.getSettings()).resolves.toEqual(
-        expect.objectContaining({ documentOcrLanguage: 'eng' })
+        expect.objectContaining({
+          documentOcrLanguage: 'eng',
+          aiContextEnabled: false,
+          aiTranslationDomain: 'general',
+          translationGlossary: [],
+          aiCustomPrompt: ''
+        })
       );
 
       mockChromeStorage.sync.get.mockResolvedValue({
-        settings: { documentOcrLanguage: 'kor' }
+        settings: {
+          documentOcrLanguage: 'kor',
+          aiContextEnabled: true,
+          aiTranslationDomain: 'medical',
+          translationGlossary: [{ source: 'dose', target: '剂量' }],
+          aiCustomPrompt: 'Preserve measurements.'
+        }
       });
 
       await expect(storageManager.getSettings()).resolves.toEqual(
-        expect.objectContaining({ documentOcrLanguage: 'kor' })
+        expect.objectContaining({
+          documentOcrLanguage: 'kor',
+          aiContextEnabled: true,
+          aiTranslationDomain: 'medical',
+          translationGlossary: [{ source: 'dose', target: '剂量' }],
+          aiCustomPrompt: 'Preserve measurements.'
+        })
       );
     });
 
@@ -240,7 +274,11 @@ describe('StorageManager', () => {
               translationStyle: translationStyleArbitrary,
               pageTranslationScope: translationScopeArbitrary,
               siteTranslationRules: fc.array(siteTranslationRuleArbitrary, { maxLength: 3 }),
-              documentOcrLanguage: ocrLanguageArbitrary
+              documentOcrLanguage: ocrLanguageArbitrary,
+              aiContextEnabled: fc.boolean(),
+              aiTranslationDomain: translationDomainArbitrary,
+              translationGlossary: glossaryArbitrary,
+              aiCustomPrompt: fc.string({ maxLength: 100 })
             }),
             vocabulary: fc.array(
               fc.record({
@@ -286,6 +324,10 @@ describe('StorageManager', () => {
             expect(loadedData.settings.pageTranslationScope).toBe(originalData.settings.pageTranslationScope);
             expect(loadedData.settings.siteTranslationRules).toEqual(originalData.settings.siteTranslationRules);
             expect(loadedData.settings.documentOcrLanguage).toBe(originalData.settings.documentOcrLanguage);
+            expect(loadedData.settings.aiContextEnabled).toBe(originalData.settings.aiContextEnabled);
+            expect(loadedData.settings.aiTranslationDomain).toBe(originalData.settings.aiTranslationDomain);
+            expect(loadedData.settings.translationGlossary).toEqual(originalData.settings.translationGlossary);
+            expect(loadedData.settings.aiCustomPrompt).toBe(originalData.settings.aiCustomPrompt);
             expect(loadedData.settings.learningModeEnabled).toBe(originalData.settings.learningModeEnabled);
             expect(loadedData.vocabulary.length).toBe(originalData.vocabulary.length);
           }
@@ -319,7 +361,11 @@ describe('StorageManager', () => {
               translationStyle: translationStyleArbitrary,
               pageTranslationScope: translationScopeArbitrary,
               siteTranslationRules: fc.array(siteTranslationRuleArbitrary, { maxLength: 3 }),
-              documentOcrLanguage: ocrLanguageArbitrary
+              documentOcrLanguage: ocrLanguageArbitrary,
+              aiContextEnabled: fc.boolean(),
+              aiTranslationDomain: translationDomainArbitrary,
+              translationGlossary: glossaryArbitrary,
+              aiCustomPrompt: fc.string({ maxLength: 100 })
             }),
             vocabulary: fc.array(
               fc.record({
@@ -388,6 +434,10 @@ describe('StorageManager', () => {
             expect(exportedUserData.settings.pageTranslationScope).toBe(originalData.settings.pageTranslationScope);
             expect(exportedUserData.settings.siteTranslationRules).toEqual(originalData.settings.siteTranslationRules);
             expect(exportedUserData.settings.documentOcrLanguage).toBe(originalData.settings.documentOcrLanguage);
+            expect(exportedUserData.settings.aiContextEnabled).toBe(originalData.settings.aiContextEnabled);
+            expect(exportedUserData.settings.aiTranslationDomain).toBe(originalData.settings.aiTranslationDomain);
+            expect(exportedUserData.settings.translationGlossary).toEqual(originalData.settings.translationGlossary);
+            expect(exportedUserData.settings.aiCustomPrompt).toBe(originalData.settings.aiCustomPrompt);
 
             // 验证词汇数据完整性 - 不直接比较，因为日期会被序列化
             // expect(exportedUserData.vocabulary).toEqual(originalData.vocabulary);
@@ -476,7 +526,11 @@ describe('StorageManager', () => {
               translationStyle: translationStyleArbitrary,
               pageTranslationScope: translationScopeArbitrary,
               siteTranslationRules: fc.array(siteTranslationRuleArbitrary, { maxLength: 3 }),
-              documentOcrLanguage: ocrLanguageArbitrary
+              documentOcrLanguage: ocrLanguageArbitrary,
+              aiContextEnabled: fc.boolean(),
+              aiTranslationDomain: translationDomainArbitrary,
+              translationGlossary: glossaryArbitrary,
+              aiCustomPrompt: fc.string({ maxLength: 100 })
             }),
             vocabulary: fc.array(
               fc.record({
@@ -537,6 +591,10 @@ describe('StorageManager', () => {
               expect(deviceBData.settings.pageTranslationScope).toBe(deviceAData.settings.pageTranslationScope);
               expect(deviceBData.settings.siteTranslationRules).toEqual(deviceAData.settings.siteTranslationRules);
               expect(deviceBData.settings.documentOcrLanguage).toBe(deviceAData.settings.documentOcrLanguage);
+              expect(deviceBData.settings.aiContextEnabled).toBe(deviceAData.settings.aiContextEnabled);
+              expect(deviceBData.settings.aiTranslationDomain).toBe(deviceAData.settings.aiTranslationDomain);
+              expect(deviceBData.settings.translationGlossary).toEqual(deviceAData.settings.translationGlossary);
+              expect(deviceBData.settings.aiCustomPrompt).toBe(deviceAData.settings.aiCustomPrompt);
             }
 
             // 验证词汇数据同步一致性

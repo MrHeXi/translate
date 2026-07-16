@@ -160,7 +160,7 @@ describe('TranslationService', () => {
       expect(result.confidence).toBe(0.98);
     });
 
-    it('calls an OpenAI-compatible endpoint with text in a separate user message', async () => {
+    it('sends context, domain, glossary, and custom instructions to an OpenAI-compatible endpoint', async () => {
       const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
         ok: true,
         json: async () => ({
@@ -171,6 +171,7 @@ describe('TranslationService', () => {
 
       const result = await translationService.translate({
         text: 'Hello world',
+        context: 'A contract clause defines force majeure.',
         sourceLang: 'en',
         targetLang: 'fr',
         provider: 'openai',
@@ -178,6 +179,12 @@ describe('TranslationService', () => {
           apiKey: 'openai-secret',
           endpoint: 'https://gateway.example.com/v1/chat/completions',
           model: 'translation-model'
+        },
+        aiPreferences: {
+          contextEnabled: true,
+          domain: 'legal',
+          glossary: [{ source: 'force majeure', target: 'cas de force majeure' }],
+          customPrompt: 'Keep clause numbering unchanged.'
         }
       });
 
@@ -188,7 +195,13 @@ describe('TranslationService', () => {
       expect(headers.Authorization).toBe('Bearer openai-secret');
       expect(body.model).toBe('translation-model');
       expect(body.messages[0].role).toBe('system');
-      expect(body.messages[1]).toEqual({ role: 'user', content: 'Hello world' });
+      expect(body.messages[0].content).toContain('Domain: Legal');
+      expect(body.messages[0].content).toContain('"force majeure" => "cas de force majeure"');
+      expect(body.messages[0].content).toContain('Keep clause numbering unchanged.');
+      expect(JSON.parse(body.messages[1].content)).toEqual({
+        referenceContext: 'A contract clause defines force majeure.',
+        textToTranslate: 'Hello world'
+      });
       expect(result.translatedText).toBe('Bonjour le monde');
     });
 
@@ -205,15 +218,70 @@ describe('TranslationService', () => {
         text: 'Hello world',
         targetLang: 'es',
         provider: 'gemini',
-        providerConfig: { apiKey: 'gemini-secret', model: 'gemini-test' }
+        providerConfig: { apiKey: 'gemini-secret', model: 'gemini-test' },
+        aiPreferences: {
+          contextEnabled: false,
+          domain: 'software',
+          glossary: [{ source: 'worker', target: 'trabajador' }],
+          customPrompt: ''
+        }
       });
 
       const [url, init] = fetchMock.mock.calls[0] as [RequestInfo | URL, RequestInit];
       const headers = init.headers as Record<string, string>;
+      const body = JSON.parse(String(init.body));
       expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-test:generateContent');
       expect(url.toString()).not.toContain('gemini-secret');
       expect(headers['x-goog-api-key']).toBe('gemini-secret');
+      expect(body.systemInstruction.parts[0].text).toContain('Domain: Software');
+      expect(body.systemInstruction.parts[0].text).toContain('"worker" => "trabajador"');
+      expect(body.contents[0].parts[0].text).toBe('Hello world');
       expect(result.translatedText).toBe('Hola mundo');
+    });
+
+    it('keeps AI translations with different reference context in separate cache entries', async () => {
+      let requestNumber = 0;
+      const fetchMock = jest.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: `Translation ${++requestNumber}` } }]
+        })
+      }));
+      (global as any).fetch = fetchMock;
+      const baseRequest = {
+        text: 'bank',
+        targetLang: 'zh-CN',
+        provider: 'openai',
+        providerConfig: {
+          apiKey: 'openai-secret',
+          endpoint: 'https://gateway.example.com/v1/chat/completions',
+          model: 'translation-model'
+        },
+        aiPreferences: {
+          contextEnabled: true,
+          domain: 'finance' as const,
+          glossary: [],
+          customPrompt: ''
+        }
+      };
+
+      const financial = await translationService.translate({
+        ...baseRequest,
+        context: 'The bank approved the loan.'
+      });
+      const river = await translationService.translate({
+        ...baseRequest,
+        context: 'They sat on the river bank.'
+      });
+      const cachedRiver = await translationService.translate({
+        ...baseRequest,
+        context: 'They sat on the river bank.'
+      });
+
+      expect(financial.translatedText).toBe('Translation 1');
+      expect(river.translatedText).toBe('Translation 2');
+      expect(cachedRiver.translatedText).toBe('Translation 2');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
     it('does not fall back to another provider when credentialed configuration is missing or rejected', async () => {

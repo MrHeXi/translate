@@ -14,6 +14,10 @@ describe('options UI settings contract', () => {
       <button id="startReview"></button>
       <select id="targetLanguage"><option value="zh-CN" selected>Chinese</option></select>
       <select id="documentOcrLanguage"><option value="eng" selected>English</option></select>
+      <input id="aiContextEnabled" type="checkbox">
+      <select id="aiTranslationDomain"><option value="general" selected>General</option></select>
+      <textarea id="translationGlossary"></textarea>
+      <textarea id="aiCustomPrompt"></textarea>
       <select id="translationProvider"><option value="google" selected>Google</option></select>
       <section id="providerConfigPanel" hidden>
         <h4 id="providerConfigTitle"></h4>
@@ -113,6 +117,10 @@ describe('options UI settings contract', () => {
   const createSettings = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
     defaultTargetLanguage: 'zh-CN',
     documentOcrLanguage: 'eng',
+    aiContextEnabled: false,
+    aiTranslationDomain: 'general',
+    translationGlossary: [],
+    aiCustomPrompt: '',
     translationProvider: 'google',
     pageTranslationDisplayMode: 'bilingual',
     pageTranslationScope: 'main-content',
@@ -148,7 +156,7 @@ describe('options UI settings contract', () => {
     setupDom();
   });
 
-  it('preserves an unchecked floating icon toggle when saving settings', async () => {
+  it('saves floating-icon, OCR, and AI translation controls together', async () => {
     const sendMessage = jest.fn((message, callback) => {
       if (message.action === 'getSettings') {
         callback({
@@ -214,6 +222,13 @@ describe('options UI settings contract', () => {
     const showFloatingIcon = document.getElementById('showFloatingIcon') as HTMLInputElement;
     showFloatingIcon.checked = false;
     (document.getElementById('documentOcrLanguage') as HTMLSelectElement).value = 'chi_sim';
+    (document.getElementById('aiContextEnabled') as HTMLInputElement).checked = true;
+    (document.getElementById('aiTranslationDomain') as HTMLSelectElement).value = 'legal';
+    (document.getElementById('translationGlossary') as HTMLTextAreaElement).value = [
+      'force majeure => 不可抗力',
+      'API => 应用程序接口'
+    ].join('\n');
+    (document.getElementById('aiCustomPrompt') as HTMLTextAreaElement).value = 'Keep clause numbering.';
     document.getElementById('saveSettings')!.dispatchEvent(new Event('click'));
     await flushPromises();
 
@@ -222,7 +237,14 @@ describe('options UI settings contract', () => {
         action: 'updateSettings',
         data: expect.objectContaining({
           showFloatingIcon: false,
-          documentOcrLanguage: 'chi_sim'
+          documentOcrLanguage: 'chi_sim',
+          aiContextEnabled: true,
+          aiTranslationDomain: 'legal',
+          translationGlossary: [
+            { source: 'force majeure', target: '不可抗力' },
+            { source: 'API', target: '应用程序接口' }
+          ],
+          aiCustomPrompt: 'Keep clause numbering.'
         })
       }),
       expect.any(Function)
@@ -475,6 +497,10 @@ describe('options UI settings contract', () => {
           data: {
             defaultTargetLanguage: 'es',
             documentOcrLanguage: 'jpn',
+            aiContextEnabled: true,
+            aiTranslationDomain: 'software',
+            translationGlossary: [{ source: 'worker', target: '工作线程' }],
+            aiCustomPrompt: 'Preserve code identifiers.',
             translationProvider: 'deepl',
             pageTranslationDisplayMode: 'translation-only',
             autoTranslate: false,
@@ -533,6 +559,7 @@ describe('options UI settings contract', () => {
 
     const targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement;
     const documentOcrLanguage = document.getElementById('documentOcrLanguage') as HTMLSelectElement;
+    const aiTranslationDomain = document.getElementById('aiTranslationDomain') as HTMLSelectElement;
     const translationProvider = document.getElementById('translationProvider') as HTMLSelectElement;
     const displayMode = document.getElementById('pageTranslationDisplayMode') as HTMLSelectElement;
 
@@ -546,12 +573,35 @@ describe('options UI settings contract', () => {
       'kor'
     ]);
     expect(documentOcrLanguage.value).toBe('jpn');
+    expect(Array.from(aiTranslationDomain.options).map(option => option.value)).toEqual([
+      'general',
+      'academic',
+      'technical',
+      'software',
+      'business',
+      'finance',
+      'legal',
+      'medical',
+      'creative'
+    ]);
+    expect(aiTranslationDomain.value).toBe('software');
+    expect((document.getElementById('aiContextEnabled') as HTMLInputElement).checked).toBe(true);
+    expect((document.getElementById('translationGlossary') as HTMLTextAreaElement).value).toBe(
+      'worker => 工作线程'
+    );
+    expect((document.getElementById('aiCustomPrompt') as HTMLTextAreaElement).value).toBe(
+      'Preserve code identifiers.'
+    );
     expect(Array.from(translationProvider.options).some(option => option.value === 'deepl' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'microsoft' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'openai' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'gemini' && !option.disabled)).toBe(true);
     expect(translationProvider.value).toBe('deepl');
     expect(displayMode.value).toBe('translation-only');
+    expect(aiTranslationDomain.disabled).toBe(true);
+    translationProvider.value = 'openai';
+    translationProvider.dispatchEvent(new Event('change'));
+    expect(aiTranslationDomain.disabled).toBe(false);
   });
 
   it('shows only a masked key summary and the fields required by the selected provider', async () => {

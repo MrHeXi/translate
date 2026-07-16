@@ -44,6 +44,9 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Disclose Chrome storage and Chrome sync use.
 - [ ] Disclose requests to Google Translate, MyMemory, DeepL, Microsoft Translator, OpenAI-compatible endpoints, and Gemini.
 - [ ] Disclose that provider API keys stay in local Chrome storage and are excluded from Chrome sync and learning-data exports.
+- [ ] Confirm AI neighboring context is off by default, is sent only for manual page/document translation when enabled, and is bounded before provider requests.
+- [ ] Confirm OpenAI-compatible and Gemini requests include the selected domain, normalized glossary, and custom instructions while keeping source/context in a separate untrusted-data message.
+- [ ] Confirm changing AI translation settings clears the background translation cache and different contexts cannot share a cached result.
 - [ ] State that there is no default telemetry.
 - [ ] Confirm the listing privacy fields match the policy.
 

@@ -291,8 +291,12 @@ class DocumentTranslatorController {
     this.showMessage(`Translating ${blocks.length} blocks`);
 
     try {
-      for (const block of blocks) {
-        const translatedText = await this.translateBlock(block.originalText);
+      for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
+        const block = blocks[blockIndex]!;
+        const translatedText = await this.translateBlock(
+          block.originalText,
+          this.createDocumentContext(blocks, blockIndex)
+        );
         results.push({ block, translatedText });
         this.currentResults = results;
         this.renderResults(results);
@@ -309,11 +313,12 @@ class DocumentTranslatorController {
     }
   }
 
-  private async translateBlock(text: string): Promise<string> {
+  private async translateBlock(text: string, context?: string): Promise<string> {
     const response = await this.sendMessage({
       action: 'translate',
       data: {
         text,
+        context,
         targetLang: this.targetLanguage?.value || 'zh-CN',
         provider: this.translationProvider?.value || 'google'
       }
@@ -324,6 +329,15 @@ class DocumentTranslatorController {
     }
 
     return response.data.translatedText;
+  }
+
+  private createDocumentContext(blocks: DocumentBlock[], blockIndex: number): string {
+    return blocks
+      .slice(Math.max(0, blockIndex - 2), Math.min(blocks.length, blockIndex + 3))
+      .map(block => block.originalText.replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .join('\n')
+      .slice(0, 4000);
   }
 
   private renderResults(results: TranslationResult[]): void {

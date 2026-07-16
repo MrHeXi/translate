@@ -18,6 +18,13 @@ import {
   BUNDLED_OCR_LANGUAGES,
   BundledOcrLanguageCode
 } from '../services/BundledOcrService';
+import {
+  formatTranslationGlossary,
+  parseTranslationGlossary,
+  TRANSLATION_DOMAINS,
+  TranslationDomain,
+  TranslationGlossaryEntry
+} from '../services/AiTranslationPreferences';
 
 interface UserSettings {
   defaultTargetLanguage: string;
@@ -37,6 +44,10 @@ interface UserSettings {
   pageTranslationScope?: PageTranslationScope;
   siteTranslationRules?: SiteTranslationRule[];
   documentOcrLanguage?: BundledOcrLanguageCode;
+  aiContextEnabled?: boolean;
+  aiTranslationDomain?: TranslationDomain;
+  translationGlossary?: TranslationGlossaryEntry[];
+  aiCustomPrompt?: string;
 }
 
 interface LearningStats {
@@ -170,6 +181,18 @@ class OptionsController {
     const documentOcrLanguage = document.getElementById('documentOcrLanguage') as HTMLSelectElement;
     documentOcrLanguage?.addEventListener('change', () => this.onSettingChange());
 
+    const aiContextEnabled = document.getElementById('aiContextEnabled') as HTMLInputElement;
+    aiContextEnabled?.addEventListener('change', () => this.onSettingChange());
+
+    const aiTranslationDomain = document.getElementById('aiTranslationDomain') as HTMLSelectElement;
+    aiTranslationDomain?.addEventListener('change', () => this.onSettingChange());
+
+    const translationGlossary = document.getElementById('translationGlossary') as HTMLTextAreaElement;
+    translationGlossary?.addEventListener('input', () => this.onSettingChange());
+
+    const aiCustomPrompt = document.getElementById('aiCustomPrompt') as HTMLTextAreaElement;
+    aiCustomPrompt?.addEventListener('input', () => this.onSettingChange());
+
     const translationProvider = document.getElementById('translationProvider') as HTMLSelectElement;
     translationProvider?.addEventListener('change', () => {
       this.onSettingChange();
@@ -243,6 +266,18 @@ class OptionsController {
           const option = document.createElement('option');
           option.value = language.code;
           option.textContent = language.label;
+          return option;
+        })
+      );
+    }
+
+    const aiTranslationDomain = document.getElementById('aiTranslationDomain') as HTMLSelectElement | null;
+    if (aiTranslationDomain && typeof aiTranslationDomain.replaceChildren === 'function') {
+      aiTranslationDomain.replaceChildren(
+        ...TRANSLATION_DOMAINS.map(domain => {
+          const option = document.createElement('option');
+          option.value = domain.code;
+          option.textContent = domain.label;
           return option;
         })
       );
@@ -363,6 +398,22 @@ class OptionsController {
     if (documentOcrLanguage) {
       this.setSelectValue(documentOcrLanguage, this.settings.documentOcrLanguage || 'eng', 'eng');
     }
+
+    const aiContextEnabled = document.getElementById('aiContextEnabled') as HTMLInputElement;
+    if (aiContextEnabled) aiContextEnabled.checked = Boolean(this.settings.aiContextEnabled);
+
+    const aiTranslationDomain = document.getElementById('aiTranslationDomain') as HTMLSelectElement;
+    if (aiTranslationDomain) {
+      this.setSelectValue(aiTranslationDomain, this.settings.aiTranslationDomain || 'general', 'general');
+    }
+
+    const translationGlossary = document.getElementById('translationGlossary') as HTMLTextAreaElement;
+    if (translationGlossary) {
+      translationGlossary.value = formatTranslationGlossary(this.settings.translationGlossary);
+    }
+
+    const aiCustomPrompt = document.getElementById('aiCustomPrompt') as HTMLTextAreaElement;
+    if (aiCustomPrompt) aiCustomPrompt.value = this.settings.aiCustomPrompt || '';
 
     const translationProvider = document.getElementById('translationProvider') as HTMLSelectElement;
     if (translationProvider) this.setSelectValue(translationProvider, this.settings.translationProvider, 'google');
@@ -520,6 +571,7 @@ class OptionsController {
 
   private updateProviderConfigurationUI(): void {
     const providerId = (document.getElementById('translationProvider') as HTMLSelectElement | null)?.value || 'google';
+    this.updateAiTranslationControlAvailability(providerId);
     const provider = getTranslationProvider(providerId);
     const panel = document.getElementById('providerConfigPanel');
     const configFields = provider?.configFields || [];
@@ -561,6 +613,22 @@ class OptionsController {
     if (modelInput) modelInput.value = summary?.model || provider.defaultModel || '';
     if (regionInput) regionInput.value = summary?.region || '';
     this.showProviderConfigMessage('');
+  }
+
+  private updateAiTranslationControlAvailability(providerId: string): void {
+    const isAiProvider = providerId === 'openai' || providerId === 'gemini';
+    const section = document.querySelector<HTMLElement>('.ai-translation-section');
+    section?.classList.toggle('is-disabled', !isAiProvider);
+    section?.setAttribute('aria-disabled', String(!isAiProvider));
+    [
+      'aiContextEnabled',
+      'aiTranslationDomain',
+      'translationGlossary',
+      'aiCustomPrompt'
+    ].forEach(elementId => {
+      const control = document.getElementById(elementId) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
+      if (control) control.disabled = !isAiProvider;
+    });
   }
 
   private setProviderFieldVisibility(elementId: string, isVisible: boolean): void {
@@ -918,6 +986,17 @@ class OptionsController {
     const documentOcrLanguage = BUNDLED_OCR_LANGUAGES.some(language => language.code === selectedOcrLanguage)
       ? selectedOcrLanguage as BundledOcrLanguageCode
       : 'eng';
+    const aiContextEnabled = (document.getElementById('aiContextEnabled') as HTMLInputElement)?.checked || false;
+    const selectedDomain = (document.getElementById('aiTranslationDomain') as HTMLSelectElement)?.value;
+    const aiTranslationDomain = TRANSLATION_DOMAINS.some(domain => domain.code === selectedDomain)
+      ? selectedDomain as TranslationDomain
+      : 'general';
+    const translationGlossary = parseTranslationGlossary(
+      (document.getElementById('translationGlossary') as HTMLTextAreaElement)?.value || ''
+    );
+    const aiCustomPrompt = (
+      (document.getElementById('aiCustomPrompt') as HTMLTextAreaElement)?.value || ''
+    ).trim().slice(0, 2000);
     const translationProvider = (document.getElementById('translationProvider') as HTMLSelectElement)?.value || 'google';
     const pageTranslationDisplayMode = (
       (document.getElementById('pageTranslationDisplayMode') as HTMLSelectElement)?.value || 'bilingual'
@@ -959,6 +1038,10 @@ class OptionsController {
     return {
       defaultTargetLanguage: targetLanguage,
       documentOcrLanguage,
+      aiContextEnabled,
+      aiTranslationDomain,
+      translationGlossary,
+      aiCustomPrompt,
       translationProvider: translationProvider,
       pageTranslationDisplayMode: pageTranslationDisplayMode,
       translationStyle,

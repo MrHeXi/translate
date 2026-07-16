@@ -58,6 +58,12 @@ describe('BackgroundService provider configuration messages', () => {
     };
     const mockStorageManager = {
       saveSettings: jest.fn().mockResolvedValue(undefined),
+      getSettings: jest.fn().mockResolvedValue({
+        aiContextEnabled: true,
+        aiTranslationDomain: 'legal',
+        translationGlossary: [{ source: 'agreement', target: 'accord' }],
+        aiCustomPrompt: 'Keep clause numbers.'
+      }),
       getTranslationProviderConfig: jest.fn().mockResolvedValue(providerConfig),
       getTranslationProviderConfigSummaries: jest.fn().mockResolvedValue([providerSummary]),
       saveTranslationProviderConfig: jest.fn().mockResolvedValue(providerSummary),
@@ -153,17 +159,55 @@ describe('BackgroundService provider configuration messages', () => {
 
     const translateResponse = await send({
       action: 'translate',
-      data: { text: 'Hello', targetLang: 'fr', provider: 'openai' }
+      data: {
+        text: 'Hello',
+        context: 'This paragraph belongs to an agreement.',
+        targetLang: 'fr',
+        provider: 'openai'
+      }
     });
     expect(mockStorageManager.getTranslationProviderConfig).toHaveBeenCalledWith('openai');
     expect(mockTranslationService.translate).toHaveBeenCalledWith({
       text: 'Hello',
+      context: 'This paragraph belongs to an agreement.',
       targetLang: 'fr',
       provider: 'openai',
+      aiPreferences: {
+        contextEnabled: true,
+        domain: 'legal',
+        glossary: [{ source: 'agreement', target: 'accord' }],
+        customPrompt: 'Keep clause numbers.'
+      },
       providerConfig
     });
     expect(translateResponse).toEqual({ success: true, data: translationResult });
     expect(JSON.stringify(translateResponse)).not.toContain('server-side-secret');
+
+    mockStorageManager.getSettings.mockResolvedValue({
+      aiContextEnabled: false,
+      aiTranslationDomain: 'general',
+      translationGlossary: [],
+      aiCustomPrompt: ''
+    });
+    await send({
+      action: 'translate',
+      data: {
+        text: 'Context stays private by default',
+        context: 'This must be removed.',
+        targetLang: 'fr',
+        provider: 'openai'
+      }
+    });
+    expect(mockTranslationService.translate).toHaveBeenLastCalledWith(expect.objectContaining({
+      text: 'Context stays private by default',
+      context: undefined,
+      aiPreferences: {
+        contextEnabled: false,
+        domain: 'general',
+        glossary: [],
+        customPrompt: ''
+      }
+    }));
 
     const getResponse = await send({ action: 'getTranslationProviderConfigs' });
     expect(getResponse).toEqual({ success: true, data: [providerSummary] });
@@ -196,10 +240,15 @@ describe('BackgroundService provider configuration messages', () => {
       expect.any(Function)
     );
     expect(settingsResponse).toEqual({ success: true });
+    expect(mockTranslationService.clearCache).toHaveBeenCalledTimes(3);
 
     const resetResponse = await send({ action: 'resetSettings' });
     expect(mockStorageManager.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({
       documentOcrLanguage: 'eng',
+      aiContextEnabled: false,
+      aiTranslationDomain: 'general',
+      translationGlossary: [],
+      aiCustomPrompt: '',
       autoTranslate: false
     }));
     expect(resetResponse).toEqual({ success: true });
@@ -207,6 +256,10 @@ describe('BackgroundService provider configuration messages', () => {
     const resetAllResponse = await send({ action: 'resetAllSettings' });
     expect(mockStorageManager.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({
       documentOcrLanguage: 'eng',
+      aiContextEnabled: false,
+      aiTranslationDomain: 'general',
+      translationGlossary: [],
+      aiCustomPrompt: '',
       autoTranslate: false
     }));
     expect(resetAllResponse).toEqual({ success: true });

@@ -193,6 +193,14 @@ describe('document translator page', () => {
     expect(blocks).toHaveLength(2);
     expect(document.getElementById('translationResults')?.textContent).toContain('translated: First paragraph.');
     expect(document.getElementById('progressText')?.textContent).toBe('2/2 blocks');
+    const translationMessages = ((global as any).chrome.runtime.sendMessage as jest.Mock).mock.calls
+      .map(call => call[0])
+      .filter(message => message.action === 'translate');
+    expect(translationMessages).toHaveLength(2);
+    translationMessages.forEach(message => {
+      expect(message.data.context).toContain('First paragraph.');
+      expect(message.data.context).toContain('Second paragraph.');
+    });
   });
 
   it('offers bundled PDF OCR languages and saves changes without translating', async () => {

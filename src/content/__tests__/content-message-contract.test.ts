@@ -500,6 +500,13 @@ describe('Content script direct runtime message contract', () => {
       'Navigation text is included only in whole-page mode.',
       'Primary article text for translation.'
     ].sort());
+    const wholePageContexts = sendToBackground.mock.calls.map(call => call[0].data.context);
+    expect(wholePageContexts).toHaveLength(3);
+    wholePageContexts.forEach(context => {
+      expect(context).toContain('Primary article text for translation.');
+      expect(context).toContain('Navigation text is included only in whole-page mode.');
+      expect(context).toContain('Footer text should translate only in whole-page mode.');
+    });
     expect(addTranslation).toHaveBeenCalledTimes(3);
     expect(addTranslation.mock.calls[0][0].textContent).toBe('Primary article text for translation.');
     expect(addTranslation.mock.calls[0][2]).toBe('translation-only');

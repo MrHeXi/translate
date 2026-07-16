@@ -33,6 +33,7 @@ Current batch:
 - Hover paragraph translation using a modifier-key interaction.
 - Input box translation using a deliberate shortcut.
 - Six working provider integrations: Google Translate, MyMemory, DeepL, Microsoft Translator, OpenAI-compatible endpoints, and Google Gemini.
+- OpenAI-compatible and Gemini context-aware translation with opt-in neighboring text, domain experts, terminology mappings, and custom instructions.
 - Local-only API credential storage with masked UI summaries and exact-origin permission requests for custom endpoints.
 - 20+ provider definitions and 100+ target language choices for engine/language expansion.
 - Configurable page display modes: bilingual, translation only, and original only.
@@ -91,6 +92,9 @@ Current batch:
 - Done: keep API keys in local storage, return only masked summaries to settings, and exclude keys from Chrome sync and learning-data export.
 - Done: request optional host permission for the exact user-configured HTTPS or localhost endpoint.
 - Done: prevent credentialed translation requests from silently falling back to another provider.
+- Done: add nine domain-specific AI translation experts for OpenAI-compatible and Gemini providers.
+- Done: add normalized terminology mappings and bounded custom translation instructions.
+- Done: add opt-in neighboring page/document context, isolate source/context as untrusted request data, and include AI preferences in cache identity.
 - Remaining: implement the planned provider definitions and provider-specific language filtering or capability guidance.
 
 ### Batch D: PDF and Document Translation

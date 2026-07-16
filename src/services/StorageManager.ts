@@ -12,6 +12,10 @@ import type {
   TranslationStylePreset
 } from './TranslationPreferences';
 import type { BundledOcrLanguageCode } from './BundledOcrService';
+import type {
+  TranslationDomain,
+  TranslationGlossaryEntry
+} from './AiTranslationPreferences';
 
 export type {
   PageTranslationDisplayMode,
@@ -35,6 +39,10 @@ export interface UserSettings {
   pageTranslationScope?: PageTranslationScope;
   siteTranslationRules?: SiteTranslationRule[];
   documentOcrLanguage?: BundledOcrLanguageCode;
+  aiContextEnabled?: boolean;
+  aiTranslationDomain?: TranslationDomain;
+  translationGlossary?: TranslationGlossaryEntry[];
+  aiCustomPrompt?: string;
 }
 
 export interface TranslationProviderConfigSummary {
@@ -75,7 +83,11 @@ export class StorageManager {
     translationStyle: 'subtle',
     pageTranslationScope: 'main-content',
     siteTranslationRules: [],
-    documentOcrLanguage: 'eng'
+    documentOcrLanguage: 'eng',
+    aiContextEnabled: false,
+    aiTranslationDomain: 'general',
+    translationGlossary: [],
+    aiCustomPrompt: ''
   };
 
   async saveUserData(data: Partial<UserData>): Promise<void> {

@@ -126,6 +126,7 @@ Capture the options page with:
 - Dictionary selection visible.
 - Translation provider and target language controls visible.
 - A credentialed provider configuration panel may be shown with only a masked key summary; never expose a full API key.
+- AI translation controls showing the context toggle, domain selector, terminology glossary, and custom instruction field without displaying private document text.
 - Translation style and site-rule controls visible with a non-private sample domain.
 - Main content or Whole page translation scope visible.
 - Floating button setting visible.

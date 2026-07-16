@@ -27,6 +27,7 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Explicit Translate visible images command with hidden/offscreen/tiny/extension-owned filtering, duplicate-text request caching, and immediate batch cancellation when Image text stops.
 - 100+ target language choices in settings.
 - Six working provider integrations: Google Translate and MyMemory without credentials, plus user-configured DeepL, Microsoft Translator, OpenAI-compatible endpoints, and Google Gemini.
+- AI translation controls for OpenAI-compatible and Gemini providers, including opt-in neighboring page/document context, nine domain experts, normalized terminology mappings, custom instructions, and context-aware cache isolation.
 - Local-only API credential storage with masked settings summaries, explicit custom-endpoint host approval, and no credentialed-provider fallback to unrelated services.
 - Built-in CET4, CET6, GRE, IELTS, and TOEFL vocabulary dictionaries.
 - Vocabulary notebook, review page, learning progress, import/export, and settings.
@@ -39,7 +40,7 @@ Verified on 2026-07-16:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 41 test suites and 291 tests.
+- `jest --runInBand --silent`: passed, 42 test suites and 296 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 
@@ -54,7 +55,7 @@ Expected build warnings:
 
 - Unpacked extension folder: `dist`
 - Test package: `chrome-translation-extension.zip`
-- ZIP size: `17,680,300` bytes
-- SHA-256: `7C0E52261F41BCE9A01F02E1BAF6D90E476119E606F6DB7AB734A5364192B983`
+- ZIP size: `17,684,222` bytes
+- SHA-256: `1BBEBB7563D7ADBE7EF3498D772C8C00E802984BE7206530F1867BD38274002D`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

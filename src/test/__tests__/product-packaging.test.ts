@@ -98,6 +98,8 @@ describe('product packaging contract', () => {
     expect(readme).toContain('without recording audio');
     expect(readme).toContain('100+ target language options');
     expect(readme).toContain('configure DeepL, Microsoft Translator, an OpenAI-compatible endpoint, or Google Gemini');
+    expect(readme).toContain('choose a domain expert');
+    expect(readme).toContain('Neighboring context is opt-in');
     expect(readme).toContain('API keys in local Chrome storage only');
     expect(readme).toContain('CET4, CET6, GRE, IELTS, TOEFL');
     expect(readme).not.toMatch(/automatic audio transcription|records calls|joins calls automatically/i);
@@ -121,6 +123,8 @@ describe('product packaging contract', () => {
     expect(privacy).toContain('bundled Tesseract worker');
     expect(privacy).toContain('do not contact an OCR server');
     expect(privacy).toContain('local OCR worker is terminated');
+    expect(privacy).toContain('Neighboring page or document context is disabled by default');
+    expect(privacy).toContain('Glossary and prompt settings may sync through Chrome storage');
 
     const checklist = readProjectFile('RELEASE_CHECKLIST.md');
     expect(checklist).toContain('Chrome Web Store');
@@ -174,6 +178,8 @@ describe('product packaging contract', () => {
     expect(listing).toContain('does not record audio, join calls, or transcribe speech');
     expect(listing).toContain('100+ target language choices');
     expect(listing).toContain('DeepL, Microsoft Translator, OpenAI-compatible endpoints, and Google Gemini');
+    expect(listing).toContain('nine domain experts');
+    expect(listing).toContain('Neighboring context is off by default');
     expect(listing).toContain('Provider API keys stay in local Chrome storage');
     expect(listing).toContain('Vocabulary notebook');
     expect(listing).toContain('CET4');
@@ -195,7 +201,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-08');
-    expect(releaseNotes).toContain('41 test suites and 291 tests');
+    expect(releaseNotes).toContain('42 test suites and 296 tests');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -229,6 +235,7 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('Options');
     expect(screenshotGuide).toContain('Page translation exclude selectors');
     expect(screenshotGuide).toContain('Translation style and site-rule controls');
+    expect(screenshotGuide).toContain('AI translation controls');
     expect(screenshotGuide).toContain('Main content or Whole page translation scope');
     expect(screenshotGuide).toContain('No translated page text yet');
     expect(screenshotGuide).toContain('STORE_LISTING.md');
@@ -268,6 +275,8 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('separate OCR text-block overlays');
     expect(roadmap).toContain('Translate visible images');
     expect(roadmap).toContain('Multiple translation engines');
+    expect(roadmap).toContain('nine domain-specific AI translation experts');
+    expect(roadmap).toContain('include AI preferences in cache identity');
     expect(roadmap).toContain('Do not auto-translate a page on load');
   });
 
@@ -296,5 +305,9 @@ describe('product packaging contract', () => {
     expect(documentHtml).toContain('id="exportPdfFile"');
     expect(documentHtml).toContain('id="ocrLanguage"');
     expect(readProjectFile('src/options/options.html')).toContain('id="documentOcrLanguage"');
+    expect(readProjectFile('src/options/options.html')).toContain('id="aiContextEnabled"');
+    expect(readProjectFile('src/options/options.html')).toContain('id="aiTranslationDomain"');
+    expect(readProjectFile('src/options/options.html')).toContain('id="translationGlossary"');
+    expect(readProjectFile('src/options/options.html')).toContain('id="aiCustomPrompt"');
   });
 });
