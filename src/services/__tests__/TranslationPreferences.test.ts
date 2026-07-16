@@ -12,6 +12,7 @@ describe('TranslationPreferences', () => {
       translationEnabled: true,
       displayMode: 'translation-only',
       translationStyle: 'plain',
+      translationScope: 'whole-page',
       excludeSelectors: ['.shared', '.wildcard-only']
     },
     {
@@ -19,6 +20,7 @@ describe('TranslationPreferences', () => {
       translationEnabled: false,
       displayMode: 'original-only',
       translationStyle: 'highlight',
+      translationScope: 'main-content',
       excludeSelectors: ['.shared', '.docs-only']
     }
   ];
@@ -47,6 +49,7 @@ describe('TranslationPreferences', () => {
     const preferences = resolvePageTranslationPreferences('docs.example.com', {
       pageTranslationDisplayMode: 'bilingual',
       translationStyle: 'subtle',
+      pageTranslationScope: 'whole-page',
       pageTranslationExcludeSelectors: ['nav', '.shared'],
       siteTranslationRules: rules
     });
@@ -55,6 +58,7 @@ describe('TranslationPreferences', () => {
       translationEnabled: false,
       displayMode: 'original-only',
       translationStyle: 'highlight',
+      translationScope: 'main-content',
       excludeSelectors: ['nav', '.shared', '.docs-only'],
       matchedPattern: 'docs.example.com'
     });
@@ -65,6 +69,7 @@ describe('TranslationPreferences', () => {
       translationEnabled: true,
       displayMode: 'bilingual',
       translationStyle: 'subtle',
+      translationScope: 'main-content',
       excludeSelectors: []
     });
   });

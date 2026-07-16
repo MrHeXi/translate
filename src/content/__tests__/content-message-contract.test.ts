@@ -333,11 +333,12 @@ describe('Content script direct runtime message contract', () => {
     document.body.innerHTML = `
       <main>
         <p>Primary article text for translation.</p>
-        <nav>Navigation text should stay original.</nav>
+        <nav>Navigation text is included only in whole-page mode.</nav>
         <section class="comments">Comment text should stay original.</section>
         <section class="site-only">Site rule text should stay original.</section>
         <aside data-no-translate>Sponsored text should stay original.</aside>
       </main>
+      <footer>Footer text should translate only in whole-page mode.</footer>
     `;
 
     const listeners: Array<(request: any, sender: any, sendResponse: (response: any) => void) => boolean> = [];
@@ -368,13 +369,14 @@ describe('Content script direct runtime message contract', () => {
                 defaultTargetLanguage: 'zh-CN',
                 translationProvider: 'google',
                 pageTranslationDisplayMode: 'bilingual',
-                pageTranslationExcludeSelectors: ['nav', '.comments', 'main >> invalid'],
+                pageTranslationExcludeSelectors: ['.comments', 'main >> invalid'],
                 translationStyle: 'subtle',
                 siteTranslationRules: [{
                   pattern: 'localhost',
                   translationEnabled: true,
                   displayMode: 'translation-only',
                   translationStyle: 'highlight',
+                  translationScope: 'whole-page',
                   excludeSelectors: ['.site-only']
                 }],
                 floatingIconPosition: { x: 20, y: 20 },
@@ -484,18 +486,49 @@ describe('Content script direct runtime message contract', () => {
     await sendDirectMessage({ action: 'toggleTranslation' });
     await flushPromises();
 
-    expect(sendToBackground).toHaveBeenCalledTimes(1);
-    expect(sendToBackground).toHaveBeenCalledWith(expect.objectContaining({
-      action: 'translate',
-      data: expect.objectContaining({
-        text: 'Primary article text for translation.'
-      })
+    const wholePageInfo = await sendDirectMessage({ action: 'getPageInfo' });
+    expect(wholePageInfo.data).toEqual(expect.objectContaining({
+      translationScope: 'whole-page',
+      translationRootTag: 'body'
     }));
-    expect(addTranslation).toHaveBeenCalledTimes(1);
+
+    const wholePageTexts = sendToBackground.mock.calls
+      .map(call => call[0].data.text)
+      .sort();
+    expect(wholePageTexts).toEqual([
+      'Footer text should translate only in whole-page mode.',
+      'Navigation text is included only in whole-page mode.',
+      'Primary article text for translation.'
+    ].sort());
+    expect(addTranslation).toHaveBeenCalledTimes(3);
     expect(addTranslation.mock.calls[0][0].textContent).toBe('Primary article text for translation.');
     expect(addTranslation.mock.calls[0][2]).toBe('translation-only');
     expect(setDisplayMode).toHaveBeenCalledWith('translation-only');
     expect(setStylePreset).toHaveBeenCalledWith('highlight');
+
+    await sendDirectMessage({ action: 'toggleTranslation' });
+    await sendDirectMessage({
+      action: 'updateSettings',
+      data: {
+        siteTranslationRules: [{
+          pattern: 'localhost',
+          translationEnabled: true,
+          translationScope: 'main-content',
+          excludeSelectors: ['.site-only']
+        }]
+      }
+    });
+    sendToBackground.mockClear();
+    addTranslation.mockClear();
+
+    await sendDirectMessage({ action: 'toggleTranslation' });
+    await flushPromises();
+
+    expect(sendToBackground).toHaveBeenCalledTimes(1);
+    expect(sendToBackground).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ text: 'Primary article text for translation.' })
+    }));
+    expect(addTranslation).toHaveBeenCalledTimes(1);
   });
 
   it('does not start page translation automatically when the content script initializes', async () => {

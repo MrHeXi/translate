@@ -64,7 +64,8 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Confirm page translation does not start automatically.
 - [ ] Confirm the floating button starts translation and the next click stops it.
 - [ ] Confirm all three translation styles update existing translated blocks.
-- [ ] Confirm exact and wildcard site rules override display/style/exclusions, and a blocked site remains untranslated after a manual Start click.
+- [ ] Confirm exact and wildcard site rules override display/scope/style/exclusions, and a blocked site remains untranslated after a manual Start click.
+- [ ] Confirm Main content excludes navigation/footer text on a representative article and Whole page includes it only after manual Start.
 - [ ] Confirm selected text shows a translation tooltip.
 - [ ] Configure each credentialed provider with a test key or mock endpoint, verify masked-key display, and verify Remove credentials.
 - [ ] Confirm Image text stays idle until Start plus a click, drag, or Translate visible images action; confirm Stop cancels the remaining visible-image batch and clears overlays.

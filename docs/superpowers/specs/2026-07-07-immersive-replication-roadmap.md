@@ -38,7 +38,8 @@ Current batch:
 - Configurable page display modes: bilingual, translation only, and original only.
 - Configurable page translation exclude selectors for areas that should remain original.
 - Subtle, highlighted, and plain-text page translation appearance presets.
-- Exact-domain and wildcard site rules with per-site allow/block, display, style, and selector overrides.
+- Exact-domain and wildcard site rules with per-site allow/block, display, scope, style, and selector overrides.
+- Intelligent main-content detection with whole-page and per-site scope overrides.
 - Document translator page for pasted/uploaded text, HTML files, subtitle files, and simple text-based PDFs.
 - JSON document string-value extraction in the document translator.
 - Structure-preserving translated JSON export from the document translator.
@@ -76,6 +77,8 @@ Current batch:
 - Done: normalize exact domains, URL inputs, internationalized domains, and `*.example.com` wildcard rules.
 - Done: prefer exact rules over wildcard rules and the most specific wildcard over broader matches.
 - Done: allow per-site page translation blocking plus display mode, appearance, and selector overrides.
+- Done: detect semantic reading regions first, score structural fallbacks by text and link density, and fall back to the full body when confidence is low.
+- Done: add global Main content/Whole page scope and per-site scope overrides.
 - Done: broadcast saved settings to open tabs while keeping provider credentials out of the message.
 - Done: retain the manual-trigger rule; site rules never start translation on page load.
 

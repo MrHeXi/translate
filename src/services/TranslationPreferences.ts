@@ -1,17 +1,20 @@
 export type PageTranslationDisplayMode = 'bilingual' | 'translation-only' | 'original-only';
 export type TranslationStylePreset = 'subtle' | 'highlight' | 'plain';
+export type PageTranslationScope = 'main-content' | 'whole-page';
 
 export interface SiteTranslationRule {
   pattern: string;
   translationEnabled: boolean;
   displayMode?: PageTranslationDisplayMode;
   translationStyle?: TranslationStylePreset;
+  translationScope?: PageTranslationScope;
   excludeSelectors?: string[];
 }
 
 export interface PageTranslationPreferences {
   pageTranslationDisplayMode?: PageTranslationDisplayMode;
   translationStyle?: TranslationStylePreset;
+  pageTranslationScope?: PageTranslationScope;
   pageTranslationExcludeSelectors?: string[];
   siteTranslationRules?: SiteTranslationRule[];
 }
@@ -20,12 +23,14 @@ export interface EffectivePageTranslationPreferences {
   translationEnabled: boolean;
   displayMode: PageTranslationDisplayMode;
   translationStyle: TranslationStylePreset;
+  translationScope: PageTranslationScope;
   excludeSelectors: string[];
   matchedPattern?: string;
 }
 
 const DISPLAY_MODES: PageTranslationDisplayMode[] = ['bilingual', 'translation-only', 'original-only'];
 const STYLE_PRESETS: TranslationStylePreset[] = ['subtle', 'highlight', 'plain'];
+const TRANSLATION_SCOPES: PageTranslationScope[] = ['main-content', 'whole-page'];
 
 export const normalizeSitePattern = (value: string): string | null => {
   const trimmed = value.trim().toLowerCase();
@@ -95,6 +100,12 @@ export const resolvePageTranslationPreferences = (
     : 'subtle';
   const displayMode = isDisplayMode(rule?.displayMode) ? rule.displayMode : globalDisplayMode;
   const translationStyle = isStylePreset(rule?.translationStyle) ? rule.translationStyle : globalStyle;
+  const globalScope = isTranslationScope(settings.pageTranslationScope)
+    ? settings.pageTranslationScope
+    : 'main-content';
+  const translationScope = isTranslationScope(rule?.translationScope)
+    ? rule.translationScope
+    : globalScope;
 
   const excludeSelectors = Array.from(new Set([
     ...sanitizeSelectors(settings.pageTranslationExcludeSelectors),
@@ -105,6 +116,7 @@ export const resolvePageTranslationPreferences = (
     translationEnabled: rule?.translationEnabled !== false,
     displayMode,
     translationStyle,
+    translationScope,
     excludeSelectors,
     ...(rule ? { matchedPattern: rule.pattern } : {})
   };
@@ -120,6 +132,9 @@ const isDisplayMode = (value: unknown): value is PageTranslationDisplayMode =>
 
 const isStylePreset = (value: unknown): value is TranslationStylePreset =>
   typeof value === 'string' && STYLE_PRESETS.includes(value as TranslationStylePreset);
+
+const isTranslationScope = (value: unknown): value is PageTranslationScope =>
+  typeof value === 'string' && TRANSLATION_SCOPES.includes(value as PageTranslationScope);
 
 const sanitizeSelectors = (selectors: string[] | undefined): string[] =>
   Array.isArray(selectors)

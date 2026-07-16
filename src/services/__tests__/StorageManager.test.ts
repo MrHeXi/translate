@@ -3,6 +3,7 @@
 import * as fc from 'fast-check';
 import {
   PageTranslationDisplayMode,
+  PageTranslationScope,
   SiteTranslationRule,
   StorageManager,
   TranslationStylePreset,
@@ -34,6 +35,7 @@ const mockChromeStorage = {
 };
 
 const translationStyleArbitrary = fc.constantFrom<TranslationStylePreset>('subtle', 'highlight', 'plain');
+const translationScopeArbitrary = fc.constantFrom<PageTranslationScope>('main-content', 'whole-page');
 const siteTranslationRuleArbitrary: fc.Arbitrary<SiteTranslationRule> = fc.record({
   pattern: fc.constantFrom('example.com', 'docs.example.com', '*.example.org'),
   translationEnabled: fc.boolean(),
@@ -42,6 +44,7 @@ const siteTranslationRuleArbitrary: fc.Arbitrary<SiteTranslationRule> = fc.recor
     { nil: undefined }
   ),
   translationStyle: fc.option(translationStyleArbitrary, { nil: undefined }),
+  translationScope: fc.option(translationScopeArbitrary, { nil: undefined }),
   excludeSelectors: fc.array(fc.constantFrom('nav', 'footer', '.comments'), { maxLength: 3 })
 });
 
@@ -153,6 +156,7 @@ describe('StorageManager', () => {
         settings: {
           translationProvider: 'openai',
           translationStyle: 'highlight',
+          pageTranslationScope: 'main-content',
           siteTranslationRules: [{
             pattern: '*.example.com',
             translationEnabled: false,
@@ -172,6 +176,7 @@ describe('StorageManager', () => {
         settings: {
           translationProvider: 'openai',
           translationStyle: 'highlight',
+          pageTranslationScope: 'main-content',
           siteTranslationRules: [{
             pattern: '*.example.com',
             translationEnabled: false,
@@ -208,6 +213,7 @@ describe('StorageManager', () => {
                 { maxLength: 4 }
               ),
               translationStyle: translationStyleArbitrary,
+              pageTranslationScope: translationScopeArbitrary,
               siteTranslationRules: fc.array(siteTranslationRuleArbitrary, { maxLength: 3 })
             }),
             vocabulary: fc.array(
@@ -251,6 +257,7 @@ describe('StorageManager', () => {
             expect(loadedData.settings.translationProvider).toBe(originalData.settings.translationProvider);
             expect(loadedData.settings.pageTranslationDisplayMode).toBe(originalData.settings.pageTranslationDisplayMode);
             expect(loadedData.settings.translationStyle).toBe(originalData.settings.translationStyle);
+            expect(loadedData.settings.pageTranslationScope).toBe(originalData.settings.pageTranslationScope);
             expect(loadedData.settings.siteTranslationRules).toEqual(originalData.settings.siteTranslationRules);
             expect(loadedData.settings.learningModeEnabled).toBe(originalData.settings.learningModeEnabled);
             expect(loadedData.vocabulary.length).toBe(originalData.vocabulary.length);
@@ -283,6 +290,7 @@ describe('StorageManager', () => {
                 { maxLength: 4 }
               ),
               translationStyle: translationStyleArbitrary,
+              pageTranslationScope: translationScopeArbitrary,
               siteTranslationRules: fc.array(siteTranslationRuleArbitrary, { maxLength: 3 })
             }),
             vocabulary: fc.array(
@@ -349,6 +357,7 @@ describe('StorageManager', () => {
               originalData.settings.pageTranslationExcludeSelectors
             );
             expect(exportedUserData.settings.translationStyle).toBe(originalData.settings.translationStyle);
+            expect(exportedUserData.settings.pageTranslationScope).toBe(originalData.settings.pageTranslationScope);
             expect(exportedUserData.settings.siteTranslationRules).toEqual(originalData.settings.siteTranslationRules);
 
             // 验证词汇数据完整性 - 不直接比较，因为日期会被序列化
@@ -436,6 +445,7 @@ describe('StorageManager', () => {
                 { maxLength: 4 }
               ),
               translationStyle: translationStyleArbitrary,
+              pageTranslationScope: translationScopeArbitrary,
               siteTranslationRules: fc.array(siteTranslationRuleArbitrary, { maxLength: 3 })
             }),
             vocabulary: fc.array(
@@ -494,6 +504,7 @@ describe('StorageManager', () => {
                 deviceAData.settings.pageTranslationExcludeSelectors
               );
               expect(deviceBData.settings.translationStyle).toBe(deviceAData.settings.translationStyle);
+              expect(deviceBData.settings.pageTranslationScope).toBe(deviceAData.settings.pageTranslationScope);
               expect(deviceBData.settings.siteTranslationRules).toEqual(deviceAData.settings.siteTranslationRules);
             }
 

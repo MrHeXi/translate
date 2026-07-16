@@ -7,11 +7,17 @@ import {
 } from './TranslationProviderRegistry';
 import type {
   PageTranslationDisplayMode,
+  PageTranslationScope,
   SiteTranslationRule,
   TranslationStylePreset
 } from './TranslationPreferences';
 
-export type { PageTranslationDisplayMode, SiteTranslationRule, TranslationStylePreset } from './TranslationPreferences';
+export type {
+  PageTranslationDisplayMode,
+  PageTranslationScope,
+  SiteTranslationRule,
+  TranslationStylePreset
+} from './TranslationPreferences';
 
 export interface UserSettings {
   defaultTargetLanguage: string;
@@ -25,6 +31,7 @@ export interface UserSettings {
   showFloatingIcon: boolean;
   pageTranslationExcludeSelectors?: string[];
   translationStyle?: TranslationStylePreset;
+  pageTranslationScope?: PageTranslationScope;
   siteTranslationRules?: SiteTranslationRule[];
 }
 
@@ -64,6 +71,7 @@ export class StorageManager {
     showFloatingIcon: true,
     pageTranslationExcludeSelectors: [],
     translationStyle: 'subtle',
+    pageTranslationScope: 'main-content',
     siteTranslationRules: []
   };
 

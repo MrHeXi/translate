@@ -10,6 +10,7 @@ import type { TranslationProviderConfigSummary } from '../services/StorageManage
 import {
   normalizeSitePattern,
   PageTranslationDisplayMode,
+  PageTranslationScope,
   SiteTranslationRule,
   TranslationStylePreset
 } from '../services/TranslationPreferences';
@@ -29,6 +30,7 @@ interface UserSettings {
   difficultyAdjustment: string;
   pageTranslationExcludeSelectors?: string[];
   translationStyle?: TranslationStylePreset;
+  pageTranslationScope?: PageTranslationScope;
   siteTranslationRules?: SiteTranslationRule[];
 }
 
@@ -171,6 +173,9 @@ class OptionsController {
 
     const translationStyle = document.getElementById('translationStyle') as HTMLSelectElement;
     translationStyle?.addEventListener('change', () => this.onSettingChange());
+
+    const pageTranslationScope = document.getElementById('pageTranslationScope') as HTMLSelectElement;
+    pageTranslationScope?.addEventListener('change', () => this.onSettingChange());
 
     const autoTranslate = document.getElementById('autoTranslate') as HTMLInputElement;
     autoTranslate?.addEventListener('change', () => this.onSettingChange());
@@ -345,6 +350,11 @@ class OptionsController {
     const translationStyle = document.getElementById('translationStyle') as HTMLSelectElement;
     if (translationStyle) {
       this.setSelectValue(translationStyle, this.settings.translationStyle || 'subtle', 'subtle');
+    }
+
+    const pageTranslationScope = document.getElementById('pageTranslationScope') as HTMLSelectElement;
+    if (pageTranslationScope) {
+      this.setSelectValue(pageTranslationScope, this.settings.pageTranslationScope || 'main-content', 'main-content');
     }
 
     const autoTranslate = document.getElementById('autoTranslate') as HTMLInputElement;
@@ -669,6 +679,7 @@ class OptionsController {
     const enabledInput = document.getElementById('siteRuleTranslationEnabled') as HTMLInputElement | null;
     const displayMode = document.getElementById('siteRuleDisplayMode') as HTMLSelectElement | null;
     const translationStyle = document.getElementById('siteRuleTranslationStyle') as HTMLSelectElement | null;
+    const translationScope = document.getElementById('siteRuleTranslationScope') as HTMLSelectElement | null;
     const excludeSelectors = document.getElementById('siteRuleExcludeSelectors') as HTMLTextAreaElement | null;
     const saveButton = document.getElementById('saveSiteRule') as HTMLButtonElement | null;
     const cancelButton = document.getElementById('cancelSiteRule') as HTMLButtonElement | null;
@@ -677,6 +688,7 @@ class OptionsController {
     if (enabledInput) enabledInput.checked = rule.translationEnabled !== false;
     if (displayMode) displayMode.value = rule.displayMode || '';
     if (translationStyle) translationStyle.value = rule.translationStyle || '';
+    if (translationScope) translationScope.value = rule.translationScope || '';
     if (excludeSelectors) excludeSelectors.value = (rule.excludeSelectors || []).join('\n');
     if (saveButton) saveButton.textContent = 'Update rule';
     if (cancelButton) cancelButton.hidden = false;
@@ -696,6 +708,7 @@ class OptionsController {
     const enabledInput = document.getElementById('siteRuleTranslationEnabled') as HTMLInputElement | null;
     const displayModeValue = (document.getElementById('siteRuleDisplayMode') as HTMLSelectElement | null)?.value || '';
     const translationStyleValue = (document.getElementById('siteRuleTranslationStyle') as HTMLSelectElement | null)?.value || '';
+    const translationScopeValue = (document.getElementById('siteRuleTranslationScope') as HTMLSelectElement | null)?.value || '';
     const excludeSelectors = this.parseSelectorList(
       (document.getElementById('siteRuleExcludeSelectors') as HTMLTextAreaElement | null)?.value || ''
     );
@@ -705,6 +718,7 @@ class OptionsController {
       translationEnabled: enabledInput?.checked !== false,
       ...(displayModeValue ? { displayMode: displayModeValue as PageTranslationDisplayMode } : {}),
       ...(translationStyleValue ? { translationStyle: translationStyleValue as TranslationStylePreset } : {}),
+      ...(translationScopeValue ? { translationScope: translationScopeValue as PageTranslationScope } : {}),
       ...(excludeSelectors.length > 0 ? { excludeSelectors } : {})
     };
 
@@ -749,6 +763,7 @@ class OptionsController {
     const enabledInput = document.getElementById('siteRuleTranslationEnabled') as HTMLInputElement | null;
     const displayMode = document.getElementById('siteRuleDisplayMode') as HTMLSelectElement | null;
     const translationStyle = document.getElementById('siteRuleTranslationStyle') as HTMLSelectElement | null;
+    const translationScope = document.getElementById('siteRuleTranslationScope') as HTMLSelectElement | null;
     const excludeSelectors = document.getElementById('siteRuleExcludeSelectors') as HTMLTextAreaElement | null;
     const saveButton = document.getElementById('saveSiteRule') as HTMLButtonElement | null;
     const cancelButton = document.getElementById('cancelSiteRule') as HTMLButtonElement | null;
@@ -757,6 +772,7 @@ class OptionsController {
     if (enabledInput) enabledInput.checked = true;
     if (displayMode) displayMode.value = '';
     if (translationStyle) translationStyle.value = '';
+    if (translationScope) translationScope.value = '';
     if (excludeSelectors) excludeSelectors.value = '';
     if (saveButton) saveButton.textContent = 'Add rule';
     if (cancelButton) cancelButton.hidden = true;
@@ -788,6 +804,10 @@ class OptionsController {
       highlight: 'Highlight',
       plain: 'Plain text'
     };
+    const scopeLabels: Record<PageTranslationScope, string> = {
+      'main-content': 'Main content',
+      'whole-page': 'Whole page'
+    };
 
     for (const rule of rules) {
       const row = document.createElement('div');
@@ -802,6 +822,7 @@ class OptionsController {
         rule.translationEnabled === false ? 'Blocked' : 'Allowed',
         rule.displayMode ? displayLabels[rule.displayMode] : 'Global display',
         rule.translationStyle ? styleLabels[rule.translationStyle] : 'Global style',
+        rule.translationScope ? scopeLabels[rule.translationScope] : 'Global scope',
         `${rule.excludeSelectors?.length || 0} exclusions`
       ].join(' | ');
       summary.append(pattern, details);
@@ -875,6 +896,9 @@ class OptionsController {
     const translationStyle = (
       (document.getElementById('translationStyle') as HTMLSelectElement)?.value || 'subtle'
     ) as TranslationStylePreset;
+    const pageTranslationScope = (
+      (document.getElementById('pageTranslationScope') as HTMLSelectElement)?.value || 'main-content'
+    ) as PageTranslationScope;
     const autoTranslate = (document.getElementById('autoTranslate') as HTMLInputElement)?.checked || false;
     const showFloatingIconInput = document.getElementById('showFloatingIcon') as HTMLInputElement | null;
     const showFloatingIcon = showFloatingIconInput ? showFloatingIconInput.checked : true;
@@ -908,6 +932,7 @@ class OptionsController {
       translationProvider: translationProvider,
       pageTranslationDisplayMode: pageTranslationDisplayMode,
       translationStyle,
+      pageTranslationScope,
       autoTranslate: autoTranslate,
       showFloatingIcon: showFloatingIcon,
       floatingIconPosition: this.getSelectedFloatingIconPosition(),

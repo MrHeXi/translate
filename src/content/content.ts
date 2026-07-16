@@ -20,9 +20,11 @@ import { performanceManager } from '../services/PerformanceManager';
 import { errorHandler, ErrorType, ErrorSeverity } from '../services/ErrorHandler';
 import { offlineManager } from '../services/OfflineManager';
 import { loadingManager } from '../services/LoadingManager';
+import { mainContentDetector } from '../services/MainContentDetector';
 import {
   EffectivePageTranslationPreferences,
   PageTranslationDisplayMode,
+  PageTranslationScope,
   resolvePageTranslationPreferences,
   SiteTranslationRule,
   TranslationStylePreset
@@ -50,6 +52,7 @@ interface UserSettings {
   showFloatingIcon: boolean;
   pageTranslationExcludeSelectors?: string[];
   translationStyle?: TranslationStylePreset;
+  pageTranslationScope?: PageTranslationScope;
   siteTranslationRules?: SiteTranslationRule[];
 }
 
@@ -71,10 +74,12 @@ class ContentScript {
   private isInitialized: boolean = false;
   private translationRunId: number = 0;
   private pageTranslationLoadingId: string | null = null;
+  private pageTranslationRoot: Element | null = null;
   private effectivePageTranslationPreferences: EffectivePageTranslationPreferences = {
     translationEnabled: true,
     displayMode: 'bilingual',
     translationStyle: 'subtle',
+    translationScope: 'main-content',
     excludeSelectors: []
   };
 
@@ -254,6 +259,7 @@ class ContentScript {
       showFloatingIcon: true,
       pageTranslationExcludeSelectors: [],
       translationStyle: 'subtle',
+      pageTranslationScope: 'main-content',
       siteTranslationRules: []
     };
   }
@@ -377,6 +383,7 @@ class ContentScript {
   }
 
   private enableTranslationMode(): void {
+    this.pageTranslationRoot = this.resolvePageTranslationRoot();
     this.isTranslationMode = true;
     this.floatingIcon.updateState(true);
 
@@ -389,6 +396,7 @@ class ContentScript {
     this.translationRunId++;
     this.hidePageTranslationLoading();
     this.restoreOriginalPage();
+    this.pageTranslationRoot = null;
     this.floatingIcon.updateState(false);
   }
 
@@ -666,7 +674,7 @@ class ContentScript {
     
     try {
       // 获取页面所有文本节点
-      const textNodes = this.getTextNodes(document.body);
+      const textNodes = this.getTextNodes(this.getPageTranslationRoot());
 
       if (!this.isCurrentTranslationRun(runId)) {
         return;
@@ -794,9 +802,9 @@ class ContentScript {
     await Promise.allSettled(promises);
   }
 
-  private restoreOriginalPage(): void {
+  private restoreOriginalPage(clearCache: boolean = true): void {
     this.translationOverlay.removeAllTranslations();
-    this.translationCache.clear();
+    if (clearCache) this.translationCache.clear();
   }
 
   private isCurrentTranslationRun(runId: number): boolean {
@@ -819,6 +827,10 @@ class ContentScript {
       NodeFilter.SHOW_TEXT,
       {
         acceptNode: (node) => {
+          if (!node.textContent || node.textContent.trim().length <= 3) {
+            return NodeFilter.FILTER_REJECT;
+          }
+
           // 跳过脚本和样式标签
           const parent = node.parentElement;
           if (parent && ['SCRIPT', 'STYLE', 'NOSCRIPT', 'CODE', 'PRE'].includes(parent.tagName)) {
@@ -847,6 +859,13 @@ class ContentScript {
 
   private isExcludedFromPageTranslation(element: Element): boolean {
     if (element.closest('[translate="no"], [data-no-translate], .notranslate, .lexibridge-no-translate')) {
+      return true;
+    }
+
+    if (
+      this.effectivePageTranslationPreferences.translationScope === 'main-content'
+      && element.closest('nav, header, footer, aside, [role="navigation"], [role="complementary"]')
+    ) {
       return true;
     }
 
@@ -933,7 +952,23 @@ class ContentScript {
   }
 
   private async translateNewContent(element: Element): Promise<void> {
-    const textNodes = this.getTextNodes(element);
+    const root = this.getPageTranslationRoot();
+    let translationTarget: Element | null = null;
+
+    if (root.contains(element)) {
+      translationTarget = element;
+    } else if (element.contains(root)) {
+      translationTarget = root;
+    } else if (this.effectivePageTranslationPreferences.translationScope === 'main-content') {
+      const detectedRoot = mainContentDetector.findMainContentRoot(document);
+      if (detectedRoot !== root && (element.contains(detectedRoot) || detectedRoot.contains(element))) {
+        this.pageTranslationRoot = detectedRoot;
+        translationTarget = detectedRoot.contains(element) ? element : detectedRoot;
+      }
+    }
+
+    if (!translationTarget) return;
+    const textNodes = this.getTextNodes(translationTarget);
     await this.translateTextNodeBatch(textNodes, this.translationRunId);
   }
 
@@ -941,9 +976,12 @@ class ContentScript {
     if (!this.userSettings) return;
 
     try {
+      const previousPreferences = this.getEffectivePageTranslationPreferences();
       const preferences = this.applyPageTranslationPreferences();
       if (this.isTranslationMode && !preferences.translationEnabled) {
         this.disableTranslationMode();
+      } else if (this.isTranslationMode && this.translationRangeChanged(previousPreferences, preferences)) {
+        this.restartPageTranslation();
       }
 
       // 更新浮动图标位置
@@ -980,8 +1018,43 @@ class ContentScript {
       isLiveCaptionMode: this.liveCaptionTranslator.getStatus().isActive,
       isImageTranslationMode: this.imageTranslator.getStatus().isActive,
       pageTranslationAllowed: preferences.translationEnabled,
-      matchedSiteRule: preferences.matchedPattern || null
+      matchedSiteRule: preferences.matchedPattern || null,
+      translationScope: preferences.translationScope,
+      translationRootTag: this.pageTranslationRoot?.tagName.toLowerCase() || null
     };
+  }
+
+  private resolvePageTranslationRoot(): Element {
+    if (this.effectivePageTranslationPreferences.translationScope === 'whole-page') {
+      return document.body;
+    }
+    return mainContentDetector.findMainContentRoot(document);
+  }
+
+  private getPageTranslationRoot(): Element {
+    if (!this.pageTranslationRoot || !document.documentElement.contains(this.pageTranslationRoot)) {
+      this.pageTranslationRoot = this.resolvePageTranslationRoot();
+    }
+    return this.pageTranslationRoot;
+  }
+
+  private translationRangeChanged(
+    previous: EffectivePageTranslationPreferences,
+    next: EffectivePageTranslationPreferences
+  ): boolean {
+    return previous.translationScope !== next.translationScope
+      || previous.excludeSelectors.join('\n') !== next.excludeSelectors.join('\n');
+  }
+
+  private restartPageTranslation(): void {
+    this.translationRunId++;
+    this.hidePageTranslationLoading();
+    this.pageObserver?.disconnect();
+    this.restoreOriginalPage(false);
+    this.pageTranslationRoot = this.resolvePageTranslationRoot();
+    this.observePageChanges();
+    const runId = ++this.translationRunId;
+    void this.translatePage(runId);
   }
 
   private getEffectivePageTranslationPreferences(): EffectivePageTranslationPreferences {

@@ -100,6 +100,14 @@
           </div>
 
           <div class="setting-item">
+            <label for="pageTranslationScope">Translation scope:</label>
+            <select id="pageTranslationScope">
+              <option value="main-content">Main content</option>
+              <option value="whole-page">Whole page</option>
+            </select>
+          </div>
+
+          <div class="setting-item">
             <label for="pageTranslationExcludeSelectors">Do not translate CSS selectors:</label>
             <textarea id="pageTranslationExcludeSelectors" rows="4" placeholder="nav, footer, .comments, [data-no-translate]"></textarea>
             <p class="setting-help">One selector per line or comma. Matching page areas are skipped after you manually start page translation.</p>
@@ -135,6 +143,15 @@
                   <option value="subtle">Subtle</option>
                   <option value="highlight">Highlight</option>
                   <option value="plain">Plain text</option>
+                </select>
+              </label>
+
+              <label class="site-rule-field" for="siteRuleTranslationScope">
+                Scope
+                <select id="siteRuleTranslationScope">
+                  <option value="">Use global</option>
+                  <option value="main-content">Main content</option>
+                  <option value="whole-page">Whole page</option>
                 </select>
               </label>
 

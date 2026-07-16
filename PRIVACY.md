@@ -8,7 +8,7 @@ LexiBridge Translate is a browser extension for user-triggered page translation,
 
 LexiBridge uses Chrome storage for product functionality:
 
-- Settings: target language, translation provider, translation appearance, domain-specific translation rules, enabled dictionaries, floating button visibility, and related preferences.
+- Settings: target language, translation provider, translation appearance and scope, domain-specific translation rules, enabled dictionaries, floating button visibility, and related preferences.
 - Vocabulary notebook: saved words, translations, examples, dictionary type, mastery level, review count, and review schedule.
 - Learning stats: daily goal, streaks, review accuracy, time spent learning, and dictionary progress.
 - Cached data: built-in dictionary progress and temporary translation cache used to reduce repeated requests during a session.
@@ -52,6 +52,8 @@ The extension runs a content script on pages so it can show the floating button,
 LexiBridge does not translate pages automatically. Page translation starts only after user action from the popup or floating button. Image text, video subtitle, and live caption translation also start only after user action from the popup. Opening or scrolling a page never starts image OCR; the visible-image batch requires a separate click after Image text mode is enabled, and Stop prevents further images from being processed.
 
 Optional site rules are stored as ordinary settings. They contain user-entered domain patterns, display preferences, and CSS selectors, but no browsing history. Rules may block manual page translation or change how a manually translated page is displayed; they do not trigger translation on page load.
+
+Main-content detection runs locally in the page after the user starts translation. It uses page structure and local text/link density to choose a reading region; it does not send page structure, selectors, or detection scores to a translation provider.
 
 ## Permissions
 

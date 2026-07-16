@@ -35,6 +35,10 @@ describe('options UI settings contract', () => {
         <option value="highlight">Highlight</option>
         <option value="plain">Plain text</option>
       </select>
+      <select id="pageTranslationScope">
+        <option value="main-content" selected>Main content</option>
+        <option value="whole-page">Whole page</option>
+      </select>
       <select id="iconPosition">
         <option value="top-left" selected>Top left</option>
         <option value="top-right">Top right</option>
@@ -57,6 +61,11 @@ describe('options UI settings contract', () => {
         <option value="subtle">Subtle</option>
         <option value="highlight">Highlight</option>
         <option value="plain">Plain text</option>
+      </select>
+      <select id="siteRuleTranslationScope">
+        <option value="" selected>Use global</option>
+        <option value="main-content">Main content</option>
+        <option value="whole-page">Whole page</option>
       </select>
       <textarea id="siteRuleExcludeSelectors"></textarea>
       <p id="siteRuleMessage"></p>
@@ -104,6 +113,7 @@ describe('options UI settings contract', () => {
     defaultTargetLanguage: 'zh-CN',
     translationProvider: 'google',
     pageTranslationDisplayMode: 'bilingual',
+    pageTranslationScope: 'main-content',
     autoTranslate: false,
     showFloatingIcon: true,
     floatingIconPosition: { x: 72, y: 96 },
@@ -723,11 +733,13 @@ describe('options UI settings contract', () => {
           success: true,
           data: createSettings({
             translationStyle: 'highlight',
+            pageTranslationScope: 'whole-page',
             siteTranslationRules: [{
               pattern: 'Docs.Example.com',
               translationEnabled: true,
               displayMode: 'bilingual',
               translationStyle: 'plain',
+              translationScope: 'main-content',
               excludeSelectors: ['aside']
             }]
           })
@@ -758,17 +770,20 @@ describe('options UI settings contract', () => {
     await flushPromises();
 
     expect((document.getElementById('translationStyle') as HTMLSelectElement).value).toBe('highlight');
+    expect((document.getElementById('pageTranslationScope') as HTMLSelectElement).value).toBe('whole-page');
     expect(document.getElementById('siteRuleList')?.textContent).toContain('docs.example.com');
 
     const editButton = document.querySelector<HTMLButtonElement>('button[data-site-rule-action="edit"]')!;
     editButton.dispatchEvent(new Event('click', { bubbles: true }));
     expect((document.getElementById('siteRulePattern') as HTMLInputElement).value).toBe('docs.example.com');
     expect((document.getElementById('siteRuleTranslationStyle') as HTMLSelectElement).value).toBe('plain');
+    expect((document.getElementById('siteRuleTranslationScope') as HTMLSelectElement).value).toBe('main-content');
 
     (document.getElementById('siteRulePattern') as HTMLInputElement).value = '*.Example.com';
     (document.getElementById('siteRuleTranslationEnabled') as HTMLInputElement).checked = false;
     (document.getElementById('siteRuleDisplayMode') as HTMLSelectElement).value = 'translation-only';
     (document.getElementById('siteRuleTranslationStyle') as HTMLSelectElement).value = 'highlight';
+    (document.getElementById('siteRuleTranslationScope') as HTMLSelectElement).value = 'whole-page';
     (document.getElementById('siteRuleExcludeSelectors') as HTMLTextAreaElement).value = 'nav, .comments\nnav';
     document.getElementById('saveSiteRule')!.dispatchEvent(new Event('click'));
     await flushPromises();
@@ -780,11 +795,13 @@ describe('options UI settings contract', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           translationStyle: 'highlight',
+          pageTranslationScope: 'whole-page',
           siteTranslationRules: [{
             pattern: '*.example.com',
             translationEnabled: false,
             displayMode: 'translation-only',
             translationStyle: 'highlight',
+            translationScope: 'whole-page',
             excludeSelectors: ['nav', '.comments']
           }]
         })
