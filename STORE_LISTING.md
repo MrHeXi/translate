@@ -32,7 +32,7 @@ Core features:
 - Live caption translation for caption text already visible in the page, including common meeting speaker labels, incremental-caption coalescing, timestamped in-memory cues, and local TXT/SRT/VTT/JSON transcript export.
 - Manual image text translation using browser OCR when available, plus SVG and accessibility text fallbacks, with click/drag selection, a user-triggered visible-image batch, and separate OCR block overlays when coordinates are available.
 - 100+ target language choices in settings.
-- Google Translate and MyMemory are available today, with 20+ provider definitions prepared for future engine expansion.
+- Google Translate and MyMemory work without a key. DeepL, Microsoft Translator, OpenAI-compatible endpoints, and Google Gemini can be configured with user-supplied API credentials.
 - Vocabulary notebook for saved words, translations, examples, mastery level, and review schedule.
 - Built-in CET4, CET6, GRE, IELTS, and TOEFL dictionaries.
 - Review page for due words and new dictionary words.
@@ -76,11 +76,17 @@ translation, page translation, document translation, vocabulary, English learnin
 - `tabs`: find the active tab and send messages between the popup and content script.
 - `https://translate.googleapis.com/*`: send user-requested text to Google Translate's public translation endpoint.
 - `https://api.mymemory.translated.net/*`: send user-requested text to the MyMemory translation endpoint.
+- `https://api-free.deepl.com/*` and `https://api.deepl.com/*`: send user-requested text to the configured DeepL API plan.
+- `https://api.cognitive.microsofttranslator.com/*`: send user-requested text to Microsoft Translator.
+- `https://api.openai.com/*`: send user-requested text to the OpenAI-compatible default endpoint when configured.
+- `https://generativelanguage.googleapis.com/*`: send user-requested text to Google Gemini when configured.
+- Optional HTTPS or localhost host access: requested only for the exact custom OpenAI-compatible or DeepL endpoint that the user enters and approves.
 
 ## Privacy Questionnaire Notes
 
 - Single purpose: user-triggered web and document text translation, selected-text translation, selected or currently visible image text translation, available subtitle/live-caption text translation and local transcript export, vocabulary collection, and vocabulary review.
-- Personal or sensitive user data: no account credentials, payment data, health data, financial data, or personal communications are collected by the extension.
+- Authentication information: user-entered translation provider API keys are stored only in local Chrome storage and sent directly to the selected provider when translation is requested; LexiBridge does not collect them on its own server.
+- Personal or sensitive user data: no payment data, health data, or financial data is collected by the extension.
 - Website and document content: only the text needed for the user-requested translation is sent to the selected translation provider.
 - User activity: learning progress and review stats are stored for product functionality, not default analytics.
 - Data sharing: translation text is shared with the selected translation provider only when the user requests translation.
@@ -106,3 +112,4 @@ Common support answers:
 - Live caption translation works only with caption text already visible in the page. Common Google Meet, Zoom, Microsoft Teams, and Webex-style caption containers keep speaker labels when available. The current tab stores timestamped cues in memory for explicit TXT, SRT, VTT, or JSON export; Stop prevents new capture, while Clear or closing the page removes the session. It does not record audio, join calls, or transcribe speech.
 - Image text translation starts only after the user enables Image text and then clicks an image, drags over a region, or explicitly clicks Translate visible images. The visible-image command processes eligible images in the current viewport, skips hidden, offscreen, tiny, and extension-owned graphics, and stops immediately when Image text is turned off. Opening or scrolling a page never starts OCR. OCR depends on browser support and readable image content; separate region overlays require OCR bounding boxes.
 - Vocabulary and review data are stored in Chrome storage. Chrome may sync the data if browser sync is enabled.
+- Provider API keys stay in local Chrome storage, are shown only as masked summaries, and are excluded from Chrome sync and learning-data exports. Credentialed provider failures do not silently fall back to another provider.

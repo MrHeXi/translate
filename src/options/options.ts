@@ -1,6 +1,12 @@
 // Chrome翻译插件选项页面脚本
 
-import { TRANSLATION_LANGUAGES, TRANSLATION_PROVIDERS } from '../services/TranslationProviderRegistry';
+import {
+  getTranslationProvider,
+  TRANSLATION_LANGUAGES,
+  TRANSLATION_PROVIDERS,
+  TranslationProviderRuntimeConfig
+} from '../services/TranslationProviderRegistry';
+import type { TranslationProviderConfigSummary } from '../services/StorageManager';
 
 type PageTranslationDisplayMode = 'bilingual' | 'translation-only' | 'original-only';
 
@@ -42,6 +48,7 @@ class OptionsController {
   private settings: UserSettings | null = null;
   private stats: LearningStats | null = null;
   private dictionaryProgress: DictionaryProgress = {};
+  private providerConfigSummaries: Map<string, TranslationProviderConfigSummary> = new Map();
   private readonly floatingIconEdgeMargin = 24;
   private readonly floatingIconFarEdge = 9999;
 
@@ -57,6 +64,7 @@ class OptionsController {
     
     // 加载当前设置
     await this.loadSettings();
+    await this.loadTranslationProviderConfigs();
     
     // 加载学习统计
     await this.loadLearningStats();
@@ -84,6 +92,12 @@ class OptionsController {
     // 设置保存
     const saveBtn = document.getElementById('saveSettings');
     saveBtn?.addEventListener('click', () => this.saveSettings());
+
+    const saveProviderConfig = document.getElementById('saveProviderConfig');
+    saveProviderConfig?.addEventListener('click', () => this.saveTranslationProviderConfig());
+
+    const removeProviderConfig = document.getElementById('removeProviderConfig');
+    removeProviderConfig?.addEventListener('click', () => this.removeTranslationProviderConfig());
 
     // 恢复默认设置
     const resetBtn = document.getElementById('resetToDefault');
@@ -130,7 +144,10 @@ class OptionsController {
     targetLanguage?.addEventListener('change', () => this.onSettingChange());
 
     const translationProvider = document.getElementById('translationProvider') as HTMLSelectElement;
-    translationProvider?.addEventListener('change', () => this.onSettingChange());
+    translationProvider?.addEventListener('change', () => {
+      this.onSettingChange();
+      this.updateProviderConfigurationUI();
+    });
 
     const pageTranslationDisplayMode = document.getElementById('pageTranslationDisplayMode') as HTMLSelectElement;
     pageTranslationDisplayMode?.addEventListener('change', () => this.onSettingChange());
@@ -235,6 +252,21 @@ class OptionsController {
     }
   }
 
+  private async loadTranslationProviderConfigs(): Promise<void> {
+    try {
+      const response = await this.sendMessage({ action: 'getTranslationProviderConfigs' });
+      const summaries = response?.success && Array.isArray(response.data)
+        ? response.data as TranslationProviderConfigSummary[]
+        : [];
+      this.providerConfigSummaries = new Map(
+        summaries.map(summary => [summary.providerId, summary])
+      );
+    } catch (error) {
+      this.providerConfigSummaries.clear();
+      console.error('Could not load translation provider credentials:', error);
+    }
+  }
+
   private async loadLearningStats(): Promise<void> {
     try {
       const response = await this.sendMessage({ action: 'getLearningStats' });
@@ -264,6 +296,7 @@ class OptionsController {
   private updateUI(): void {
     if (this.settings) {
       this.updateGeneralSettings();
+      this.updateProviderConfigurationUI();
       this.updateDictionarySettings();
       this.updateLearningSettings();
     }
@@ -417,9 +450,175 @@ class OptionsController {
     this.onSettingChange();
   }
 
+  private updateProviderConfigurationUI(): void {
+    const providerId = (document.getElementById('translationProvider') as HTMLSelectElement | null)?.value || 'google';
+    const provider = getTranslationProvider(providerId);
+    const panel = document.getElementById('providerConfigPanel');
+    const configFields = provider?.configFields || [];
+    if (!panel || !provider || configFields.length === 0) {
+      if (panel) panel.hidden = true;
+      return;
+    }
+
+    panel.hidden = false;
+    const summary = this.providerConfigSummaries.get(providerId);
+    const title = document.getElementById('providerConfigTitle');
+    const status = document.getElementById('providerConfigStatus');
+    const removeButton = document.getElementById('removeProviderConfig') as HTMLButtonElement | null;
+    const apiKeyInput = document.getElementById('providerApiKey') as HTMLInputElement | null;
+    const endpointInput = document.getElementById('providerEndpoint') as HTMLInputElement | null;
+    const modelInput = document.getElementById('providerModel') as HTMLInputElement | null;
+    const regionInput = document.getElementById('providerRegion') as HTMLInputElement | null;
+
+    if (title) title.textContent = `${provider.label} credentials`;
+    if (status) {
+      status.textContent = summary?.configured
+        ? `Configured (${summary.apiKeyHint})`
+        : 'Not configured';
+    }
+    if (removeButton) removeButton.disabled = !summary?.configured;
+
+    this.setProviderFieldVisibility('providerApiKeyField', configFields.includes('apiKey'));
+    this.setProviderFieldVisibility('providerEndpointField', configFields.includes('endpoint'));
+    this.setProviderFieldVisibility('providerModelField', configFields.includes('model'));
+    this.setProviderFieldVisibility('providerRegionField', configFields.includes('region'));
+
+    if (apiKeyInput) {
+      apiKeyInput.value = '';
+      apiKeyInput.placeholder = summary?.configured
+        ? `Saved key: ${summary.apiKeyHint}`
+        : 'Enter API key';
+    }
+    if (endpointInput) endpointInput.value = summary?.endpoint || provider.defaultEndpoint || '';
+    if (modelInput) modelInput.value = summary?.model || provider.defaultModel || '';
+    if (regionInput) regionInput.value = summary?.region || '';
+    this.showProviderConfigMessage('');
+  }
+
+  private setProviderFieldVisibility(elementId: string, isVisible: boolean): void {
+    const element = document.getElementById(elementId);
+    if (element) element.hidden = !isVisible;
+  }
+
+  private async saveTranslationProviderConfig(): Promise<void> {
+    const providerId = (document.getElementById('translationProvider') as HTMLSelectElement | null)?.value || '';
+    const provider = getTranslationProvider(providerId);
+    if (!provider || !provider.configFields?.length) return;
+
+    const existingSummary = this.providerConfigSummaries.get(providerId);
+    const config: TranslationProviderRuntimeConfig = {
+      apiKey: (document.getElementById('providerApiKey') as HTMLInputElement | null)?.value.trim() || '',
+      endpoint: (document.getElementById('providerEndpoint') as HTMLInputElement | null)?.value.trim() || '',
+      model: (document.getElementById('providerModel') as HTMLInputElement | null)?.value.trim() || '',
+      region: (document.getElementById('providerRegion') as HTMLInputElement | null)?.value.trim() || ''
+    };
+
+    if (provider.requiresApiKey && !config.apiKey && !existingSummary?.configured) {
+      this.showProviderConfigMessage(`${provider.label} API key is required`, true);
+      return;
+    }
+
+    const endpoint = config.endpoint || provider.defaultEndpoint || '';
+    if (provider.configFields.includes('endpoint')) {
+      const permissionGranted = await this.ensureProviderEndpointPermission(endpoint, provider.defaultEndpoint || '');
+      if (!permissionGranted) {
+        this.showProviderConfigMessage('Host access was not granted for this endpoint', true);
+        return;
+      }
+    }
+
+    try {
+      const response = await this.sendMessage({
+        action: 'updateTranslationProviderConfig',
+        data: { providerId, config }
+      });
+      if (!response?.success) {
+        this.showProviderConfigMessage(response?.error || 'Could not save provider credentials', true);
+        return;
+      }
+
+      const summary = response.data as TranslationProviderConfigSummary;
+      this.providerConfigSummaries.set(providerId, summary);
+      this.updateProviderConfigurationUI();
+      this.showProviderConfigMessage(`${provider.label} credentials saved locally`);
+    } catch (error) {
+      this.showProviderConfigMessage(
+        error instanceof Error ? error.message : 'Could not save provider credentials',
+        true
+      );
+    }
+  }
+
+  private async removeTranslationProviderConfig(): Promise<void> {
+    const providerId = (document.getElementById('translationProvider') as HTMLSelectElement | null)?.value || '';
+    const provider = getTranslationProvider(providerId);
+    if (!provider || !this.providerConfigSummaries.get(providerId)?.configured) return;
+
+    try {
+      const response = await this.sendMessage({
+        action: 'removeTranslationProviderConfig',
+        data: { providerId }
+      });
+      if (!response?.success) {
+        this.showProviderConfigMessage(response?.error || 'Could not remove provider credentials', true);
+        return;
+      }
+
+      this.providerConfigSummaries.delete(providerId);
+      this.updateProviderConfigurationUI();
+      this.showProviderConfigMessage(`${provider.label} credentials removed`);
+    } catch (error) {
+      this.showProviderConfigMessage(
+        error instanceof Error ? error.message : 'Could not remove provider credentials',
+        true
+      );
+    }
+  }
+
+  private async ensureProviderEndpointPermission(endpoint: string, defaultEndpoint: string): Promise<boolean> {
+    let endpointUrl: URL;
+    try {
+      endpointUrl = new URL(endpoint);
+      const isLocalHttp = endpointUrl.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(endpointUrl.hostname);
+      if ((endpointUrl.protocol !== 'https:' && !isLocalHttp) || endpointUrl.username || endpointUrl.password) {
+        return false;
+      }
+    } catch (error) {
+      return false;
+    }
+
+    const preGrantedOrigins = [
+      'https://api-free.deepl.com',
+      'https://api.deepl.com',
+      'https://api.cognitive.microsofttranslator.com',
+      'https://api.openai.com',
+      'https://generativelanguage.googleapis.com'
+    ];
+    if (preGrantedOrigins.includes(endpointUrl.origin)) return true;
+    if (defaultEndpoint && new URL(defaultEndpoint).origin === endpointUrl.origin) return true;
+    if (!chrome.permissions?.request) return false;
+
+    const originPattern = `${endpointUrl.origin}/*`;
+    return new Promise<boolean>(resolve => {
+      chrome.permissions.request({ origins: [originPattern] }, resolve);
+    });
+  }
+
+  private showProviderConfigMessage(message: string, isError: boolean = false): void {
+    const element = document.getElementById('providerConfigMessage');
+    if (!element) return;
+    element.textContent = message;
+    element.classList.toggle('error', isError);
+  }
+
   private async saveSettings(): Promise<void> {
     try {
       const settings = this.collectSettingsFromUI();
+      const provider = getTranslationProvider(settings.translationProvider);
+      if (provider?.requiresApiKey && !this.providerConfigSummaries.get(provider.id)?.configured) {
+        this.showMessage(`Configure ${provider.label} credentials before selecting it`, 'error');
+        return;
+      }
       const response = await this.sendMessage({
         action: 'updateSettings',
         data: settings
@@ -663,6 +862,7 @@ class OptionsController {
           const response = await this.sendMessage({ action: 'clearAllData' });
           if (response.success) {
             await this.loadSettings();
+            await this.loadTranslationProviderConfigs();
             await this.loadLearningStats();
             await this.loadDictionaryProgress();
             this.updateUI();

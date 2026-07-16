@@ -43,7 +43,14 @@ describe('TranslationService', () => {
 
     it('tracks a 20-plus provider roadmap and 100-plus target language choices', () => {
       expect(TRANSLATION_PROVIDERS.length).toBeGreaterThanOrEqual(20);
-      expect(AVAILABLE_TRANSLATION_PROVIDERS.map(provider => provider.id)).toEqual(['google', 'mymemory']);
+      expect(AVAILABLE_TRANSLATION_PROVIDERS.map(provider => provider.id)).toEqual([
+        'google',
+        'mymemory',
+        'deepl',
+        'microsoft',
+        'openai',
+        'gemini'
+      ]);
       expect(TRANSLATION_LANGUAGES.length).toBeGreaterThanOrEqual(100);
       expect(TRANSLATION_LANGUAGES.some(language => language.code === 'zh-CN')).toBe(true);
       expect(TRANSLATION_LANGUAGES.some(language => language.code === 'en')).toBe(true);
@@ -90,6 +97,183 @@ describe('TranslationService', () => {
 
       expect(fetchMock.mock.calls[1]?.[0].toString()).toContain('api.mymemory.translated.net');
       expect(myMemoryResult.translatedText).toBe('MyMemory result');
+    });
+
+    it('calls DeepL with local credentials and provider-specific language codes', async () => {
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({
+          translations: [{ text: 'Hallo Welt', detected_source_language: 'EN' }]
+        })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: 'Hello world',
+        sourceLang: 'en',
+        targetLang: 'de',
+        provider: 'deepl',
+        providerConfig: { apiKey: 'deepl-secret' }
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0] as [RequestInfo | URL, RequestInit];
+      const headers = init.headers as Record<string, string>;
+      expect(url).toBe('https://api-free.deepl.com/v2/translate');
+      expect(headers.Authorization).toBe('DeepL-Auth-Key deepl-secret');
+      expect(init.body).toContain('text=Hello+world');
+      expect(init.body).toContain('source_lang=EN');
+      expect(init.body).toContain('target_lang=DE');
+      expect(result).toEqual(expect.objectContaining({
+        translatedText: 'Hallo Welt',
+        sourceLang: 'en',
+        targetLang: 'de'
+      }));
+    });
+
+    it('calls Microsoft Translator with the configured key and region', async () => {
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ([{
+          detectedLanguage: { language: 'en', score: 0.98 },
+          translations: [{ text: '你好世界', to: 'zh-Hans' }]
+        }])
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: 'Hello world',
+        targetLang: 'zh-CN',
+        provider: 'microsoft',
+        providerConfig: { apiKey: 'microsoft-secret', region: 'eastus' }
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0] as [RequestInfo | URL, RequestInit];
+      const headers = init.headers as Record<string, string>;
+      expect(url.toString()).toContain('api-version=3.0');
+      expect(url.toString()).toContain('to=zh-Hans');
+      expect(headers['Ocp-Apim-Subscription-Key']).toBe('microsoft-secret');
+      expect(headers['Ocp-Apim-Subscription-Region']).toBe('eastus');
+      expect(JSON.parse(String(init.body))).toEqual([{ Text: 'Hello world' }]);
+      expect(result.translatedText).toBe('你好世界');
+      expect(result.confidence).toBe(0.98);
+    });
+
+    it('calls an OpenAI-compatible endpoint with text in a separate user message', async () => {
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'Bonjour le monde' } }]
+        })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: 'Hello world',
+        sourceLang: 'en',
+        targetLang: 'fr',
+        provider: 'openai',
+        providerConfig: {
+          apiKey: 'openai-secret',
+          endpoint: 'https://gateway.example.com/v1/chat/completions',
+          model: 'translation-model'
+        }
+      });
+
+      const [url, init] = fetchMock.mock.calls[0] as [RequestInfo | URL, RequestInit];
+      const headers = init.headers as Record<string, string>;
+      const body = JSON.parse(String(init.body));
+      expect(url).toBe('https://gateway.example.com/v1/chat/completions');
+      expect(headers.Authorization).toBe('Bearer openai-secret');
+      expect(body.model).toBe('translation-model');
+      expect(body.messages[0].role).toBe('system');
+      expect(body.messages[1]).toEqual({ role: 'user', content: 'Hello world' });
+      expect(result.translatedText).toBe('Bonjour le monde');
+    });
+
+    it('calls Gemini without placing the API key in the URL', async () => {
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: 'Hola mundo' }] } }]
+        })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: 'Hello world',
+        targetLang: 'es',
+        provider: 'gemini',
+        providerConfig: { apiKey: 'gemini-secret', model: 'gemini-test' }
+      });
+
+      const [url, init] = fetchMock.mock.calls[0] as [RequestInfo | URL, RequestInit];
+      const headers = init.headers as Record<string, string>;
+      expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-test:generateContent');
+      expect(url.toString()).not.toContain('gemini-secret');
+      expect(headers['x-goog-api-key']).toBe('gemini-secret');
+      expect(result.translatedText).toBe('Hola mundo');
+    });
+
+    it('does not fall back to another provider when credentialed configuration is missing or rejected', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const fetchMock = jest.fn(async () => ({
+        ok: false,
+        status: 401,
+        json: async () => ({})
+      }));
+      (global as any).fetch = fetchMock;
+
+      await expect(translationService.translate({
+        text: 'Private text',
+        targetLang: 'de',
+        provider: 'deepl'
+      })).rejects.toThrow('DeepL API key is not configured');
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      await expect(translationService.translate({
+        text: 'Private text',
+        targetLang: 'de',
+        provider: 'deepl',
+        providerConfig: { apiKey: 'invalid-key' }
+      })).rejects.toThrow('DeepL request failed with HTTP 401');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    });
+
+    it('rejects insecure or credential-bearing custom endpoints before sending text', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const fetchMock = jest.fn();
+      (global as any).fetch = fetchMock;
+
+      await expect(translationService.translate({
+        text: 'Private text',
+        targetLang: 'fr',
+        provider: 'openai',
+        providerConfig: {
+          apiKey: 'openai-secret',
+          endpoint: 'http://gateway.example.com/v1/chat/completions'
+        }
+      })).rejects.toThrow('endpoint must be HTTPS or a localhost HTTP URL');
+
+      await expect(translationService.translate({
+        text: 'Private text',
+        targetLang: 'fr',
+        provider: 'openai',
+        providerConfig: {
+          apiKey: 'openai-secret',
+          endpoint: 'https://user:password@gateway.example.com/v1/chat/completions'
+        }
+      })).rejects.toThrow('endpoint must not contain URL credentials');
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
     });
   });
 

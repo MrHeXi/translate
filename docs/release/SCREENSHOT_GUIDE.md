@@ -124,6 +124,7 @@ Capture the options page with:
 
 - Dictionary selection visible.
 - Translation provider and target language controls visible.
+- A credentialed provider configuration panel may be shown with only a masked key summary; never expose a full API key.
 - Floating button setting visible.
 - Page translation exclude selectors visible.
 

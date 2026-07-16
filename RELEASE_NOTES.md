@@ -21,7 +21,8 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Manual image text translation for selected images, canvases, SVGs, dragged image regions, and eligible graphics currently visible in the viewport, using browser OCR when available and retaining separate per-image or OCR-block overlays.
 - Explicit Translate visible images command with hidden/offscreen/tiny/extension-owned filtering, duplicate-text request caching, and immediate batch cancellation when Image text stops.
 - 100+ target language choices in settings.
-- Provider registry with Google Translate and MyMemory available today plus a 20+ provider expansion roadmap.
+- Six working provider integrations: Google Translate and MyMemory without credentials, plus user-configured DeepL, Microsoft Translator, OpenAI-compatible endpoints, and Google Gemini.
+- Local-only API credential storage with masked settings summaries, explicit custom-endpoint host approval, and no credentialed-provider fallback to unrelated services.
 - Built-in CET4, CET6, GRE, IELTS, and TOEFL vocabulary dictionaries.
 - Vocabulary notebook, review page, learning progress, import/export, and settings.
 - Local-first data storage through Chrome storage, with Chrome sync support when enabled in the browser profile.
@@ -33,7 +34,7 @@ Verified on 2026-07-16:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 36 test suites and 249 tests.
+- `jest --runInBand --silent`: passed, 37 test suites and 263 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 

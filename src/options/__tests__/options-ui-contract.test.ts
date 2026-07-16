@@ -14,6 +14,17 @@ describe('options UI settings contract', () => {
       <button id="startReview"></button>
       <select id="targetLanguage"><option value="zh-CN" selected>Chinese</option></select>
       <select id="translationProvider"><option value="google" selected>Google</option></select>
+      <section id="providerConfigPanel" hidden>
+        <h4 id="providerConfigTitle"></h4>
+        <p id="providerConfigStatus"></p>
+        <button id="removeProviderConfig" type="button" disabled></button>
+        <label id="providerApiKeyField"><input id="providerApiKey" type="password"></label>
+        <label id="providerEndpointField"><input id="providerEndpoint" type="url"></label>
+        <label id="providerModelField"><input id="providerModel" type="text"></label>
+        <label id="providerRegionField"><input id="providerRegion" type="text"></label>
+        <p id="providerConfigMessage"></p>
+        <button id="saveProviderConfig" type="button"></button>
+      </section>
       <select id="pageTranslationDisplayMode">
         <option value="bilingual" selected>Bilingual</option>
         <option value="translation-only">Translation only</option>
@@ -64,6 +75,37 @@ describe('options UI settings contract', () => {
     await Promise.resolve();
     await new Promise(resolve => setTimeout(resolve, 0));
   };
+
+  const createSettings = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    defaultTargetLanguage: 'zh-CN',
+    translationProvider: 'google',
+    pageTranslationDisplayMode: 'bilingual',
+    autoTranslate: false,
+    showFloatingIcon: true,
+    floatingIconPosition: { x: 72, y: 96 },
+    learningModeEnabled: false,
+    activeDictionaries: ['gre'],
+    highlightColors: {
+      gre: '#ff6b6b',
+      toefl: '#4ecdc4',
+      ielts: '#45b7d1',
+      cet4: '#96ceb4',
+      cet6: '#feca57'
+    },
+    dailyGoal: 20,
+    reviewInterval: 'spaced',
+    difficultyAdjustment: 'auto',
+    ...overrides
+  });
+
+  const createStats = (): Record<string, number> => ({
+    totalWordsLearned: 0,
+    dailyGoal: 20,
+    currentStreak: 0,
+    longestStreak: 0,
+    reviewAccuracy: 0,
+    timeSpentLearning: 0
+  });
 
   beforeEach(() => {
     jest.resetModules();
@@ -454,8 +496,199 @@ describe('options UI settings contract', () => {
 
     expect(targetLanguage.options.length).toBeGreaterThanOrEqual(100);
     expect(targetLanguage.value).toBe('es');
-    expect(Array.from(translationProvider.options).some(option => option.value === 'deepl' && option.disabled)).toBe(true);
-    expect(translationProvider.value).toBe('google');
+    expect(Array.from(translationProvider.options).some(option => option.value === 'deepl' && !option.disabled)).toBe(true);
+    expect(Array.from(translationProvider.options).some(option => option.value === 'microsoft' && !option.disabled)).toBe(true);
+    expect(Array.from(translationProvider.options).some(option => option.value === 'openai' && !option.disabled)).toBe(true);
+    expect(Array.from(translationProvider.options).some(option => option.value === 'gemini' && !option.disabled)).toBe(true);
+    expect(translationProvider.value).toBe('deepl');
     expect(displayMode.value).toBe('translation-only');
+  });
+
+  it('shows only a masked key summary and the fields required by the selected provider', async () => {
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getSettings') {
+        callback({ success: true, data: createSettings({ translationProvider: 'openai' }) });
+        return;
+      }
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({
+          success: true,
+          data: [{
+            providerId: 'openai',
+            configured: true,
+            apiKeyHint: 'sk-s...5678',
+            endpoint: 'https://gateway.example.com/v1/chat/completions',
+            model: 'translation-model',
+            region: ''
+          }]
+        });
+        return;
+      }
+      if (message.action === 'getLearningStats') {
+        callback({ success: true, data: createStats() });
+        return;
+      }
+      if (message.action === 'getDictionaryProgress') {
+        callback({ success: true, data: {} });
+        return;
+      }
+      callback({ success: true });
+    });
+
+    (global as any).chrome = {
+      runtime: { sendMessage, lastError: null }
+    };
+
+    require('../options');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    const panel = document.getElementById('providerConfigPanel') as HTMLElement;
+    const apiKey = document.getElementById('providerApiKey') as HTMLInputElement;
+    expect(panel.hidden).toBe(false);
+    expect(document.getElementById('providerConfigStatus')?.textContent).toContain('sk-s...5678');
+    expect(apiKey.value).toBe('');
+    expect(apiKey.placeholder).toContain('sk-s...5678');
+    expect((document.getElementById('providerEndpointField') as HTMLElement).hidden).toBe(false);
+    expect((document.getElementById('providerModelField') as HTMLElement).hidden).toBe(false);
+    expect((document.getElementById('providerRegionField') as HTMLElement).hidden).toBe(true);
+    expect(document.body.textContent).not.toContain('openai-secret-value');
+
+    const provider = document.getElementById('translationProvider') as HTMLSelectElement;
+    provider.value = 'microsoft';
+    provider.dispatchEvent(new Event('change'));
+    expect((document.getElementById('providerEndpointField') as HTMLElement).hidden).toBe(true);
+    expect((document.getElementById('providerModelField') as HTMLElement).hidden).toBe(true);
+    expect((document.getElementById('providerRegionField') as HTMLElement).hidden).toBe(false);
+
+    provider.value = 'gemini';
+    provider.dispatchEvent(new Event('change'));
+    expect((document.getElementById('providerEndpointField') as HTMLElement).hidden).toBe(true);
+    expect((document.getElementById('providerModelField') as HTMLElement).hidden).toBe(false);
+    expect((document.getElementById('providerRegionField') as HTMLElement).hidden).toBe(true);
+  });
+
+  it('requests exact host access and saves an OpenAI-compatible endpoint locally', async () => {
+    const savedSummary = {
+      providerId: 'openai',
+      configured: true,
+      apiKeyHint: 'sk-c...7890',
+      endpoint: 'https://gateway.example.com/v1/chat/completions',
+      model: 'translation-model',
+      region: ''
+    };
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getSettings') {
+        callback({ success: true, data: createSettings() });
+        return;
+      }
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({ success: true, data: [] });
+        return;
+      }
+      if (message.action === 'getLearningStats') {
+        callback({ success: true, data: createStats() });
+        return;
+      }
+      if (message.action === 'getDictionaryProgress') {
+        callback({ success: true, data: {} });
+        return;
+      }
+      if (message.action === 'updateTranslationProviderConfig') {
+        callback({ success: true, data: savedSummary });
+        return;
+      }
+      callback({ success: true });
+    });
+    const request = jest.fn((_permissions, callback) => callback(true));
+
+    (global as any).chrome = {
+      runtime: { sendMessage, lastError: null },
+      permissions: { request }
+    };
+
+    require('../options');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    const provider = document.getElementById('translationProvider') as HTMLSelectElement;
+    provider.value = 'openai';
+    provider.dispatchEvent(new Event('change'));
+    (document.getElementById('providerApiKey') as HTMLInputElement).value = 'sk-custom-secret-7890';
+    (document.getElementById('providerEndpoint') as HTMLInputElement).value = savedSummary.endpoint;
+    (document.getElementById('providerModel') as HTMLInputElement).value = savedSummary.model;
+    document.getElementById('saveProviderConfig')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    expect(request).toHaveBeenCalledWith(
+      { origins: ['https://gateway.example.com/*'] },
+      expect.any(Function)
+    );
+    expect(sendMessage).toHaveBeenCalledWith({
+      action: 'updateTranslationProviderConfig',
+      data: {
+        providerId: 'openai',
+        config: {
+          apiKey: 'sk-custom-secret-7890',
+          endpoint: savedSummary.endpoint,
+          model: savedSummary.model,
+          region: ''
+        }
+      }
+    }, expect.any(Function));
+    expect((document.getElementById('providerApiKey') as HTMLInputElement).value).toBe('');
+    expect(document.getElementById('providerConfigMessage')?.textContent).toContain('saved locally');
+  });
+
+  it('removes saved provider credentials through the background message channel', async () => {
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getSettings') {
+        callback({ success: true, data: createSettings({ translationProvider: 'deepl' }) });
+        return;
+      }
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({
+          success: true,
+          data: [{
+            providerId: 'deepl',
+            configured: true,
+            apiKeyHint: 'deep...7890',
+            endpoint: 'https://api-free.deepl.com/v2/translate',
+            model: '',
+            region: ''
+          }]
+        });
+        return;
+      }
+      if (message.action === 'getLearningStats') {
+        callback({ success: true, data: createStats() });
+        return;
+      }
+      if (message.action === 'getDictionaryProgress') {
+        callback({ success: true, data: {} });
+        return;
+      }
+      callback({ success: true });
+    });
+
+    (global as any).chrome = {
+      runtime: { sendMessage, lastError: null }
+    };
+
+    require('../options');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    const removeButton = document.getElementById('removeProviderConfig') as HTMLButtonElement;
+    expect(removeButton.disabled).toBe(false);
+    removeButton.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    expect(sendMessage).toHaveBeenCalledWith({
+      action: 'removeTranslationProviderConfig',
+      data: { providerId: 'deepl' }
+    }, expect.any(Function));
+    expect(removeButton.disabled).toBe(true);
+    expect(document.getElementById('providerConfigMessage')?.textContent).toContain('removed');
   });
 });

@@ -1,12 +1,18 @@
 // 翻译服务接口和实现
 
-import { isAvailableTranslationProvider } from './TranslationProviderRegistry';
+import {
+  getTranslationProvider,
+  isAvailableTranslationProvider,
+  TRANSLATION_LANGUAGES,
+  TranslationProviderRuntimeConfig
+} from './TranslationProviderRegistry';
 
 export interface TranslationRequest {
   text: string;
   sourceLang?: string | undefined;
   targetLang: string;
   provider?: string | undefined;
+  providerConfig?: TranslationProviderRuntimeConfig | undefined;
   context?: string;
 }
 
@@ -72,6 +78,10 @@ export class TranslationService {
       console.error('翻译请求失败:', error);
       
       // 如果有过期的缓存，在API失败时返回过期缓存
+      if (error instanceof TranslationProviderError) {
+        throw error;
+      }
+
       if (cachedItem) {
         console.warn('API调用失败，返回过期缓存结果');
         return cachedItem.result;
@@ -166,7 +176,13 @@ export class TranslationService {
   }
 
   private generateCacheKey(request: TranslationRequest): string {
-    return `${request.provider || 'auto-provider'}_${request.text}_${request.sourceLang || 'auto'}_${request.targetLang}`;
+    const providerVariant = [
+      request.providerConfig?.endpoint || '',
+      request.providerConfig?.model || '',
+      request.providerConfig?.region || ''
+    ].join('|');
+
+    return `${request.provider || 'auto-provider'}_${providerVariant}_${request.text}_${request.sourceLang || 'auto'}_${request.targetLang}`;
   }
 
   private setCacheItem(key: string, result: TranslationResult): void {
@@ -217,9 +233,27 @@ export class TranslationService {
         if (provider === 'mymemory') {
           return await this.callMyMemoryAPI(request);
         }
+
+        if (provider === 'deepl') {
+          return await this.callDeepLAPI(request);
+        }
+
+        if (provider === 'microsoft') {
+          return await this.callMicrosoftTranslatorAPI(request);
+        }
+
+        if (provider === 'openai') {
+          return await this.callOpenAICompatibleAPI(request);
+        }
+
+        if (provider === 'gemini') {
+          return await this.callGeminiAPI(request);
+        }
       } catch (error) {
         lastError = error;
-        console.warn(`${provider} API failed, trying fallback provider`, error);
+        const canFallback = provider === 'google' || provider === 'mymemory';
+        console.warn(`${provider} API failed${canFallback ? ', trying fallback provider' : ''}`, error);
+        if (!canFallback) throw error;
       }
     }
 
@@ -229,6 +263,10 @@ export class TranslationService {
 
   private getProviderOrder(providerId?: string): string[] {
     if (isAvailableTranslationProvider(providerId)) {
+      if (providerId !== 'google' && providerId !== 'mymemory') {
+        return [providerId!];
+      }
+
       const fallbackProviders = ['google', 'mymemory'].filter(provider => provider !== providerId);
       return [providerId!, ...fallbackProviders];
     }
@@ -317,6 +355,250 @@ export class TranslationService {
     };
   }
 
+  private async callDeepLAPI(request: TranslationRequest): Promise<TranslationResult> {
+    const config = this.getRequiredProviderConfig('deepl', request.providerConfig);
+    const body = new URLSearchParams();
+    body.set('text', request.text);
+    body.set('target_lang', this.mapDeepLLanguage(request.targetLang, true));
+    if (request.sourceLang && request.sourceLang !== 'auto') {
+      body.set('source_lang', this.mapDeepLLanguage(request.sourceLang, false));
+    }
+
+    const response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `DeepL-Auth-Key ${config.apiKey}`,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: body.toString()
+    });
+    const data = await this.readProviderJson(response, 'DeepL');
+    const translation = data?.translations?.[0];
+    if (!translation || typeof translation.text !== 'string') {
+      throw new TranslationProviderError('DeepL returned an invalid translation response');
+    }
+
+    return {
+      originalText: request.text,
+      translatedText: translation.text,
+      sourceLang: this.normalizeProviderLanguage(translation.detected_source_language || request.sourceLang || 'auto'),
+      targetLang: request.targetLang,
+      confidence: 0.95,
+      alternatives: []
+    };
+  }
+
+  private async callMicrosoftTranslatorAPI(request: TranslationRequest): Promise<TranslationResult> {
+    const config = this.getRequiredProviderConfig('microsoft', request.providerConfig);
+    const url = new URL(config.endpoint);
+    url.searchParams.set('api-version', '3.0');
+    url.searchParams.set('to', this.mapMicrosoftLanguage(request.targetLang));
+    if (request.sourceLang && request.sourceLang !== 'auto') {
+      url.searchParams.set('from', this.mapMicrosoftLanguage(request.sourceLang));
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Ocp-Apim-Subscription-Key': config.apiKey
+    };
+    if (config.region) {
+      headers['Ocp-Apim-Subscription-Region'] = config.region;
+    }
+
+    const response = await fetch(url.toString(), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify([{ Text: request.text }])
+    });
+    const data = await this.readProviderJson(response, 'Microsoft Translator');
+    const translatedText = data?.[0]?.translations?.[0]?.text;
+    if (typeof translatedText !== 'string') {
+      throw new TranslationProviderError('Microsoft Translator returned an invalid translation response');
+    }
+
+    return {
+      originalText: request.text,
+      translatedText,
+      sourceLang: this.normalizeProviderLanguage(data?.[0]?.detectedLanguage?.language || request.sourceLang || 'auto'),
+      targetLang: request.targetLang,
+      confidence: typeof data?.[0]?.detectedLanguage?.score === 'number'
+        ? data[0].detectedLanguage.score
+        : 0.9,
+      alternatives: []
+    };
+  }
+
+  private async callOpenAICompatibleAPI(request: TranslationRequest): Promise<TranslationResult> {
+    const config = this.getRequiredProviderConfig('openai', request.providerConfig);
+    const sourceLanguage = request.sourceLang && request.sourceLang !== 'auto'
+      ? this.getLanguageLabel(request.sourceLang)
+      : 'the detected source language';
+    const targetLanguage = this.getLanguageLabel(request.targetLang);
+    const response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: config.model,
+        temperature: 0,
+        messages: [
+          {
+            role: 'system',
+            content: `Translate from ${sourceLanguage} to ${targetLanguage}. Return only the translated text without commentary.`
+          },
+          { role: 'user', content: request.text }
+        ]
+      })
+    });
+    const data = await this.readProviderJson(response, 'OpenAI compatible provider');
+    const content = data?.choices?.[0]?.message?.content;
+    const translatedText = typeof content === 'string'
+      ? content.trim()
+      : Array.isArray(content)
+        ? content.map((part: any) => part?.text || '').join('').trim()
+        : '';
+    if (!translatedText) {
+      throw new TranslationProviderError('OpenAI compatible provider returned an invalid translation response');
+    }
+
+    return {
+      originalText: request.text,
+      translatedText,
+      sourceLang: request.sourceLang && request.sourceLang !== 'auto'
+        ? request.sourceLang
+        : await this.detectLanguage(request.text),
+      targetLang: request.targetLang,
+      confidence: 0.9,
+      alternatives: []
+    };
+  }
+
+  private async callGeminiAPI(request: TranslationRequest): Promise<TranslationResult> {
+    const config = this.getRequiredProviderConfig('gemini', request.providerConfig);
+    const sourceLanguage = request.sourceLang && request.sourceLang !== 'auto'
+      ? this.getLanguageLabel(request.sourceLang)
+      : 'the detected source language';
+    const targetLanguage = this.getLanguageLabel(request.targetLang);
+    const endpoint = `${config.endpoint.replace(/\/$/, '')}/${encodeURIComponent(config.model)}:generateContent`;
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': config.apiKey
+      },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{
+            text: `Translate from ${sourceLanguage} to ${targetLanguage}. Return only the translated text without commentary.`
+          }]
+        },
+        contents: [{ role: 'user', parts: [{ text: request.text }] }],
+        generationConfig: { temperature: 0 }
+      })
+    });
+    const data = await this.readProviderJson(response, 'Google Gemini');
+    const translatedText = (data?.candidates?.[0]?.content?.parts || [])
+      .map((part: any) => typeof part?.text === 'string' ? part.text : '')
+      .join('')
+      .trim();
+    if (!translatedText) {
+      throw new TranslationProviderError('Google Gemini returned an invalid translation response');
+    }
+
+    return {
+      originalText: request.text,
+      translatedText,
+      sourceLang: request.sourceLang && request.sourceLang !== 'auto'
+        ? request.sourceLang
+        : await this.detectLanguage(request.text),
+      targetLang: request.targetLang,
+      confidence: 0.9,
+      alternatives: []
+    };
+  }
+
+  private getRequiredProviderConfig(
+    providerId: 'deepl' | 'microsoft' | 'openai' | 'gemini',
+    runtimeConfig?: TranslationProviderRuntimeConfig
+  ): { apiKey: string; endpoint: string; model: string; region: string } {
+    const provider = getTranslationProvider(providerId)!;
+    const apiKey = runtimeConfig?.apiKey?.trim() || '';
+    if (!apiKey) {
+      throw new TranslationProviderError(`${provider.label} API key is not configured`);
+    }
+
+    const endpoint = this.validateProviderEndpoint(
+      runtimeConfig?.endpoint?.trim() || provider.defaultEndpoint || '',
+      provider.label
+    );
+
+    return {
+      apiKey,
+      endpoint,
+      model: runtimeConfig?.model?.trim() || provider.defaultModel || '',
+      region: runtimeConfig?.region?.trim() || ''
+    };
+  }
+
+  private validateProviderEndpoint(endpoint: string, providerLabel: string): string {
+    let url: URL;
+    try {
+      url = new URL(endpoint);
+    } catch (error) {
+      throw new TranslationProviderError(`${providerLabel} endpoint must be HTTPS or a localhost HTTP URL`);
+    }
+
+    const isLocalHttp = url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname);
+    if (url.protocol !== 'https:' && !isLocalHttp) {
+      throw new TranslationProviderError(`${providerLabel} endpoint must be HTTPS or a localhost HTTP URL`);
+    }
+    if (url.username || url.password) {
+      throw new TranslationProviderError(`${providerLabel} endpoint must not contain URL credentials`);
+    }
+    return url.toString();
+  }
+
+  private async readProviderJson(response: Response, providerLabel: string): Promise<any> {
+    if (!response.ok) {
+      throw new TranslationProviderError(`${providerLabel} request failed with HTTP ${response.status}`);
+    }
+
+    try {
+      return await response.json();
+    } catch (error) {
+      throw new TranslationProviderError(`${providerLabel} returned invalid JSON`);
+    }
+  }
+
+  private mapDeepLLanguage(language: string, isTarget: boolean): string {
+    const mappings: Record<string, string> = {
+      'zh-CN': isTarget ? 'ZH-HANS' : 'ZH',
+      'zh-TW': isTarget ? 'ZH-HANT' : 'ZH',
+      en: isTarget ? 'EN-US' : 'EN',
+      pt: isTarget ? 'PT-PT' : 'PT'
+    };
+    return mappings[language] || language.toUpperCase();
+  }
+
+  private mapMicrosoftLanguage(language: string): string {
+    if (language === 'zh-CN') return 'zh-Hans';
+    if (language === 'zh-TW') return 'zh-Hant';
+    return language;
+  }
+
+  private normalizeProviderLanguage(language: string): string {
+    const normalized = language.toLowerCase();
+    if (normalized === 'zh' || normalized === 'zh-hans') return 'zh-CN';
+    if (normalized === 'zh-hant') return 'zh-TW';
+    return normalized;
+  }
+
+  private getLanguageLabel(languageCode: string): string {
+    return TRANSLATION_LANGUAGES.find(language => language.code === languageCode)?.label || languageCode;
+  }
+
   private detectLanguageSync(text: string): string {
     // 同步版本的语言检测，用于API调用中
     const chineseRegex = /[\u4e00-\u9fff]/;
@@ -366,5 +648,12 @@ export class TranslationService {
       expired,
       valid
     };
+  }
+}
+
+class TranslationProviderError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TranslationProviderError';
   }
 }

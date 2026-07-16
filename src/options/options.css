@@ -140,6 +140,74 @@ body {
   transform: scale(1.2);
 }
 
+.provider-config-panel {
+  padding: 16px 0 4px;
+  border-top: 1px solid #dce3ee;
+}
+
+.provider-config-heading,
+.provider-config-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.provider-config-heading h4 {
+  margin: 0;
+  color: #25334a;
+  font-size: 15px;
+}
+
+.provider-config-heading p,
+.provider-config-footer p {
+  min-height: 18px;
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.provider-config-field {
+  display: grid;
+  grid-template-columns: minmax(110px, 180px) minmax(220px, 1fr);
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  color: #555;
+  font-weight: 500;
+}
+
+.provider-config-field input {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #cfd8e6;
+  border-radius: 4px;
+  color: #172033;
+  font: inherit;
+}
+
+.provider-config-footer {
+  margin-top: 14px;
+}
+
+.provider-config-footer p.error {
+  color: #b42318;
+}
+
+@media (max-width: 720px) {
+  .provider-config-heading,
+  .provider-config-footer,
+  .provider-config-field {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .provider-config-heading,
+  .provider-config-footer {
+    flex-direction: column;
+  }
+}
+
 /* 词库网格样式 */
 .dictionary-grid {
   display: grid;

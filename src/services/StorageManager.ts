@@ -1,5 +1,11 @@
 // 存储管理器
 
+import {
+  getTranslationProvider,
+  isAvailableTranslationProvider,
+  TranslationProviderRuntimeConfig
+} from './TranslationProviderRegistry';
+
 export interface UserSettings {
   defaultTargetLanguage: string;
   translationProvider: string;
@@ -13,6 +19,15 @@ export interface UserSettings {
   pageTranslationExcludeSelectors?: string[];
 }
 
+export interface TranslationProviderConfigSummary {
+  providerId: string;
+  configured: boolean;
+  apiKeyHint: string;
+  endpoint: string;
+  model: string;
+  region: string;
+}
+
 export type PageTranslationDisplayMode = 'bilingual' | 'translation-only' | 'original-only';
 
 export interface UserData {
@@ -23,6 +38,7 @@ export interface UserData {
 }
 
 export class StorageManager {
+  private readonly providerConfigStorageKey = 'translationProviderConfigs';
   private defaultSettings: UserSettings = {
     defaultTargetLanguage: 'zh-CN',
     translationProvider: 'google',
@@ -105,6 +121,66 @@ export class StorageManager {
   async getSettings(): Promise<UserSettings> {
     const userData = await this.loadUserData();
     return userData.settings;
+  }
+
+  async getTranslationProviderConfig(providerId: string): Promise<TranslationProviderRuntimeConfig | undefined> {
+    const configs = await this.loadTranslationProviderConfigs();
+    const config = configs[providerId];
+    return config ? { ...config } : undefined;
+  }
+
+  async getTranslationProviderConfigSummaries(): Promise<TranslationProviderConfigSummary[]> {
+    const configs = await this.loadTranslationProviderConfigs();
+
+    return Object.entries(configs).map(([providerId, config]) => ({
+      providerId,
+      configured: Boolean(config.apiKey?.trim()),
+      apiKeyHint: this.maskApiKey(config.apiKey || ''),
+      endpoint: config.endpoint || '',
+      model: config.model || '',
+      region: config.region || ''
+    }));
+  }
+
+  async saveTranslationProviderConfig(
+    providerId: string,
+    config: TranslationProviderRuntimeConfig
+  ): Promise<TranslationProviderConfigSummary> {
+    if (!isAvailableTranslationProvider(providerId)) {
+      throw new Error('Unknown or unavailable translation provider');
+    }
+
+    const provider = getTranslationProvider(providerId)!;
+    const configs = await this.loadTranslationProviderConfigs();
+    const currentConfig = configs[providerId] || {};
+    const apiKey = config.apiKey?.trim() || currentConfig.apiKey?.trim() || '';
+    if (provider.requiresApiKey && !apiKey) {
+      throw new Error(`${provider.label} API key is required`);
+    }
+
+    const savedConfig: TranslationProviderRuntimeConfig = {
+      apiKey,
+      endpoint: config.endpoint?.trim() || currentConfig.endpoint || provider.defaultEndpoint || '',
+      model: config.model?.trim() || currentConfig.model || provider.defaultModel || '',
+      region: config.region?.trim() || currentConfig.region || ''
+    };
+    configs[providerId] = savedConfig;
+    await chrome.storage.local.set({ [this.providerConfigStorageKey]: configs });
+
+    return {
+      providerId,
+      configured: true,
+      apiKeyHint: this.maskApiKey(apiKey),
+      endpoint: savedConfig.endpoint || '',
+      model: savedConfig.model || '',
+      region: savedConfig.region || ''
+    };
+  }
+
+  async removeTranslationProviderConfig(providerId: string): Promise<void> {
+    const configs = await this.loadTranslationProviderConfigs();
+    delete configs[providerId];
+    await chrome.storage.local.set({ [this.providerConfigStorageKey]: configs });
   }
 
   async exportData(): Promise<string> {
@@ -216,6 +292,18 @@ export class StorageManager {
     return isoDateRegex.test(str) && !isNaN(Date.parse(str));
   }
 
+  private async loadTranslationProviderConfigs(): Promise<Record<string, TranslationProviderRuntimeConfig>> {
+    const result = await chrome.storage.local.get(this.providerConfigStorageKey);
+    const configs = result[this.providerConfigStorageKey];
+    return configs && typeof configs === 'object' ? { ...configs } : {};
+  }
+
+  private maskApiKey(apiKey: string): string {
+    if (!apiKey) return '';
+    if (apiKey.length <= 8) return '*'.repeat(Math.max(4, apiKey.length));
+    return `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`;
+  }
+
   async clearAllData(): Promise<void> {
     try {
       await chrome.storage.sync.clear();
@@ -246,9 +334,11 @@ export class StorageManager {
     try {
       // 从本地存储获取数据
       const localData = await chrome.storage.local.get(null);
+      const syncableData = { ...localData };
+      delete syncableData[this.providerConfigStorageKey];
       
       // 同步到云端存储
-      await chrome.storage.sync.set(localData);
+      await chrome.storage.sync.set(syncableData);
       
       console.log('数据同步成功');
     } catch (error) {

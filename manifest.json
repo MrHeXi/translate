@@ -11,7 +11,17 @@
   ],
   "host_permissions": [
     "https://translate.googleapis.com/*",
-    "https://api.mymemory.translated.net/*"
+    "https://api.mymemory.translated.net/*",
+    "https://api-free.deepl.com/*",
+    "https://api.deepl.com/*",
+    "https://api.cognitive.microsofttranslator.com/*",
+    "https://api.openai.com/*",
+    "https://generativelanguage.googleapis.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
   "background": {
     "service_worker": "background.js"

@@ -61,6 +61,93 @@ describe('StorageManager', () => {
 
       expect(mockChromeStorage.sync.set).toHaveBeenCalledWith(testData);
     });
+
+    it('stores provider credentials locally and only returns masked summaries', async () => {
+      mockChromeStorage.local.get.mockResolvedValue({});
+      mockChromeStorage.local.set.mockResolvedValue(undefined);
+
+      const summary = await storageManager.saveTranslationProviderConfig('openai', {
+        apiKey: 'sk-secret-12345678',
+        endpoint: 'https://gateway.example.com/v1/chat/completions',
+        model: 'translation-model'
+      });
+
+      expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
+        translationProviderConfigs: {
+          openai: {
+            apiKey: 'sk-secret-12345678',
+            endpoint: 'https://gateway.example.com/v1/chat/completions',
+            model: 'translation-model',
+            region: ''
+          }
+        }
+      });
+      expect(mockChromeStorage.sync.set).not.toHaveBeenCalled();
+      expect(summary).toEqual({
+        providerId: 'openai',
+        configured: true,
+        apiKeyHint: 'sk-s...5678',
+        endpoint: 'https://gateway.example.com/v1/chat/completions',
+        model: 'translation-model',
+        region: ''
+      });
+      expect(JSON.stringify(summary)).not.toContain('sk-secret-12345678');
+    });
+
+    it('never reveals a complete short API key in its summary', async () => {
+      mockChromeStorage.local.get.mockResolvedValue({});
+      mockChromeStorage.local.set.mockResolvedValue(undefined);
+
+      const summary = await storageManager.saveTranslationProviderConfig('deepl', {
+        apiKey: 'tiny'
+      });
+
+      expect(summary.apiKeyHint).toBe('****');
+      expect(JSON.stringify(summary)).not.toContain('tiny');
+    });
+
+    it('keeps provider credentials out of exported learning data', async () => {
+      mockChromeStorage.sync.get.mockResolvedValue({});
+      mockChromeStorage.local.get.mockImplementation(async (key) => {
+        if (key === null) {
+          return {
+            settings: {
+              defaultTargetLanguage: 'zh-CN',
+              translationProvider: 'openai'
+            },
+            translationProviderConfigs: {
+              openai: { apiKey: 'must-not-be-exported' }
+            }
+          };
+        }
+        return {};
+      });
+
+      const exported = await storageManager.exportData();
+
+      expect(exported).not.toContain('must-not-be-exported');
+      expect(exported).not.toContain('translationProviderConfigs');
+      expect(JSON.parse(exported).data.settings.translationProvider).toBe('openai');
+    });
+
+    it('keeps provider credentials out of Chrome sync', async () => {
+      mockChromeStorage.local.get.mockResolvedValue({
+        settings: { translationProvider: 'openai' },
+        vocabulary: [{ word: 'private' }],
+        translationProviderConfigs: {
+          openai: { apiKey: 'must-stay-local' }
+        }
+      });
+      mockChromeStorage.sync.set.mockResolvedValue(undefined);
+
+      await storageManager.syncData();
+
+      expect(mockChromeStorage.sync.set).toHaveBeenCalledWith({
+        settings: { translationProvider: 'openai' },
+        vocabulary: [{ word: 'private' }]
+      });
+      expect(JSON.stringify(mockChromeStorage.sync.set.mock.calls)).not.toContain('must-stay-local');
+    });
   });
 
   describe('属性测试', () => {

@@ -41,7 +41,8 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 
 - [ ] Link `PRIVACY.md` or hosted equivalent.
 - [ ] Disclose Chrome storage and Chrome sync use.
-- [ ] Disclose Translation provider requests to `translate.googleapis.com` and `api.mymemory.translated.net`.
+- [ ] Disclose requests to Google Translate, MyMemory, DeepL, Microsoft Translator, OpenAI-compatible endpoints, and Gemini.
+- [ ] Disclose that provider API keys stay in local Chrome storage and are excluded from Chrome sync and learning-data exports.
 - [ ] State that there is no default telemetry.
 - [ ] Confirm the listing privacy fields match the policy.
 
@@ -52,6 +53,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] `scripting` is explained by extension script/style refresh behavior.
 - [ ] `tabs` is explained by active-tab messaging.
 - [ ] Host permissions are limited to translation provider endpoints.
+- [ ] Optional custom-endpoint access is requested only for the exact HTTPS or localhost origin entered by the user.
 - [ ] No new permission has been added without a user-facing reason.
 
 ## Manual Smoke Test
@@ -61,6 +63,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Confirm page translation does not start automatically.
 - [ ] Confirm the floating button starts translation and the next click stops it.
 - [ ] Confirm selected text shows a translation tooltip.
+- [ ] Configure each credentialed provider with a test key or mock endpoint, verify masked-key display, and verify Remove credentials.
 - [ ] Confirm Image text stays idle until Start plus a click, drag, or Translate visible images action; confirm Stop cancels the remaining visible-image batch and clears overlays.
 - [ ] Confirm Live captions captures only visible DOM captions after Start, merges incremental updates, retains cues after Stop, exports TXT/SRT/VTT/JSON locally, and clears without recording audio.
 - [ ] Confirm a word can be saved and appears in the vocabulary page.

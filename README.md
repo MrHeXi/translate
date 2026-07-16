@@ -32,7 +32,8 @@ It is not marketed as a full scanned-PDF OCR translator, layout-perfect Office/e
 - Choose page display mode: bilingual, translation only, or original only.
 - Skip configured page areas such as navigation, comments, ads, or `[data-no-translate]` regions during manual page translation.
 - Choose from 100+ target language options in settings.
-- Use Google Translate or MyMemory today, with a 20+ provider roadmap tracked for future engine expansion.
+- Use Google Translate or MyMemory without a key, or configure DeepL, Microsoft Translator, an OpenAI-compatible endpoint, or Google Gemini with your own API credentials.
+- Keep provider API keys in local Chrome storage only; keys are excluded from Chrome sync and learning-data exports.
 
 ### Selection Translation
 
@@ -103,6 +104,7 @@ It is not marketed as a full scanned-PDF OCR translator, layout-perfect Office/e
 - Store settings, vocabulary, review progress, and learning stats in Chrome storage.
 - Use Chrome sync where available.
 - Export and import learning data.
+- Store user-supplied translation provider API keys only in `chrome.storage.local`, with masked summaries in the settings UI.
 - Keep default telemetry off.
 
 ## Install for Local Testing
@@ -146,6 +148,15 @@ The generated test package is `chrome-translation-extension.zip`.
 1. Type text into a supported input, textarea, or editable field.
 2. Press Space three times at the end of the text.
 3. LexiBridge replaces the typed text with the translation.
+
+### Configure a Translation Provider
+
+1. Open the options page and choose DeepL, Microsoft Translator, OpenAI compatible, or Google Gemini.
+2. Enter the provider API key and any provider-specific endpoint, model, or region setting.
+3. Save credentials before saving that provider as the active translation engine.
+4. A custom OpenAI-compatible or DeepL endpoint must use HTTPS, except for HTTP endpoints on localhost. LexiBridge requests access only to that endpoint's origin.
+
+Google Translate and MyMemory remain available without user credentials. Credentialed providers do not silently fall back to another service when authentication or configuration fails.
 
 ### Translate Video Subtitles
 

@@ -32,7 +32,8 @@ Current batch:
 
 - Hover paragraph translation using a modifier-key interaction.
 - Input box translation using a deliberate shortcut.
-- Translation provider registry with Google Translate and MyMemory available.
+- Six working provider integrations: Google Translate, MyMemory, DeepL, Microsoft Translator, OpenAI-compatible endpoints, and Google Gemini.
+- Local-only API credential storage with masked UI summaries and exact-origin permission requests for custom endpoints.
 - 20+ provider definitions and 100+ target language choices for engine/language expansion.
 - Configurable page display modes: bilingual, translation only, and original only.
 - Configurable page translation exclude selectors for areas that should remain original.
@@ -69,9 +70,13 @@ Current batch:
 
 ### Batch C: Translation Engine Expansion
 
-- Add a provider registry for multiple engines.
-- Add provider capability metadata and failure fallback.
-- Keep Google and MyMemory as existing providers.
+- Done: add a provider registry with six working engines and 20+ additional provider definitions.
+- Done: keep Google and MyMemory available without credentials and preserve fallback between those two public services.
+- Done: integrate DeepL, Microsoft Translator, OpenAI-compatible Chat Completions endpoints, and Google Gemini with provider-specific request formats.
+- Done: keep API keys in local storage, return only masked summaries to settings, and exclude keys from Chrome sync and learning-data export.
+- Done: request optional host permission for the exact user-configured HTTPS or localhost endpoint.
+- Done: prevent credentialed translation requests from silently falling back to another provider.
+- Remaining: implement the planned provider definitions and provider-specific language filtering or capability guidance.
 
 ### Batch D: PDF and Document Translation
 

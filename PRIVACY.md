@@ -12,8 +12,11 @@ LexiBridge uses Chrome storage for product functionality:
 - Vocabulary notebook: saved words, translations, examples, dictionary type, mastery level, review count, and review schedule.
 - Learning stats: daily goal, streaks, review accuracy, time spent learning, and dictionary progress.
 - Cached data: built-in dictionary progress and temporary translation cache used to reduce repeated requests during a session.
+- Translation provider credentials: API keys and provider-specific endpoint, model, or region settings entered by the user.
 
 Chrome storage may sync data through the user's browser profile if Chrome sync is enabled. LexiBridge does not run its own account server.
+
+Translation provider API keys are stored separately in `chrome.storage.local`. They are not written to Chrome Sync, learning-data exports, translation cache keys, or extension logs. The settings page receives only a masked key summary and never reads a saved full key back from storage.
 
 ## Translation Provider Requests
 
@@ -25,6 +28,14 @@ Current provider hosts:
 
 - `translate.googleapis.com`
 - `api.mymemory.translated.net`
+- `api-free.deepl.com` and `api.deepl.com`
+- `api.cognitive.microsofttranslator.com`
+- `api.openai.com`
+- `generativelanguage.googleapis.com`
+
+Users may configure a custom HTTPS endpoint for an OpenAI-compatible service or DeepL-compatible deployment, or an HTTP endpoint on localhost for a local service. The extension asks Chrome for optional host access to the exact configured origin when the user saves that endpoint. It does not automatically grant itself access to arbitrary sites.
+
+For providers that require credentials, the API key is sent directly to the selected provider in the provider's authentication header. LexiBridge does not send that key to an application server operated by this project. Credentialed provider failures are returned to the user and are not silently forwarded to Google Translate or MyMemory.
 
 The extension sends the text needed for the requested translation and the selected target language. Uploaded document files are read locally in the browser; the extension sends only the extracted text blocks that the user asks to translate. HTML files are parsed locally so readable body text can be translated without sending scripts, styles, or markup as separate content. JSON files are parsed locally to extract readable string values; LexiBridge does not execute JSON content or rewrite JSON structure. DOCX and EPUB files are read locally as document archives so readable paragraph or spine text can be extracted; LexiBridge does not rewrite the original Office or eBook file. Uploaded subtitle files are parsed locally to keep cue timing for local translated `.srt` or `.vtt` export. For simple text-based PDFs, page and coordinate metadata may be used locally to render layout-aware blocks, but the translation request sends the extracted text. Image text translation extracts text locally from browser OCR when available, SVG text, or image accessibility text, then sends only the extracted text after the user clicks an image, selects a region, or explicitly runs Translate visible images. A visible-image batch considers only eligible graphics intersecting the current viewport and skips hidden, offscreen, tiny, and extension-owned graphics. OCR bounding boxes, when available, are used locally to position image-region overlays and are not sent as a separate data payload. Video subtitle and live caption translation send caption text only after the user turns the feature on. Meeting-style live caption adapters keep speaker labels locally when available, but send only the caption text for translation. While Live captions is enabled, the current tab keeps timestamped original and translated cues in memory so the user can explicitly download TXT, SRT, VTT, or JSON. These cues are not written to Chrome storage and are removed by Clear, page close, or extension cleanup. Video subtitle and live caption transcript exports are local downloads; they do not upload audio or request a speech transcription service. LexiBridge does not record audio, join calls, or transcribe speech for these features. Translation provider handling is governed by the provider's own terms and privacy practices.
 
@@ -49,11 +60,11 @@ LexiBridge requests these permissions:
 - `scripting`: inject or refresh extension scripts and styles when needed.
 - `tabs`: find the active tab and send extension messages.
 
-Host permissions are limited to the translation provider endpoints listed above.
+Required host permissions are limited to the fixed translation provider endpoints listed above. Optional host permission patterns allow a user to approve a specific custom HTTPS or localhost translation endpoint; the settings page requests only that endpoint's origin.
 
 ## Data Export and Deletion
 
-Users can export learning data from the extension. Users can clear vocabulary, reset settings, or remove extension data through Chrome's extension management and site data controls.
+Users can export learning data from the extension. Provider API keys are excluded from that export. Users can remove an individual provider credential in settings, clear vocabulary, reset settings, or remove all extension data through Chrome's extension management and site data controls.
 
 ## Contact
 

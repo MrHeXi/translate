@@ -197,6 +197,18 @@ class BackgroundService {
         case 'updateSettings':
           response = await this.handleUpdateSettingsRequest(request);
           break;
+
+        case 'getTranslationProviderConfigs':
+          response = await this.handleGetTranslationProviderConfigsRequest();
+          break;
+
+        case 'updateTranslationProviderConfig':
+          response = await this.handleUpdateTranslationProviderConfigRequest(request);
+          break;
+
+        case 'removeTranslationProviderConfig':
+          response = await this.handleRemoveTranslationProviderConfigRequest(request);
+          break;
         
         case 'getLearningStats':
           response = await this.handleGetLearningStatsRequest(request);
@@ -468,8 +480,16 @@ class BackgroundService {
       }
 
       // 在线翻译，使用错误处理包装
-      const result = await errorHandler.handleWithRetry(
-        () => this.translationService.translate(request.data),
+      const provider = request.data.provider as string | undefined;
+      const providerConfig = provider
+        ? await this.storageManager.getTranslationProviderConfig(provider)
+        : undefined;
+      const translationRequest = { ...request.data, providerConfig };
+      const translate = () => this.translationService.translate(translationRequest);
+      const result = provider && !['google', 'mymemory'].includes(provider)
+        ? await translate()
+        : await errorHandler.handleWithRetry(
+        translate,
         ErrorType.TRANSLATION_API_ERROR,
         3, // 最多重试3次
         1000, // 1秒延迟
@@ -550,6 +570,28 @@ class BackgroundService {
 
   private async handleUpdateSettingsRequest(request: MessageRequest): Promise<MessageResponse> {
     await this.storageManager.saveSettings(request.data);
+    return { success: true };
+  }
+
+  private async handleGetTranslationProviderConfigsRequest(): Promise<MessageResponse> {
+    const summaries = await this.storageManager.getTranslationProviderConfigSummaries();
+    return { success: true, data: summaries };
+  }
+
+  private async handleUpdateTranslationProviderConfigRequest(request: MessageRequest): Promise<MessageResponse> {
+    const providerId = String(request.data?.providerId || '');
+    const summary = await this.storageManager.saveTranslationProviderConfig(
+      providerId,
+      request.data?.config || {}
+    );
+    this.translationService.clearCache();
+    return { success: true, data: summary };
+  }
+
+  private async handleRemoveTranslationProviderConfigRequest(request: MessageRequest): Promise<MessageResponse> {
+    const providerId = String(request.data?.providerId || '');
+    await this.storageManager.removeTranslationProviderConfig(providerId);
+    this.translationService.clearCache();
     return { success: true };
   }
 

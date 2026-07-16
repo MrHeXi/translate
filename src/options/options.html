@@ -46,6 +46,41 @@
             </select>
           </div>
 
+          <div id="providerConfigPanel" class="provider-config-panel" hidden>
+            <div class="provider-config-heading">
+              <div>
+                <h4 id="providerConfigTitle">Provider credentials</h4>
+                <p id="providerConfigStatus">Not configured</p>
+              </div>
+              <button id="removeProviderConfig" class="secondary-btn" type="button" disabled>Remove credentials</button>
+            </div>
+
+            <label id="providerApiKeyField" class="provider-config-field">
+              API key
+              <input id="providerApiKey" type="password" autocomplete="off" spellcheck="false" placeholder="Enter API key">
+            </label>
+
+            <label id="providerEndpointField" class="provider-config-field">
+              Endpoint
+              <input id="providerEndpoint" type="url" spellcheck="false">
+            </label>
+
+            <label id="providerModelField" class="provider-config-field">
+              Model
+              <input id="providerModel" type="text" spellcheck="false">
+            </label>
+
+            <label id="providerRegionField" class="provider-config-field">
+              Region
+              <input id="providerRegion" type="text" spellcheck="false" placeholder="For example: eastus">
+            </label>
+
+            <div class="provider-config-footer">
+              <p id="providerConfigMessage" role="status"></p>
+              <button id="saveProviderConfig" class="primary-btn" type="button">Save credentials</button>
+            </div>
+          </div>
+
           <div class="setting-item">
             <label for="pageTranslationDisplayMode">Page translation display:</label>
             <select id="pageTranslationDisplayMode">

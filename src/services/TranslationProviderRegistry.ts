@@ -1,4 +1,12 @@
 export type TranslationProviderStatus = 'available' | 'planned';
+export type TranslationProviderConfigField = 'apiKey' | 'endpoint' | 'model' | 'region';
+
+export interface TranslationProviderRuntimeConfig {
+  apiKey?: string;
+  endpoint?: string;
+  model?: string;
+  region?: string;
+}
 
 export interface TranslationProviderDefinition {
   id: string;
@@ -6,6 +14,9 @@ export interface TranslationProviderDefinition {
   status: TranslationProviderStatus;
   requiresApiKey: boolean;
   supportsAutoDetect: boolean;
+  configFields?: TranslationProviderConfigField[];
+  defaultEndpoint?: string;
+  defaultModel?: string;
 }
 
 export interface TranslationLanguageDefinition {
@@ -16,10 +27,44 @@ export interface TranslationLanguageDefinition {
 export const TRANSLATION_PROVIDERS: TranslationProviderDefinition[] = [
   { id: 'google', label: 'Google Translate', status: 'available', requiresApiKey: false, supportsAutoDetect: true },
   { id: 'mymemory', label: 'MyMemory', status: 'available', requiresApiKey: false, supportsAutoDetect: true },
-  { id: 'deepl', label: 'DeepL', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
-  { id: 'microsoft', label: 'Microsoft Translator', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
-  { id: 'openai', label: 'OpenAI', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
-  { id: 'gemini', label: 'Google Gemini', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
+  {
+    id: 'deepl',
+    label: 'DeepL',
+    status: 'available',
+    requiresApiKey: true,
+    supportsAutoDetect: true,
+    configFields: ['apiKey', 'endpoint'],
+    defaultEndpoint: 'https://api-free.deepl.com/v2/translate'
+  },
+  {
+    id: 'microsoft',
+    label: 'Microsoft Translator',
+    status: 'available',
+    requiresApiKey: true,
+    supportsAutoDetect: true,
+    configFields: ['apiKey', 'region'],
+    defaultEndpoint: 'https://api.cognitive.microsofttranslator.com/translate'
+  },
+  {
+    id: 'openai',
+    label: 'OpenAI compatible',
+    status: 'available',
+    requiresApiKey: true,
+    supportsAutoDetect: true,
+    configFields: ['apiKey', 'endpoint', 'model'],
+    defaultEndpoint: 'https://api.openai.com/v1/chat/completions',
+    defaultModel: 'gpt-4o-mini'
+  },
+  {
+    id: 'gemini',
+    label: 'Google Gemini',
+    status: 'available',
+    requiresApiKey: true,
+    supportsAutoDetect: true,
+    configFields: ['apiKey', 'model'],
+    defaultEndpoint: 'https://generativelanguage.googleapis.com/v1beta/models',
+    defaultModel: 'gemini-2.5-flash'
+  },
   { id: 'libretranslate', label: 'LibreTranslate', status: 'planned', requiresApiKey: false, supportsAutoDetect: true },
   { id: 'yandex', label: 'Yandex Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
   { id: 'papago', label: 'Naver Papago', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },

@@ -18,7 +18,17 @@ describe('product packaging contract', () => {
     expect(manifest.permissions).toEqual(['storage', 'activeTab', 'scripting', 'tabs']);
     expect(manifest.host_permissions).toEqual([
       'https://translate.googleapis.com/*',
-      'https://api.mymemory.translated.net/*'
+      'https://api.mymemory.translated.net/*',
+      'https://api-free.deepl.com/*',
+      'https://api.deepl.com/*',
+      'https://api.cognitive.microsofttranslator.com/*',
+      'https://api.openai.com/*',
+      'https://generativelanguage.googleapis.com/*'
+    ]);
+    expect(manifest.optional_host_permissions).toEqual([
+      'https://*/*',
+      'http://localhost/*',
+      'http://127.0.0.1/*'
     ]);
     expect(JSON.stringify(manifest)).not.toMatch(/[�]|缈|鎻|馃/);
     expect(JSON.stringify(manifest)).not.toMatch(/pdf|video|ocr|meeting/i);
@@ -74,7 +84,8 @@ describe('product packaging contract', () => {
     expect(readme).toContain('separate translation overlays for detected OCR text blocks');
     expect(readme).toContain('without recording audio');
     expect(readme).toContain('100+ target language options');
-    expect(readme).toContain('20+ provider roadmap');
+    expect(readme).toContain('configure DeepL, Microsoft Translator, an OpenAI-compatible endpoint, or Google Gemini');
+    expect(readme).toContain('API keys in local Chrome storage only');
     expect(readme).toContain('CET4, CET6, GRE, IELTS, TOEFL');
     expect(readme).not.toMatch(/automatic audio transcription|records calls|joins calls automatically/i);
     expect(readme).toContain('not marketed as a full scanned-PDF OCR translator');
@@ -85,6 +96,12 @@ describe('product packaging contract', () => {
     expect(privacy).toContain('Translation provider requests');
     expect(privacy).toContain('translate.googleapis.com');
     expect(privacy).toContain('api.mymemory.translated.net');
+    expect(privacy).toContain('api-free.deepl.com');
+    expect(privacy).toContain('api.cognitive.microsofttranslator.com');
+    expect(privacy).toContain('api.openai.com');
+    expect(privacy).toContain('generativelanguage.googleapis.com');
+    expect(privacy).toContain('not written to Chrome Sync');
+    expect(privacy).toContain('exact configured origin');
 
     const checklist = readProjectFile('RELEASE_CHECKLIST.md');
     expect(checklist).toContain('Chrome Web Store');
@@ -131,7 +148,8 @@ describe('product packaging contract', () => {
     expect(listing).toContain('does not record audio');
     expect(listing).toContain('does not record audio, join calls, or transcribe speech');
     expect(listing).toContain('100+ target language choices');
-    expect(listing).toContain('20+ provider definitions');
+    expect(listing).toContain('DeepL, Microsoft Translator, OpenAI-compatible endpoints, and Google Gemini');
+    expect(listing).toContain('Provider API keys stay in local Chrome storage');
     expect(listing).toContain('Vocabulary notebook');
     expect(listing).toContain('CET4');
     expect(listing).toContain('CET6');
@@ -152,7 +170,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-08');
-    expect(releaseNotes).toContain('36 test suites and 249 tests');
+    expect(releaseNotes).toContain('37 test suites and 263 tests');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
