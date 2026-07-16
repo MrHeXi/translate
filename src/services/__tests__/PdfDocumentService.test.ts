@@ -86,6 +86,35 @@ describe('PdfDocumentService', () => {
     }
   });
 
+  it('detects columns and formulas in a generated PDF through the bundled PDF.js engine', async () => {
+    const source = await PDFDocument.create();
+    const font = await source.embedFont(StandardFonts.Helvetica);
+    const page = source.addPage([600, 800]);
+    page.drawText('Two column research paper', { x: 50, y: 760, size: 16, font });
+    page.drawText('Left paragraph one', { x: 50, y: 720, size: 12, font });
+    page.drawText('Right paragraph one', { x: 330, y: 720, size: 12, font });
+    page.drawText('Left paragraph two', { x: 50, y: 700, size: 12, font });
+    page.drawText('Right paragraph two', { x: 330, y: 700, size: 12, font });
+    page.drawText('E = mc^2', { x: 80, y: 660, size: 12, font });
+    const bytes = new Uint8Array(await source.save());
+    const session = await new PdfDocumentService().open(bytes);
+
+    try {
+      const analysis = await session.analyze();
+      const text = analysis.blocks.map(block => block.originalText);
+      expect(text.indexOf('Left paragraph two')).toBeLessThan(text.indexOf('Right paragraph one'));
+      expect(analysis.blocks.find(block => block.originalText === 'E = mc^2')?.layout).toEqual(
+        expect.objectContaining({ contentKind: 'formula', columnIndex: 1, columnCount: 2 })
+      );
+      expect(analysis.pages[0]).toEqual(expect.objectContaining({
+        columnCount: 2,
+        formulaBlockCount: 1
+      }));
+    } finally {
+      await session.destroy();
+    }
+  });
+
   it('extracts real PDF text items into positioned page lines', async () => {
     const { engine, destroy } = createEngine([
       {
@@ -118,14 +147,71 @@ describe('PdfDocumentService', () => {
         width: 600,
         height: 800,
         blockCount: 2,
+        formulaBlockCount: 0,
+        columnCount: 1,
         source: 'text'
       }
     ]);
     expect(analysis.ocrPageCount).toBe(0);
     expect(analysis.unreadablePageCount).toBe(0);
+    expect(analysis.formulaBlockCount).toBe(0);
+    expect(analysis.multiColumnPageCount).toBe(0);
 
     await session.destroy();
     expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps two-column reading order, separates same-height columns, and marks formulas', async () => {
+    const { engine } = createEngine([
+      {
+        items: [
+          { str: 'Research heading', transform: [1, 0, 0, 16, 50, 760], width: 500, height: 16, hasEOL: true },
+          { str: 'Left line one', transform: [1, 0, 0, 12, 50, 720], width: 180, height: 12, hasEOL: true },
+          { str: 'Right line one', transform: [1, 0, 0, 12, 330, 720], width: 180, height: 12, hasEOL: true },
+          { str: 'Left line two', transform: [1, 0, 0, 12, 50, 700], width: 180, height: 12, hasEOL: true },
+          { str: 'Right line two', transform: [1, 0, 0, 12, 330, 700], width: 180, height: 12, hasEOL: true },
+          { str: 'E = mc²', transform: [1, 0, 0, 12, 80, 660], width: 90, height: 12, hasEOL: true },
+          { str: 'The result is approximately ≥ 5.', transform: [1, 0, 0, 12, 50, 640], width: 200, height: 12, hasEOL: true }
+        ]
+      }
+    ]);
+    const service = new PdfDocumentService(engine, () => null);
+    const session = await service.open(new Uint8Array([1, 2, 3]));
+    const analysis = await session.analyze();
+
+    expect(analysis.blocks.map(block => block.originalText)).toEqual([
+      'Research heading',
+      'Left line one',
+      'Left line two',
+      'E = mc²',
+      'The result is approximately ≥ 5.',
+      'Right line one',
+      'Right line two'
+    ]);
+    expect(analysis.blocks[1]?.layout).toEqual(expect.objectContaining({
+      readingOrder: 1,
+      columnIndex: 1,
+      columnCount: 2,
+      contentKind: 'prose'
+    }));
+    expect(analysis.blocks[5]?.layout).toEqual(expect.objectContaining({
+      columnIndex: 2,
+      columnCount: 2
+    }));
+    expect(analysis.blocks[3]?.layout).toEqual(expect.objectContaining({
+      contentKind: 'formula',
+      columnIndex: 1
+    }));
+    expect(analysis.blocks[4]?.layout?.contentKind).toBe('prose');
+    const leftRegion = analysis.blocks[1]!.layout!;
+    expect((leftRegion.regionX || 0) + (leftRegion.regionWidth || 0)).toBeLessThan(330);
+    expect(analysis.pages[0]).toEqual(expect.objectContaining({
+      blockCount: 7,
+      formulaBlockCount: 1,
+      columnCount: 2
+    }));
+    expect(analysis.formulaBlockCount).toBe(1);
+    expect(analysis.multiColumnPageCount).toBe(1);
   });
 
   it('uses browser OCR for image-only PDF pages and keeps bounding boxes', async () => {
@@ -263,6 +349,48 @@ describe('PdfDocumentService', () => {
       );
       const drawnY = (context.fillText as jest.Mock).mock.calls[0]?.[2] as number;
       expect(drawnY).toBeLessThan(analysis.blocks[0]!.layout!.y * 1.6);
+    } finally {
+      contextSpy.mockRestore();
+      dataUrlSpy.mockRestore();
+    }
+  });
+
+  it('leaves detected formulas untouched in flattened PDF export', async () => {
+    const { engine } = createEngine([
+      {
+        items: [
+          { str: 'E = mc²', transform: [1, 0, 0, 12, 72, 720], width: 70, height: 12, hasEOL: true }
+        ]
+      }
+    ]);
+    const context = {
+      save: jest.fn(),
+      restore: jest.fn(),
+      fillRect: jest.fn(),
+      fillText: jest.fn(),
+      measureText: jest.fn((text: string) => ({ width: text.length * 6 })),
+      fillStyle: '',
+      font: '',
+      textBaseline: 'top'
+    } as unknown as CanvasRenderingContext2D;
+    const contextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(context);
+    const dataUrlSpy = jest.spyOn(HTMLCanvasElement.prototype, 'toDataURL')
+      .mockReturnValue(
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII='
+      );
+
+    try {
+      const service = new PdfDocumentService(engine, () => null);
+      const session = await service.open(new Uint8Array([8, 9]));
+      const analysis = await session.analyze();
+      await session.exportTranslatedPdf([
+        { block: analysis.blocks[0]!, translatedText: 'Do not paint over this formula' }
+      ]);
+
+      expect(analysis.blocks[0]?.layout?.contentKind).toBe('formula');
+      expect(context.fillRect).not.toHaveBeenCalled();
+      expect(context.fillText).not.toHaveBeenCalled();
     } finally {
       contextSpy.mockRestore();
       dataUrlSpy.mockRestore();

@@ -73,11 +73,13 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Export translated EPUB files by writing translated readable blocks back into the original book archive.
 - Export translated `.srt` and `.vtt` subtitle files with their original timing preserved.
 - Parse and render PDF pages locally with Mozilla PDF.js, including compressed text streams, font mappings, page sizes, and positioned text lines.
+- Detect confidently separated two-column PDF text, keep left-column-then-right-column reading order, and constrain translated overlays to the detected column region.
+- Identify likely standalone mathematical expressions, preserve them in their original form, and exclude them from translation-provider requests and translated overlays.
 - Show original and translated PDF pages side by side, or switch to translation-only or original-only display.
 - Attempt local OCR on image-only PDF pages with browser `TextDetector` first and bundled Tesseract fallback, retaining detected bounding boxes for positioned translations.
 - Choose bundled OCR recognition for English, Simplified Chinese, Traditional Chinese, Japanese, or Korean and see per-page recognition progress.
 - Export translated PDF pages locally as a flattened visual PDF so browser fonts and the rendered source page remain visible.
-- OCR quality still depends on scan resolution, contrast, orientation, language choice, and page complexity. Editable text reflow, form/annotation editing, and layout-perfect Office/eBook conversion remain later work.
+- OCR quality still depends on scan resolution, contrast, orientation, language choice, and page complexity. Formula and column detection are conservative heuristics; editable text reflow, complex table fitting, form/annotation editing, and layout-perfect Office/eBook conversion remain later work.
 
 ### Video Subtitle Translation
 

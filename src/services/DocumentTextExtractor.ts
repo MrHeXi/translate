@@ -16,6 +16,12 @@ export interface DocumentBlockLayout {
   height: number;
   pageWidth?: number;
   pageHeight?: number;
+  contentKind?: 'prose' | 'formula';
+  readingOrder?: number;
+  columnIndex?: number;
+  columnCount?: number;
+  regionX?: number;
+  regionWidth?: number;
   source: 'pdf-text' | 'pdf-ocr' | 'plain-text' | 'subtitle' | 'html' | 'json';
 }
 

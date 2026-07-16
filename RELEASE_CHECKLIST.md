@@ -72,6 +72,8 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Confirm exact and wildcard site rules override display/scope/style/exclusions, and a blocked site remains untranslated after a manual Start click.
 - [ ] Confirm Main content excludes navigation/footer text on a representative article and Whole page includes it only after manual Start.
 - [ ] Load a standards-compliant PDF, confirm original and translated page previews render, switch all three display modes, and export a flattened translated PDF.
+- [ ] Load a representative two-column academic PDF; confirm blocks are ordered down the left column before the right and translated overlays do not cross the inferred gutter.
+- [ ] Load a PDF with standalone equations; confirm likely formulas are labeled as preserved, send no translation request, remain visible in preview, and are not painted over in exported pages.
 - [ ] Confirm an image-only PDF tries local browser OCR first, falls back to bundled Tesseract OCR, reports per-page progress, and reports pages without detected text.
 - [ ] Confirm English, Simplified Chinese, Traditional Chinese, Japanese, and Korean OCR choices persist and are shared by PDF and image translation.
 - [ ] Confirm `dist/ocr` includes the worker, SIMD/non-SIMD LSTM core files, five compressed language models, and license files.

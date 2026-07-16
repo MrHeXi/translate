@@ -100,6 +100,8 @@ describe('product packaging contract', () => {
     expect(readme).toContain('Export translated EPUB files');
     expect(readme).toContain('Export translated `.srt` and `.vtt` subtitle files');
     expect(readme).toContain('Parse and render PDF pages locally with Mozilla PDF.js');
+    expect(readme).toContain('left-column-then-right-column reading order');
+    expect(readme).toContain('exclude them from translation-provider requests');
     expect(readme).toContain('Export translated PDF pages locally as a flattened visual PDF');
     expect(readme).toContain('Attempt local OCR on image-only PDF pages');
     expect(readme).toContain('bundled Tesseract fallback');
@@ -139,6 +141,8 @@ describe('product packaging contract', () => {
     expect(privacy).toContain('do not trigger translation on page load');
     expect(privacy).toContain('Main-content detection runs locally');
     expect(privacy).toContain('bundled Tesseract worker');
+    expect(privacy).toContain('inferred column regions');
+    expect(privacy).toContain('excluded from translation-provider requests');
     expect(privacy).toContain('do not contact an OCR server');
     expect(privacy).toContain('local OCR worker is terminated');
     expect(privacy).toContain('Neighboring page or document context is disabled by default');
@@ -180,6 +184,8 @@ describe('product packaging contract', () => {
     expect(listing).toContain('subtitle files with timing-preserving export');
     expect(listing).toContain('skipping scripts, styles, and markup');
     expect(listing).toContain('local PDF.js rendering');
+    expect(listing).toContain('two-column reading order');
+    expect(listing).toContain('standalone-formula preservation');
     expect(listing).toContain('flattened translated-PDF export');
     expect(listing).toContain('Video subtitle translation');
     expect(listing).toContain('common DOM-rendered captions');
@@ -221,9 +227,9 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('45 test suites and 320 tests');
-    expect(releaseNotes).toContain('17,699,552');
-    expect(releaseNotes).toContain('C1FC09B7949807BE36AC18E6B6D6DFDDF428529DC772A14743562BBBB728595F');
+    expect(releaseNotes).toContain('45 test suites and 323 tests');
+    expect(releaseNotes).toContain('17,701,388');
+    expect(releaseNotes).toContain('B0E2C294D007892B58105CE883288D3D14B4264AC09F92599A46C9E0B3FB2446');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -246,6 +252,8 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('Export subtitles');
     expect(screenshotGuide).toContain('Export PDF');
     expect(screenshotGuide).toContain('original and translated rendered pages');
+    expect(screenshotGuide).toContain('left/right column boundaries');
+    expect(screenshotGuide).toContain('preserved standalone formula');
     expect(screenshotGuide).toContain('Video Subtitles');
     expect(screenshotGuide).toContain('Export SRT');
     expect(screenshotGuide).toContain('Live Captions');
@@ -283,6 +291,8 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('EPUB translated block export');
     expect(roadmap).toContain('Timing-preserving subtitle file export');
     expect(roadmap).toContain('bundled Mozilla PDF.js');
+    expect(roadmap).toContain('order left-column text before right-column text');
+    expect(roadmap).toContain('identify likely standalone formulas locally');
     expect(roadmap).toContain('flattened visual PDF');
     expect(roadmap).toContain('browser `TextDetector`');
     expect(roadmap).toContain('bundled Tesseract worker');

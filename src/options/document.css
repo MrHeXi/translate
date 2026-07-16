@@ -291,6 +291,16 @@ select {
   border-left: 4px solid #246bfe;
 }
 
+.document-result-block--formula {
+  border-left-color: #5b7c5b;
+  background: #f7faf7;
+}
+
+.document-result-block--formula .document-original,
+.document-result-block--formula .document-translation {
+  font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif;
+}
+
 .block-index {
   margin-bottom: 8px;
   color: #617089;

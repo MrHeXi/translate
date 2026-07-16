@@ -21,6 +21,8 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - AI-assisted side-panel polish, rewrite, drafting, reply, and summary actions with configured-AI-provider enforcement, output-language, tone, length, optional-instruction, and iterative-use controls.
 - Side-panel initialization and mode switching load or update local controls only and never send a provider request until the user submits text.
 - Document translator for pasted text, text files, HTML, JSON, DOCX, EPUB, subtitle files, and PDFs, with bundled PDF.js page rendering, positioned text extraction, browser-plus-bundled offline OCR for image-only pages, side-by-side original/translated previews, and flattened translated-PDF export.
+- Conservative two-column PDF detection with left-column-then-right-column reading order and translated overlays constrained to inferred column regions.
+- Local standalone-formula detection that preserves likely mathematical expressions without sending them to translation providers or painting over them in translated previews and PDF exports.
 - Video subtitle translation for pages that expose caption/subtitle text tracks or common DOM-rendered caption containers.
 - SRT export for translated video subtitle cues from the current session.
 - Live caption translation for caption text already visible in the page DOM, with Google Meet, Zoom, Microsoft Teams, and Webex-style speaker label handling.
@@ -45,7 +47,7 @@ Verified on 2026-07-17:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 45 test suites and 320 tests.
+- `jest --runInBand --silent`: passed, 45 test suites and 323 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 
@@ -60,7 +62,7 @@ Expected build warnings:
 
 - Unpacked extension folder: `dist`
 - Test package: `chrome-translation-extension.zip`
-- ZIP size: `17,699,552` bytes
-- SHA-256: `C1FC09B7949807BE36AC18E6B6D6DFDDF428529DC772A14743562BBBB728595F`
+- ZIP size: `17,701,388` bytes
+- SHA-256: `B0E2C294D007892B58105CE883288D3D14B4264AC09F92599A46C9E0B3FB2446`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

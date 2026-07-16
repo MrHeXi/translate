@@ -21,6 +21,7 @@ type DisplayMode = 'bilingual' | 'translation-only' | 'original-only';
 interface TranslationResult {
   block: DocumentBlock;
   translatedText: string;
+  preservedOriginal?: boolean;
 }
 
 interface UserSettings {
@@ -299,11 +300,19 @@ class DocumentTranslatorController {
     try {
       for (let blockIndex = 0; blockIndex < blocks.length; blockIndex++) {
         const block = blocks[blockIndex]!;
-        const translatedText = await this.translateBlock(
-          block.originalText,
-          this.createDocumentContext(blocks, blockIndex)
-        );
-        results.push({ block, translatedText });
+        if (block.layout?.contentKind === 'formula') {
+          results.push({
+            block,
+            translatedText: block.originalText,
+            preservedOriginal: true
+          });
+        } else {
+          const translatedText = await this.translateBlock(
+            block.originalText,
+            this.createDocumentContext(blocks, blockIndex)
+          );
+          results.push({ block, translatedText });
+        }
         this.currentResults = results;
         this.renderResults(results);
         this.renderPdfTranslationOverlays();
@@ -311,7 +320,13 @@ class DocumentTranslatorController {
         this.updateProgress(results.length, blocks.length);
       }
 
-      this.showMessage(`Translated ${results.length} blocks`);
+      const preservedFormulaCount = results.filter(result => result.preservedOriginal).length;
+      const translatedBlockCount = results.length - preservedFormulaCount;
+      this.showMessage(
+        preservedFormulaCount > 0
+          ? `Translated ${translatedBlockCount} blocks and preserved ${preservedFormulaCount} formulas`
+          : `Translated ${translatedBlockCount} blocks`
+      );
     } catch (error) {
       this.showMessage(error instanceof Error ? error.message : 'Document translation failed.', 'error');
     } finally {
@@ -365,6 +380,9 @@ class DocumentTranslatorController {
       if (result.block.layout) {
         block.classList.add('document-result-block--layout');
         block.dataset['page'] = String(result.block.layout.pageNumber);
+      }
+      if (result.preservedOriginal) {
+        block.classList.add('document-result-block--formula');
       }
 
       const index = document.createElement('div');
@@ -455,7 +473,11 @@ class DocumentTranslatorController {
   }
 
   private async exportTranslatedPdf(): Promise<void> {
-    const pdfResults = this.currentResults.filter(result => result.block.layout && result.translatedText.trim());
+    const pdfResults = this.currentResults.filter(result => (
+      result.block.layout
+      && result.block.layout.contentKind !== 'formula'
+      && result.translatedText.trim()
+    ));
     if (!this.pdfSession || pdfResults.length === 0) {
       this.showMessage('Translate a PDF before exporting.', 'error');
       return;
@@ -627,6 +649,7 @@ class DocumentTranslatorController {
       view.translationLayer.replaceChildren();
       const pageResults = this.currentResults.filter(result => (
         result.block.layout?.pageNumber === view.summary.pageNumber
+        && result.block.layout.contentKind !== 'formula'
         && result.translatedText.trim()
       ));
 
@@ -637,7 +660,19 @@ class DocumentTranslatorController {
         const left = Math.max(0, Math.min(99, (layout.x / pageWidth) * 100));
         const top = Math.max(0, Math.min(99, (layout.y / pageHeight) * 100));
         const sourceWidth = Math.max(4, (layout.width / pageWidth) * 100);
-        const width = Math.min(100 - left, Math.max(sourceWidth, Math.min(52, 100 - left)));
+        const regionRight = Math.min(
+          pageWidth,
+          (layout.regionX ?? 0) + (layout.regionWidth ?? pageWidth)
+        );
+        const isColumnLayout = (layout.columnCount || 1) > 1;
+        const regionAvailableWidth = Math.max(1, ((regionRight - layout.x) / pageWidth) * 100);
+        const availableWidth = isColumnLayout
+          ? regionAvailableWidth
+          : Math.max(sourceWidth, regionAvailableWidth);
+        const preferredWidth = isColumnLayout
+          ? availableWidth
+          : Math.max(sourceWidth, Math.min(52, 100 - left));
+        const width = Math.min(100 - left, availableWidth, preferredWidth);
         const minimumHeight = Math.max(1.4, (layout.height / pageHeight) * 100);
         const overlay = document.createElement('div');
         overlay.className = 'pdf-translation-overlay';
@@ -740,6 +775,16 @@ class DocumentTranslatorController {
       `${analysis.pages.length} page${analysis.pages.length === 1 ? '' : 's'}`,
       `${analysis.blocks.length} positioned block${analysis.blocks.length === 1 ? '' : 's'}`
     ];
+    if (analysis.formulaBlockCount > 0) {
+      parts.push(
+        `${analysis.formulaBlockCount} preserved formula${analysis.formulaBlockCount === 1 ? '' : 's'}`
+      );
+    }
+    if (analysis.multiColumnPageCount > 0) {
+      parts.push(
+        `${analysis.multiColumnPageCount} multi-column page${analysis.multiColumnPageCount === 1 ? '' : 's'}`
+      );
+    }
     const bundledOcrPageCount = analysis.bundledOcrPageCount || 0;
     const browserOcrPageCount = Math.max(0, analysis.ocrPageCount - bundledOcrPageCount);
     if (browserOcrPageCount > 0) {
@@ -804,6 +849,18 @@ class DocumentTranslatorController {
       translation.style.borderTop = mode === 'translation-only' ? 'none' : '1px solid #e5ebf4';
     });
 
+    document.querySelectorAll<HTMLElement>('.document-result-block--formula').forEach(block => {
+      const original = block.querySelector<HTMLElement>('.document-original');
+      const preserved = block.querySelector<HTMLElement>('.document-translation');
+      if (original) original.style.display = mode === 'translation-only' ? 'none' : 'block';
+      if (preserved) {
+        preserved.style.display = mode === 'translation-only' ? 'block' : 'none';
+        preserved.style.marginTop = '0';
+        preserved.style.paddingTop = '0';
+        preserved.style.borderTop = 'none';
+      }
+    });
+
     this.applyPdfDisplayMode();
   }
 
@@ -821,6 +878,8 @@ class DocumentTranslatorController {
     return [
       `Page ${block.layout.pageNumber}`,
       `Block ${block.id}`,
+      ...(block.layout.contentKind === 'formula' ? ['Formula'] : []),
+      ...((block.layout.columnCount || 1) > 1 ? [`Column ${block.layout.columnIndex}`] : []),
       `x ${block.layout.x}`,
       `y ${block.layout.y}`
     ].join(' · ');
@@ -892,7 +951,11 @@ class DocumentTranslatorController {
   private updatePdfExportButton(isBusy: boolean = false): void {
     if (!this.exportPdfButton) return;
 
-    const hasTranslatedPdf = this.currentResults.some(result => result.block.layout && result.translatedText.trim());
+    const hasTranslatedPdf = this.currentResults.some(result => (
+      result.block.layout
+      && result.block.layout.contentKind !== 'formula'
+      && result.translatedText.trim()
+    ));
     this.exportPdfButton.disabled = isBusy || !this.pdfSession || !hasTranslatedPdf;
   }
 

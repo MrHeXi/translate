@@ -81,6 +81,8 @@ export interface PdfPageSummary {
   width: number;
   height: number;
   blockCount: number;
+  formulaBlockCount: number;
+  columnCount: number;
   source: 'text' | 'ocr' | 'none';
   ocrEngine?: 'browser' | 'tesseract';
 }
@@ -91,6 +93,8 @@ export interface PdfDocumentAnalysis {
   ocrPageCount: number;
   bundledOcrPageCount: number;
   unreadablePageCount: number;
+  formulaBlockCount: number;
+  multiColumnPageCount: number;
 }
 
 export interface PdfTranslationResult {
@@ -115,6 +119,20 @@ interface PdfTextFragment {
 }
 
 interface PdfTextLine extends PdfTextFragment {}
+
+interface PdfAnalyzedLine extends PdfTextLine {
+  contentKind: 'prose' | 'formula';
+  readingOrder: number;
+  columnIndex: number;
+  columnCount: number;
+  regionX: number;
+  regionWidth: number;
+}
+
+interface PdfLineAnalysis {
+  lines: PdfAnalyzedLine[];
+  columnCount: number;
+}
 
 const DEFAULT_PREVIEW_SCALE = 1.35;
 const OCR_SCALE = 2;
@@ -266,6 +284,8 @@ export class PdfDocumentSession {
     let ocrPageCount = 0;
     let bundledOcrPageCount = 0;
     let unreadablePageCount = 0;
+    let formulaBlockCount = 0;
+    let multiColumnPageCount = 0;
 
     try {
       for (let pageNumber = 1; pageNumber <= this.pdfDocument.numPages; pageNumber++) {
@@ -292,6 +312,16 @@ export class PdfDocumentSession {
           unreadablePageCount++;
         }
 
+        const pageFormulaBlockCount = pageBlocks.filter(
+          block => block.layout?.contentKind === 'formula'
+        ).length;
+        const pageColumnCount = pageBlocks.reduce(
+          (maximum, block) => Math.max(maximum, block.layout?.columnCount || 1),
+          1
+        );
+        formulaBlockCount += pageFormulaBlockCount;
+        if (pageColumnCount > 1) multiColumnPageCount++;
+
         for (const block of pageBlocks) {
           block.id = blocks.length + 1;
           blocks.push(block);
@@ -302,6 +332,8 @@ export class PdfDocumentSession {
           width: viewport.width,
           height: viewport.height,
           blockCount: pageBlocks.length,
+          formulaBlockCount: pageFormulaBlockCount,
+          columnCount: pageColumnCount,
           source,
           ...(ocrEngine ? { ocrEngine } : {})
         });
@@ -310,7 +342,15 @@ export class PdfDocumentSession {
       await this.ocrDetector?.dispose?.();
     }
 
-    return { blocks, pages, ocrPageCount, bundledOcrPageCount, unreadablePageCount };
+    return {
+      blocks,
+      pages,
+      ocrPageCount,
+      bundledOcrPageCount,
+      unreadablePageCount,
+      formulaBlockCount,
+      multiColumnPageCount
+    };
   }
 
   private createTextBlocks(
@@ -322,9 +362,12 @@ export class PdfDocumentSession {
       .filter((item): item is PdfTextItemLike => 'str' in item && Boolean(item.str.trim()))
       .map(item => this.createTextFragment(item, viewport))
       .filter((fragment): fragment is PdfTextFragment => Boolean(fragment));
-    const lines = this.groupFragmentsIntoLines(fragments);
+    const lineAnalysis = this.analyzePageLines(
+      this.groupFragmentsIntoLines(fragments, viewport.width),
+      viewport.width
+    );
 
-    return lines.map((line, index) => ({
+    return lineAnalysis.lines.map((line, index) => ({
       id: index + 1,
       originalText: line.text,
       layout: this.createLayout(
@@ -334,7 +377,8 @@ export class PdfDocumentSession {
         line.width,
         line.height,
         viewport,
-        'pdf-text'
+        'pdf-text',
+        line
       )
     }));
   }
@@ -361,7 +405,7 @@ export class PdfDocumentSession {
     };
   }
 
-  private groupFragmentsIntoLines(fragments: PdfTextFragment[]): PdfTextLine[] {
+  private groupFragmentsIntoLines(fragments: PdfTextFragment[], pageWidth: number): PdfTextLine[] {
     const sorted = [...fragments].sort((first, second) => {
       const verticalDifference = first.y - second.y;
       return Math.abs(verticalDifference) > 2 ? verticalDifference : first.x - second.x;
@@ -370,17 +414,22 @@ export class PdfDocumentSession {
 
     for (const fragment of sorted) {
       const previous = lines[lines.length - 1];
+      const previousRight = previous ? previous.x + previous.width : 0;
+      const gap = previous ? fragment.x - previousRight : 0;
+      const maximumJoinGap = Math.min(
+        pageWidth * 0.08,
+        Math.max(18, Math.min(previous?.height || fragment.height, fragment.height) * 4)
+      );
       const sameLine = previous
         && !previous.hasEOL
-        && Math.abs(previous.y - fragment.y) <= Math.max(2.5, Math.min(previous.height, fragment.height) * 0.45);
+        && Math.abs(previous.y - fragment.y) <= Math.max(2.5, Math.min(previous.height, fragment.height) * 0.45)
+        && gap <= maximumJoinGap;
 
       if (!sameLine || !previous) {
         lines.push({ ...fragment });
         continue;
       }
 
-      const previousRight = previous.x + previous.width;
-      const gap = fragment.x - previousRight;
       const separator = gap > Math.max(1.5, Math.min(previous.height, fragment.height) * 0.12) ? ' ' : '';
       previous.text = `${previous.text}${separator}${fragment.text}`.replace(/\s+/g, ' ').trim();
       previous.x = Math.min(previous.x, fragment.x);
@@ -391,6 +440,152 @@ export class PdfDocumentSession {
     }
 
     return lines.filter(line => line.text.trim());
+  }
+
+  private analyzePageLines(lines: PdfTextLine[], pageWidth: number): PdfLineAnalysis {
+    const sorted = [...lines].sort((first, second) => first.y - second.y || first.x - second.x);
+    const singleColumn = (): PdfLineAnalysis => ({
+      columnCount: 1,
+      lines: sorted.map((line, index) => ({
+        ...line,
+        contentKind: this.isLikelyFormulaText(line.text) ? 'formula' : 'prose',
+        readingOrder: index,
+        columnIndex: 1,
+        columnCount: 1,
+        regionX: 0,
+        regionWidth: pageWidth
+      }))
+    });
+    if (sorted.length < 4 || pageWidth <= 0) return singleColumn();
+
+    const pageCenter = pageWidth / 2;
+    const wideLineThreshold = pageWidth * 0.62;
+    const leftCandidates = sorted.filter(line => (
+      line.width < wideLineThreshold
+      && line.x + line.width / 2 < pageCenter
+    ));
+    const rightCandidates = sorted.filter(line => (
+      line.width < wideLineThreshold
+      && line.x + line.width / 2 >= pageCenter
+    ));
+    if (leftCandidates.length < 2 || rightCandidates.length < 2) return singleColumn();
+
+    const leftStart = this.median(leftCandidates.map(line => line.x));
+    const rightStart = this.median(rightCandidates.map(line => line.x));
+    if (rightStart - leftStart < pageWidth * 0.28) return singleColumn();
+
+    const leftEdge = this.percentile(
+      leftCandidates.map(line => line.x + line.width),
+      0.8
+    );
+    const rightEdge = this.percentile(rightCandidates.map(line => line.x), 0.2);
+    if (rightEdge - leftEdge < pageWidth * 0.015) return singleColumn();
+
+    const leftTop = Math.min(...leftCandidates.map(line => line.y));
+    const leftBottom = Math.max(...leftCandidates.map(line => line.y + line.height));
+    const rightTop = Math.min(...rightCandidates.map(line => line.y));
+    const rightBottom = Math.max(...rightCandidates.map(line => line.y + line.height));
+    const overlap = Math.min(leftBottom, rightBottom) - Math.max(leftTop, rightTop);
+    const shortestColumnHeight = Math.min(leftBottom - leftTop, rightBottom - rightTop);
+    if (overlap < Math.max(12, shortestColumnHeight * 0.2)) return singleColumn();
+
+    const divider = (leftEdge + rightEdge) / 2;
+    const pageMargin = Math.max(0, Math.min(
+      leftStart,
+      pageWidth - Math.max(...rightCandidates.map(line => line.x + line.width))
+    ));
+    const leftRegionX = pageMargin;
+    const leftRegionWidth = Math.max(8, divider - leftRegionX);
+    const rightRegionX = divider;
+    const rightRegionWidth = Math.max(8, pageWidth - pageMargin - rightRegionX);
+
+    const classified = sorted.map(line => {
+      const crossesDivider = line.x < divider && line.x + line.width > divider;
+      const isWide = line.width >= wideLineThreshold;
+      const columnIndex = isWide || crossesDivider
+        ? 0
+        : line.x + line.width / 2 < pageCenter
+          ? 1
+          : 2;
+      return { line, columnIndex };
+    });
+    const ordered: Array<{ line: PdfTextLine; columnIndex: number }> = [];
+    let segment: Array<{ line: PdfTextLine; columnIndex: number }> = [];
+    const flushSegment = (): void => {
+      if (segment.length === 0) return;
+      const left = segment.filter(item => item.columnIndex === 1);
+      const right = segment.filter(item => item.columnIndex === 2);
+      const other = segment.filter(item => item.columnIndex === 0);
+      if (left.length > 0 && right.length > 0) {
+        ordered.push(...left, ...right, ...other);
+      } else {
+        ordered.push(...segment);
+      }
+      segment = [];
+    };
+
+    for (const item of classified) {
+      if (item.columnIndex === 0) {
+        flushSegment();
+        ordered.push(item);
+      } else {
+        segment.push(item);
+      }
+    }
+    flushSegment();
+
+    return {
+      columnCount: 2,
+      lines: ordered.map((item, index) => ({
+        ...item.line,
+        contentKind: this.isLikelyFormulaText(item.line.text) ? 'formula' : 'prose',
+        readingOrder: index,
+        columnIndex: item.columnIndex,
+        columnCount: item.columnIndex === 0 ? 1 : 2,
+        regionX: item.columnIndex === 1
+          ? leftRegionX
+          : item.columnIndex === 2
+            ? rightRegionX
+            : 0,
+        regionWidth: item.columnIndex === 1
+          ? leftRegionWidth
+          : item.columnIndex === 2
+            ? rightRegionWidth
+            : pageWidth
+      }))
+    };
+  }
+
+  private isLikelyFormulaText(text: string): boolean {
+    const value = text.trim();
+    if (!value || value.length > 240) return false;
+    if (/\\(?:frac|sum|prod|int|sqrt|begin|left|right)\b/.test(value)) return true;
+
+    const proseWords = value.match(/[A-Za-z]{3,}|[\u4e00-\u9fff]{2,}/g) || [];
+    const endsLikeSentence = /[.!?。！？]$/.test(value);
+    const specializedSymbols = value.match(/[∑∏∫√∞≈≠≤≥±×÷∂∆∇∈∉⊂⊆∪∩]/g) || [];
+    if (specializedSymbols.length > 0) {
+      if (endsLikeSentence && proseWords.length >= 3) return false;
+      return proseWords.length <= 5;
+    }
+    const operators = value.match(/[=+*/^<>]|(?:->)|(?:=>)/g) || [];
+    if (operators.length === 0) return false;
+    if (endsLikeSentence && proseWords.length >= 2) return false;
+    const compactLength = value.replace(/\s+/g, '').length || 1;
+    const operatorDensity = operators.length / compactLength;
+    const equationShape = /(?:^|[\s(])[A-Za-z\d][^=]{0,48}=[^=]/.test(value);
+    return (equationShape && proseWords.length <= 4) || (operatorDensity >= 0.12 && proseWords.length <= 3);
+  }
+
+  private median(values: number[]): number {
+    return this.percentile(values, 0.5);
+  }
+
+  private percentile(values: number[], percentile: number): number {
+    if (values.length === 0) return 0;
+    const sorted = [...values].sort((first, second) => first - second);
+    const index = Math.max(0, Math.min(sorted.length - 1, Math.round((sorted.length - 1) * percentile)));
+    return sorted[index] || 0;
   }
 
   private async createOcrBlocks(
@@ -412,22 +607,32 @@ export class PdfDocumentSession {
       this.onOcrProgress?.({ ...progress, pageNumber });
     });
     const engine = detected.find(result => result.engine)?.engine;
-    const blocks = detected
+    const lines = detected
       .filter(result => result.rawValue.trim() && result.boundingBox.width > 0 && result.boundingBox.height > 0)
       .sort((first, second) => first.boundingBox.y - second.boundingBox.y || first.boundingBox.x - second.boundingBox.x)
-      .map((result, index) => ({
-        id: index + 1,
-        originalText: result.rawValue.replace(/\s+/g, ' ').trim(),
-        layout: this.createLayout(
-          pageNumber,
-          result.boundingBox.x / OCR_SCALE,
-          result.boundingBox.y / OCR_SCALE,
-          result.boundingBox.width / OCR_SCALE,
-          result.boundingBox.height / OCR_SCALE,
-          baseViewport,
-          'pdf-ocr'
-        )
+      .map(result => ({
+        text: result.rawValue.replace(/\s+/g, ' ').trim(),
+        x: result.boundingBox.x / OCR_SCALE,
+        y: result.boundingBox.y / OCR_SCALE,
+        width: result.boundingBox.width / OCR_SCALE,
+        height: result.boundingBox.height / OCR_SCALE,
+        hasEOL: true
       }));
+    const lineAnalysis = this.analyzePageLines(lines, baseViewport.width);
+    const blocks = lineAnalysis.lines.map((line, index) => ({
+      id: index + 1,
+      originalText: line.text,
+      layout: this.createLayout(
+        pageNumber,
+        line.x,
+        line.y,
+        line.width,
+        line.height,
+        baseViewport,
+        'pdf-ocr',
+        line
+      )
+    }));
     return { blocks, ...(engine ? { engine } : {}) };
   }
 
@@ -438,7 +643,8 @@ export class PdfDocumentSession {
     width: number,
     height: number,
     viewport: PdfViewportLike,
-    source: 'pdf-text' | 'pdf-ocr'
+    source: 'pdf-text' | 'pdf-ocr',
+    line?: PdfAnalyzedLine
   ): DocumentBlockLayout {
     return {
       pageNumber,
@@ -448,6 +654,14 @@ export class PdfDocumentSession {
       height: Math.max(8, Math.round(height * 100) / 100),
       pageWidth: viewport.width,
       pageHeight: viewport.height,
+      ...(line ? {
+        contentKind: line.contentKind,
+        readingOrder: line.readingOrder,
+        columnIndex: line.columnIndex,
+        columnCount: line.columnCount,
+        regionX: Math.max(0, Math.round(line.regionX * 100) / 100),
+        regionWidth: Math.max(8, Math.round(line.regionWidth * 100) / 100)
+      } : {}),
       source
     };
   }
@@ -476,14 +690,24 @@ export class PdfDocumentSession {
     for (const result of results) {
       const layout = result.block.layout;
       const translatedText = result.translatedText.trim();
-      if (!layout || !translatedText) continue;
+      if (!layout || !translatedText || layout.contentKind === 'formula') continue;
 
       const x = layout.x * rendered.scale;
       const y = layout.y * rendered.scale;
-      const availableWidth = Math.max(30, rendered.width - layout.x - 4);
+      const regionX = layout.regionX ?? 0;
+      const regionWidth = layout.regionWidth ?? rendered.width;
+      const regionRight = Math.min(rendered.width, regionX + regionWidth);
+      const isColumnLayout = (layout.columnCount || 1) > 1;
+      const availableWidth = Math.max(
+        isColumnLayout ? 8 : 30,
+        regionRight - layout.x - 4
+      );
+      const desiredWidth = isColumnLayout
+        ? availableWidth
+        : Math.max(layout.width + 8, Math.min(rendered.width * 0.56, availableWidth));
       const width = Math.min(
         availableWidth,
-        Math.max(layout.width + 8, Math.min(rendered.width * 0.56, availableWidth))
+        Math.max(layout.width + 8, desiredWidth)
       ) * rendered.scale;
       let fontSize = Math.max(8, Math.min(18, layout.height * 0.82)) * rendered.scale;
       const minimumFontSize = 6.5 * rendered.scale;

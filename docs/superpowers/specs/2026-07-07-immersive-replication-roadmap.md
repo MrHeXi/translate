@@ -44,6 +44,7 @@ Current batch:
 - Exact-domain and wildcard site rules with per-site allow/block, display, scope, style, and selector overrides.
 - Intelligent main-content detection with whole-page and per-site scope overrides.
 - Document translator page for pasted/uploaded text, HTML files, subtitle files, and locally rendered PDFs.
+- Conservative two-column PDF reading order, column-bounded translated overlays, and local standalone-formula preservation.
 - JSON document string-value extraction in the document translator.
 - Structure-preserving translated JSON export from the document translator.
 - DOCX paragraph text and EPUB spine text extraction in the document translator.
@@ -113,12 +114,15 @@ Current batch:
 - Done: render translated document blocks with bilingual, translation-only, or original-only display.
 - Done: preserve page and coordinate metadata for simple text-based PDF layout blocks.
 - Done: parse standards-compliant PDFs with bundled Mozilla PDF.js, including compressed content streams, page dimensions, font maps, and positioned text lines.
+- Done: prevent same-height fragments from confidently separated PDF columns from being merged into one line.
+- Done: detect conservative two-column regions, order left-column text before right-column text, and keep translated overlays inside the inferred column boundary.
+- Done: identify likely standalone formulas locally and preserve them without provider requests or translated-preview/export overlays.
 - Done: render original and translated PDF pages locally with bilingual, translation-only, and original-only page views.
 - Done: attempt local OCR for image-only PDF pages when browser `TextDetector` is available and retain OCR bounding boxes.
 - Done: fall back to a bundled Tesseract worker when browser `TextDetector` is unavailable or returns no text.
 - Done: expose a persisted OCR language choice and per-page bundled OCR progress.
 - Done: export translated PDF pages locally as a flattened visual PDF.
-- Remaining: editable PDF text reflow, formula handling, form/annotation preservation, scan preprocessing, mixed-language detection, and advanced multi-column/table layout fitting.
+- Remaining: editable PDF text reflow, structural MathML/LaTeX reconstruction, form/annotation preservation, scan preprocessing, mixed-language detection, and advanced multi-column/table layout fitting beyond conservative two-column detection.
 
 ### Batch E: Video Subtitle Translation
 

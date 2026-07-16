@@ -333,30 +333,62 @@ describe('document translator page', () => {
     const destroy = jest.fn(async () => undefined);
     const session = {
       analyze: jest.fn(async () => ({
-        blocks: [{
-          id: 1,
-          originalText: 'PDF.js positioned heading',
-          layout: {
-            pageNumber: 1,
-            x: 72,
-            y: 80,
-            width: 210,
-            height: 20,
-            pageWidth: 600,
-            pageHeight: 800,
-            source: 'pdf-text'
+        blocks: [
+          {
+            id: 1,
+            originalText: 'PDF.js positioned heading',
+            layout: {
+              pageNumber: 1,
+              x: 72,
+              y: 80,
+              width: 210,
+              height: 20,
+              pageWidth: 600,
+              pageHeight: 800,
+              contentKind: 'prose',
+              readingOrder: 0,
+              columnIndex: 1,
+              columnCount: 2,
+              regionX: 50,
+              regionWidth: 230,
+              source: 'pdf-text'
+            }
+          },
+          {
+            id: 2,
+            originalText: 'E = mc²',
+            layout: {
+              pageNumber: 1,
+              x: 90,
+              y: 150,
+              width: 80,
+              height: 18,
+              pageWidth: 600,
+              pageHeight: 800,
+              contentKind: 'formula',
+              readingOrder: 1,
+              columnIndex: 1,
+              columnCount: 2,
+              regionX: 50,
+              regionWidth: 230,
+              source: 'pdf-text'
+            }
           }
-        }],
+        ],
         pages: [{
           pageNumber: 1,
           width: 600,
           height: 800,
-          blockCount: 1,
+          blockCount: 2,
+          formulaBlockCount: 1,
+          columnCount: 2,
           source: 'text'
         }],
         ocrPageCount: 0,
         bundledOcrPageCount: 0,
-        unreadablePageCount: 0
+        unreadablePageCount: 0,
+        formulaBlockCount: 1,
+        multiColumnPageCount: 1
       })),
       renderPage,
       exportTranslatedPdf,
@@ -404,7 +436,7 @@ describe('document translator page', () => {
       expect(document.getElementById('pdfViewer')?.hidden).toBe(false);
       expect(document.querySelectorAll('.pdf-page-panel')).toHaveLength(2);
       expect(document.getElementById('documentMessage')?.textContent).toBe(
-        'research.pdf loaded, 1 page, 1 positioned block'
+        'research.pdf loaded, 1 page, 2 positioned blocks, 1 preserved formula, 1 multi-column page'
       );
       expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(true);
 
@@ -415,12 +447,29 @@ describe('document translator page', () => {
       const overlay = document.querySelector('.pdf-translation-overlay') as HTMLElement;
       expect(overlay.textContent).toBe('translated: PDF.js positioned heading');
       expect(overlay.style.left).toBe('12%');
+      expect(parseFloat(overlay.style.width)).toBeLessThanOrEqual(35);
+      expect(parseFloat(overlay.style.left) + parseFloat(overlay.style.width)).toBeLessThanOrEqual(46.67);
+      expect(document.querySelectorAll('.pdf-translation-overlay')).toHaveLength(1);
+      expect(document.querySelectorAll('.document-result-block--formula')).toHaveLength(1);
+      const formulaBlock = document.querySelector('.document-result-block--formula') as HTMLElement;
+      expect((formulaBlock.querySelector('.document-original') as HTMLElement).style.display).toBe('block');
+      expect((formulaBlock.querySelector('.document-translation') as HTMLElement).style.display).toBe('none');
+      const translationMessages = ((global as any).chrome.runtime.sendMessage as jest.Mock).mock.calls
+        .map(call => call[0])
+        .filter(message => message.action === 'translate');
+      expect(translationMessages).toHaveLength(1);
+      expect(document.getElementById('documentMessage')?.textContent).toBe(
+        'Translated 1 blocks and preserved 1 formulas'
+      );
       expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(false);
 
       const displayMode = document.getElementById('displayMode') as HTMLSelectElement;
       displayMode.value = 'translation-only';
       displayMode.dispatchEvent(new Event('change'));
       expect((document.querySelector('.pdf-page-panel') as HTMLElement).style.display).toBe('none');
+      expect((formulaBlock.querySelector('.document-original') as HTMLElement).style.display).toBe('none');
+      expect((formulaBlock.querySelector('.document-translation') as HTMLElement).style.display).toBe('block');
+      expect(formulaBlock.querySelector('.document-translation')?.textContent).toBe('E = mc²');
 
       document.getElementById('exportPdfFile')!.dispatchEvent(new Event('click'));
       await flushPromises();

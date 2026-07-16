@@ -91,6 +91,7 @@ Capture the document translator page with:
 - For an EPUB sample, extracted readable text blocks visible with the Export EPUB control after translation, without implying full layout-perfect eBook conversion.
 - For a subtitle sample, translated cues visible with the Export subtitles control after translation.
 - For a standards-compliant PDF sample, original and translated rendered pages visible side by side with the Export PDF control enabled after translation.
+- For a two-column academic PDF, left/right column boundaries respected by translated overlays and a preserved standalone formula visible in its original form.
 - If showing an image-only PDF, include the OCR language selector and local progress text. State that browser OCR is tried first and bundled offline OCR handles the fallback; do not imply guaranteed recognition on every scan.
 
 ### Video Subtitles
