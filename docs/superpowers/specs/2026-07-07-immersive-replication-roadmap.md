@@ -54,6 +54,7 @@ Current batch:
 - Manual live caption translation for caption text already visible in the page DOM.
 - Google Meet, Zoom, and Teams-style meeting caption adapters with speaker-label preservation.
 - Manual image text translation for selected images, canvases, and SVGs.
+- Bundled offline OCR for image-only PDFs and page images in English, Simplified Chinese, Traditional Chinese, Japanese, and Korean.
 
 ## Planned Batches
 
@@ -108,8 +109,10 @@ Current batch:
 - Done: parse standards-compliant PDFs with bundled Mozilla PDF.js, including compressed content streams, page dimensions, font maps, and positioned text lines.
 - Done: render original and translated PDF pages locally with bilingual, translation-only, and original-only page views.
 - Done: attempt local OCR for image-only PDF pages when browser `TextDetector` is available and retain OCR bounding boxes.
+- Done: fall back to a bundled Tesseract worker when browser `TextDetector` is unavailable or returns no text.
+- Done: expose a persisted OCR language choice and per-page bundled OCR progress.
 - Done: export translated PDF pages locally as a flattened visual PDF.
-- Remaining: bundled OCR fallback for browsers without `TextDetector`, editable PDF text reflow, form/annotation preservation, and advanced multi-column/table layout fitting.
+- Remaining: editable PDF text reflow, formula handling, form/annotation preservation, scan preprocessing, mixed-language detection, and advanced multi-column/table layout fitting.
 
 ### Batch E: Video Subtitle Translation
 
@@ -124,6 +127,7 @@ Current batch:
 
 - Done: add user-triggered image, canvas, and SVG selection from the popup.
 - Done: extract text through browser TextDetector OCR when available, with SVG text and accessibility text fallbacks.
+- Done: fall back to a reusable bundled Tesseract OCR session with five selectable recognition languages.
 - Done: render translated overlays near the selected image target.
 - Done: support manual drag-to-select OCR regions for images and canvases.
 - Done: render separate OCR text-block overlays when the browser returns bounding boxes.
@@ -131,7 +135,8 @@ Current batch:
 - Done: retain per-image overlays, reuse duplicate-text translations, and cancel remaining visible-image work when image mode stops.
 - Done: skip hidden, offscreen, tiny, nested SVG, and extension-owned graphics during visible-image batches.
 - Done: keep all OCR-triggering actions explicit.
-- Remaining: full scanned-document OCR and automatic manga panel segmentation.
+- Done: terminate the local image OCR session immediately when Image text mode stops.
+- Remaining: automatic manga panel and speech-bubble segmentation, source-text removal, image inpainting, and in-place typography reconstruction.
 
 ### Batch G: Meeting Subtitle Translation
 

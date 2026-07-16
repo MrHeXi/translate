@@ -23,6 +23,9 @@
     "http://localhost/*",
     "http://127.0.0.1/*"
   ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; object-src 'self'"
+  },
   "background": {
     "service_worker": "background.js"
   },
@@ -55,7 +58,10 @@
     {
       "resources": [
         "content.css",
-        "data/vocabularies/*"
+        "data/vocabularies/*",
+        "ocr/worker.min.js",
+        "ocr/core/*",
+        "ocr/lang/*"
       ],
       "matches": ["<all_urls>"]
     }

@@ -11,6 +11,7 @@ import type {
   SiteTranslationRule,
   TranslationStylePreset
 } from './TranslationPreferences';
+import type { BundledOcrLanguageCode } from './BundledOcrService';
 
 export type {
   PageTranslationDisplayMode,
@@ -33,6 +34,7 @@ export interface UserSettings {
   translationStyle?: TranslationStylePreset;
   pageTranslationScope?: PageTranslationScope;
   siteTranslationRules?: SiteTranslationRule[];
+  documentOcrLanguage?: BundledOcrLanguageCode;
 }
 
 export interface TranslationProviderConfigSummary {
@@ -72,7 +74,8 @@ export class StorageManager {
     pageTranslationExcludeSelectors: [],
     translationStyle: 'subtle',
     pageTranslationScope: 'main-content',
-    siteTranslationRules: []
+    siteTranslationRules: [],
+    documentOcrLanguage: 'eng'
   };
 
   async saveUserData(data: Partial<UserData>): Promise<void> {

@@ -110,6 +110,7 @@ const setupDocumentDom = (): void => {
       <option value="translation-only">Translation only</option>
       <option value="original-only">Original only</option>
     </select>
+    <select id="ocrLanguage"></select>
     <input id="documentFile" type="file">
     <button id="translateDocument"></button>
     <button id="exportSubtitleFile" disabled></button>
@@ -145,7 +146,8 @@ describe('document translator page', () => {
               data: {
                 defaultTargetLanguage: 'zh-CN',
                 translationProvider: 'google',
-                pageTranslationDisplayMode: 'bilingual'
+                pageTranslationDisplayMode: 'bilingual',
+                documentOcrLanguage: 'eng'
               }
             });
             return;
@@ -191,6 +193,39 @@ describe('document translator page', () => {
     expect(blocks).toHaveLength(2);
     expect(document.getElementById('translationResults')?.textContent).toContain('translated: First paragraph.');
     expect(document.getElementById('progressText')?.textContent).toBe('2/2 blocks');
+  });
+
+  it('offers bundled PDF OCR languages and saves changes without translating', async () => {
+    require('../document');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    const ocrLanguage = document.getElementById('ocrLanguage') as HTMLSelectElement;
+    expect(Array.from(ocrLanguage.options).map(option => option.value)).toEqual([
+      'eng',
+      'chi_sim',
+      'chi_tra',
+      'jpn',
+      'kor'
+    ]);
+    expect(ocrLanguage.value).toBe('eng');
+
+    (global as any).chrome.runtime.sendMessage.mockClear();
+    ocrLanguage.value = 'chi_sim';
+    ocrLanguage.dispatchEvent(new Event('change'));
+    await flushPromises();
+
+    expect((global as any).chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      {
+        action: 'updateSettings',
+        data: { documentOcrLanguage: 'chi_sim' }
+      },
+      expect.any(Function)
+    );
+    expect((global as any).chrome.runtime.sendMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'translate' }),
+      expect.any(Function)
+    );
   });
 
   it('applies translation-only display mode to rendered blocks', async () => {
@@ -294,6 +329,7 @@ describe('document translator page', () => {
           source: 'text'
         }],
         ocrPageCount: 0,
+        bundledOcrPageCount: 0,
         unreadablePageCount: 0
       })),
       renderPage,
@@ -331,7 +367,13 @@ describe('document translator page', () => {
       await flushPromises();
       await flushPromises();
 
-      expect(open).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]));
+      expect(open).toHaveBeenCalledWith(
+        new Uint8Array([1, 2, 3]),
+        expect.objectContaining({
+          ocrLanguage: 'eng',
+          onOcrProgress: expect.any(Function)
+        })
+      );
       expect(renderPage).toHaveBeenCalledTimes(2);
       expect(document.getElementById('pdfViewer')?.hidden).toBe(false);
       expect(document.querySelectorAll('.pdf-page-panel')).toHaveLength(2);
@@ -368,6 +410,25 @@ describe('document translator page', () => {
       expect(document.getElementById('documentMessage')?.textContent).toBe(
         'Exported translated PDF with 1 positioned blocks'
       );
+
+      (global as any).chrome.runtime.sendMessage.mockClear();
+      const ocrLanguage = document.getElementById('ocrLanguage') as HTMLSelectElement;
+      ocrLanguage.value = 'jpn';
+      ocrLanguage.dispatchEvent(new Event('change'));
+      await flushPromises();
+      await flushPromises();
+
+      expect(open).toHaveBeenLastCalledWith(
+        new Uint8Array([1, 2, 3]),
+        expect.objectContaining({ ocrLanguage: 'jpn' })
+      );
+      expect(destroy).toHaveBeenCalledTimes(1);
+      expect((global as any).chrome.runtime.sendMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'translate' }),
+        expect.any(Function)
+      );
+      expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(true);
+      expect(document.querySelector('.pdf-translation-overlay')).toBeNull();
     } finally {
       clickSpy.mockRestore();
     }

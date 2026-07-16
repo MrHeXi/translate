@@ -13,6 +13,7 @@ describe('options UI settings contract', () => {
       <button id="viewVocabulary"></button>
       <button id="startReview"></button>
       <select id="targetLanguage"><option value="zh-CN" selected>Chinese</option></select>
+      <select id="documentOcrLanguage"><option value="eng" selected>English</option></select>
       <select id="translationProvider"><option value="google" selected>Google</option></select>
       <section id="providerConfigPanel" hidden>
         <h4 id="providerConfigTitle"></h4>
@@ -111,6 +112,7 @@ describe('options UI settings contract', () => {
 
   const createSettings = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
     defaultTargetLanguage: 'zh-CN',
+    documentOcrLanguage: 'eng',
     translationProvider: 'google',
     pageTranslationDisplayMode: 'bilingual',
     pageTranslationScope: 'main-content',
@@ -211,13 +213,17 @@ describe('options UI settings contract', () => {
 
     const showFloatingIcon = document.getElementById('showFloatingIcon') as HTMLInputElement;
     showFloatingIcon.checked = false;
+    (document.getElementById('documentOcrLanguage') as HTMLSelectElement).value = 'chi_sim';
     document.getElementById('saveSettings')!.dispatchEvent(new Event('click'));
     await flushPromises();
 
     expect(sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'updateSettings',
-        data: expect.objectContaining({ showFloatingIcon: false })
+        data: expect.objectContaining({
+          showFloatingIcon: false,
+          documentOcrLanguage: 'chi_sim'
+        })
       }),
       expect.any(Function)
     );
@@ -468,6 +474,7 @@ describe('options UI settings contract', () => {
           success: true,
           data: {
             defaultTargetLanguage: 'es',
+            documentOcrLanguage: 'jpn',
             translationProvider: 'deepl',
             pageTranslationDisplayMode: 'translation-only',
             autoTranslate: false,
@@ -525,11 +532,20 @@ describe('options UI settings contract', () => {
     await flushPromises();
 
     const targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement;
+    const documentOcrLanguage = document.getElementById('documentOcrLanguage') as HTMLSelectElement;
     const translationProvider = document.getElementById('translationProvider') as HTMLSelectElement;
     const displayMode = document.getElementById('pageTranslationDisplayMode') as HTMLSelectElement;
 
     expect(targetLanguage.options.length).toBeGreaterThanOrEqual(100);
     expect(targetLanguage.value).toBe('es');
+    expect(Array.from(documentOcrLanguage.options).map(option => option.value)).toEqual([
+      'eng',
+      'chi_sim',
+      'chi_tra',
+      'jpn',
+      'kor'
+    ]);
+    expect(documentOcrLanguage.value).toBe('jpn');
     expect(Array.from(translationProvider.options).some(option => option.value === 'deepl' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'microsoft' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'openai' && !option.disabled)).toBe(true);

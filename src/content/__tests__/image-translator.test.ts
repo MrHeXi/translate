@@ -1,4 +1,5 @@
 import { ImageTranslator } from '../components/ImageTranslator';
+import { BundledOcrService } from '../../services/BundledOcrService';
 
 const flushPromises = async (): Promise<void> => {
   await Promise.resolve();
@@ -45,17 +46,37 @@ const setRect = (
 
 describe('ImageTranslator', () => {
   let translator: ImageTranslator;
+  let workerFactory: jest.Mock;
+  let setParameters: jest.Mock;
+  let recognize: jest.Mock;
+  let terminate: jest.Mock;
+  let drawImage: jest.Mock;
+  let getContext: jest.SpyInstance;
 
   beforeEach(() => {
     document.body.innerHTML = '';
     jest.clearAllMocks();
-    translator = new ImageTranslator();
+    setParameters = jest.fn().mockResolvedValue(undefined);
+    recognize = jest.fn().mockResolvedValue({
+      data: { text: '', confidence: 0, lines: [] }
+    });
+    terminate = jest.fn().mockResolvedValue(undefined);
+    workerFactory = jest.fn().mockResolvedValue({
+      setParameters,
+      recognize,
+      terminate
+    });
+    drawImage = jest.fn();
+    getContext = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue({ drawImage } as unknown as CanvasRenderingContext2D);
+    translator = new ImageTranslator(new BundledOcrService(workerFactory));
   });
 
   afterEach(() => {
     translator.cleanup();
     delete (window as any).TextDetector;
     delete (window as any).createImageBitmap;
+    getContext.mockRestore();
     document.body.innerHTML = '';
   });
 
@@ -252,6 +273,58 @@ describe('ImageTranslator', () => {
     expect(translateText).toHaveBeenCalledWith('OCR detected line');
     expect(overlay?.textContent).toContain('OCR detected line');
     expect(overlay?.textContent).toContain('Translated: OCR detected line');
+  });
+
+  it('uses bundled OCR with positioned blocks and terminates its worker on stop', async () => {
+    document.body.innerHTML = '<img id="target" src="comic.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 400, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 200, configurable: true });
+    setRect(image, 10, 20, 200, 100);
+    recognize.mockResolvedValue({
+      data: {
+        text: 'First local line\nSecond local line',
+        confidence: 91,
+        lines: [
+          {
+            text: 'First local line',
+            confidence: 92,
+            bbox: { x0: 20, y0: 10, x1: 100, y1: 40 }
+          },
+          {
+            text: 'Second local line',
+            confidence: 90,
+            bbox: { x0: 120, y0: 60, x1: 210, y1: 95 }
+          }
+        ]
+      }
+    });
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    translator.enable(translateText, 'jpn');
+    click(image);
+    await flushPromises();
+
+    const regionOverlays = document.querySelectorAll('.lexibridge-image-region-translation');
+    expect(workerFactory).toHaveBeenCalledWith('jpn', expect.objectContaining({
+      workerPath: expect.stringContaining('ocr/worker.min.js'),
+      corePath: expect.stringContaining('ocr/core/'),
+      langPath: expect.stringContaining('ocr/lang/')
+    }));
+    expect(setParameters).toHaveBeenCalled();
+    expect(drawImage).toHaveBeenCalledWith(image, 0, 0, 400, 200, 0, 0, 400, 200);
+    expect(translateText).toHaveBeenCalledWith('First local line');
+    expect(translateText).toHaveBeenCalledWith('Second local line');
+    expect(regionOverlays).toHaveLength(2);
+    expect((regionOverlays[0] as HTMLElement).style.left).toBe('20px');
+    expect((regionOverlays[0] as HTMLElement).style.top).toBe('25px');
+
+    translator.disable();
+    await flushPromises();
+
+    expect(terminate).toHaveBeenCalledTimes(1);
   });
 
   it('renders separate overlays for OCR blocks with bounding boxes', async () => {

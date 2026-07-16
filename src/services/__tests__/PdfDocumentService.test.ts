@@ -135,6 +135,7 @@ describe('PdfDocumentService', () => {
       detect: jest.fn(async () => [
         {
           rawValue: 'Scanned heading',
+          engine: 'browser' as const,
           boundingBox: { x: 40, y: 60, width: 240, height: 44 }
         }
       ])
@@ -150,9 +151,11 @@ describe('PdfDocumentService', () => {
       const analysis = await session.analyze();
 
       expect(render).toHaveBeenCalledTimes(1);
-      expect(detector.detect).toHaveBeenCalledWith(expect.any(HTMLCanvasElement));
+      expect(detector.detect).toHaveBeenCalledWith(expect.any(HTMLCanvasElement), expect.any(Function));
       expect(analysis.ocrPageCount).toBe(1);
+      expect(analysis.bundledOcrPageCount).toBe(0);
       expect(analysis.unreadablePageCount).toBe(0);
+      expect(analysis.pages[0]?.ocrEngine).toBe('browser');
       expect(analysis.blocks).toEqual([
         expect.objectContaining({
           id: 1,
@@ -166,6 +169,50 @@ describe('PdfDocumentService', () => {
           })
         })
       ]);
+    } finally {
+      contextSpy.mockRestore();
+    }
+  });
+
+  it('tracks bundled OCR pages, forwards page progress, and disposes the detector', async () => {
+    const render = jest.fn(() => ({ promise: Promise.resolve() }));
+    const { engine } = createEngine([{ items: [], render }]);
+    const dispose = jest.fn(async () => undefined);
+    const detector: PdfOcrDetector = {
+      detect: jest.fn(async (_source, onProgress) => {
+        onProgress?.({ pageNumber: 0, status: 'recognizing text', progress: 0.4, engine: 'tesseract' });
+        return [{
+          rawValue: 'Bundled OCR line',
+          engine: 'tesseract' as const,
+          boundingBox: { x: 20, y: 30, width: 200, height: 40 }
+        }];
+      }),
+      dispose
+    };
+    const detectorFactory = jest.fn(() => detector);
+    const progress = jest.fn();
+    const contextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue({} as CanvasRenderingContext2D);
+
+    try {
+      const service = new PdfDocumentService(engine, detectorFactory);
+      const session = await service.open(new Uint8Array([4, 5]), {
+        ocrLanguage: 'jpn',
+        onOcrProgress: progress
+      });
+      const analysis = await session.analyze();
+
+      expect(detectorFactory).toHaveBeenCalledWith(expect.objectContaining({ ocrLanguage: 'jpn' }));
+      expect(analysis.ocrPageCount).toBe(1);
+      expect(analysis.bundledOcrPageCount).toBe(1);
+      expect(analysis.pages[0]?.ocrEngine).toBe('tesseract');
+      expect(progress).toHaveBeenCalledWith({
+        pageNumber: 1,
+        status: 'recognizing text',
+        progress: 0.4,
+        engine: 'tesseract'
+      });
+      expect(dispose).toHaveBeenCalledTimes(1);
     } finally {
       contextSpy.mockRestore();
     }

@@ -1,6 +1,11 @@
 import { getDocument, GlobalWorkerOptions, Util } from 'pdfjs-dist/legacy/build/pdf';
 import { PDFDocument } from 'pdf-lib';
 import type { DocumentBlock, DocumentBlockLayout } from './DocumentTextExtractor';
+import {
+  BundledOcrLanguageCode,
+  BundledOcrSession,
+  bundledOcrService
+} from './BundledOcrService';
 
 interface PdfViewportLike {
   width: number;
@@ -42,6 +47,8 @@ export interface PdfEngineAdapter {
 
 export interface PdfOcrResult {
   rawValue: string;
+  confidence?: number;
+  engine?: 'browser' | 'tesseract';
   boundingBox: {
     x: number;
     y: number;
@@ -51,10 +58,23 @@ export interface PdfOcrResult {
 }
 
 export interface PdfOcrDetector {
-  detect(source: CanvasImageSource): Promise<PdfOcrResult[]>;
+  detect(source: CanvasImageSource, onProgress?: (progress: PdfOcrProgress) => void): Promise<PdfOcrResult[]>;
+  dispose?(): Promise<void>;
 }
 
-export type PdfOcrDetectorFactory = () => PdfOcrDetector | null;
+export interface PdfOcrProgress {
+  pageNumber: number;
+  status: string;
+  progress: number;
+  engine: 'browser' | 'tesseract';
+}
+
+export interface PdfOpenOptions {
+  ocrLanguage?: BundledOcrLanguageCode;
+  onOcrProgress?: (progress: PdfOcrProgress) => void;
+}
+
+export type PdfOcrDetectorFactory = (options?: PdfOpenOptions) => PdfOcrDetector | null;
 
 export interface PdfPageSummary {
   pageNumber: number;
@@ -62,12 +82,14 @@ export interface PdfPageSummary {
   height: number;
   blockCount: number;
   source: 'text' | 'ocr' | 'none';
+  ocrEngine?: 'browser' | 'tesseract';
 }
 
 export interface PdfDocumentAnalysis {
   blocks: DocumentBlock[];
   pages: PdfPageSummary[];
   ocrPageCount: number;
+  bundledOcrPageCount: number;
   unreadablePageCount: number;
 }
 
@@ -113,11 +135,51 @@ const hasExtensionResourceUrls = (): boolean => (
   typeof chrome !== 'undefined' && typeof chrome.runtime?.getURL === 'function'
 );
 
-const createDefaultOcrDetector = (): PdfOcrDetector | null => {
-  const Detector = (globalThis as typeof globalThis & {
-    TextDetector?: new () => PdfOcrDetector;
-  }).TextDetector;
-  return Detector ? new Detector() : null;
+class DefaultPdfOcrDetector implements PdfOcrDetector {
+  private readonly browserDetector: { detect(source: CanvasImageSource): Promise<PdfOcrResult[]> } | null;
+  private readonly bundledSession: BundledOcrSession;
+
+  constructor(language: BundledOcrLanguageCode = 'eng') {
+    const Detector = (globalThis as typeof globalThis & {
+      TextDetector?: new () => { detect(source: CanvasImageSource): Promise<PdfOcrResult[]> };
+    }).TextDetector;
+    this.browserDetector = Detector ? new Detector() : null;
+    this.bundledSession = bundledOcrService.createSession(language);
+  }
+
+  async detect(
+    source: CanvasImageSource,
+    onProgress?: (progress: PdfOcrProgress) => void
+  ): Promise<PdfOcrResult[]> {
+    if (this.browserDetector) {
+      try {
+        const browserResults = await this.browserDetector.detect(source);
+        if (browserResults.length > 0) {
+          return browserResults.map(result => ({ ...result, engine: 'browser' }));
+        }
+      } catch {
+        // The bundled worker remains available when the browser API rejects an image.
+      }
+    }
+
+    const lines = await this.bundledSession.recognize(source as HTMLCanvasElement, progress => {
+      onProgress?.({ ...progress, pageNumber: 0, engine: 'tesseract' });
+    });
+    return lines.map(line => ({
+      rawValue: line.text,
+      confidence: line.confidence,
+      boundingBox: line.boundingBox,
+      engine: 'tesseract'
+    }));
+  }
+
+  async dispose(): Promise<void> {
+    await this.bundledSession.terminate();
+  }
+}
+
+const createDefaultOcrDetector = (options?: PdfOpenOptions): PdfOcrDetector => {
+  return new DefaultPdfOcrDetector(options?.ocrLanguage || 'eng');
 };
 
 export class PdfDocumentSession {
@@ -127,7 +189,8 @@ export class PdfDocumentSession {
   constructor(
     private readonly pdfDocument: PdfDocumentLike,
     private readonly engine: PdfEngineAdapter,
-    private readonly ocrDetectorFactory: PdfOcrDetectorFactory
+    private readonly ocrDetector: PdfOcrDetector | null,
+    private readonly onOcrProgress?: (progress: PdfOcrProgress) => void
   ) {}
 
   analyze(): Promise<PdfDocumentAnalysis> {
@@ -201,44 +264,53 @@ export class PdfDocumentSession {
     const blocks: DocumentBlock[] = [];
     const pages: PdfPageSummary[] = [];
     let ocrPageCount = 0;
+    let bundledOcrPageCount = 0;
     let unreadablePageCount = 0;
-    const detector = this.ocrDetectorFactory();
 
-    for (let pageNumber = 1; pageNumber <= this.pdfDocument.numPages; pageNumber++) {
-      const page = await this.getPage(pageNumber);
-      const viewport = page.getViewport({ scale: 1 });
-      const textContent = await page.getTextContent();
-      let pageBlocks = this.createTextBlocks(textContent.items, pageNumber, viewport);
-      let source: PdfPageSummary['source'] = 'text';
+    try {
+      for (let pageNumber = 1; pageNumber <= this.pdfDocument.numPages; pageNumber++) {
+        const page = await this.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 1 });
+        const textContent = await page.getTextContent();
+        let pageBlocks = this.createTextBlocks(textContent.items, pageNumber, viewport);
+        let source: PdfPageSummary['source'] = 'text';
+        let ocrEngine: PdfPageSummary['ocrEngine'];
 
-      if (pageBlocks.length === 0 && detector) {
-        pageBlocks = await this.createOcrBlocks(page, detector, pageNumber, viewport);
-        if (pageBlocks.length > 0) {
-          source = 'ocr';
-          ocrPageCount++;
+        if (pageBlocks.length === 0 && this.ocrDetector) {
+          const ocrResult = await this.createOcrBlocks(page, this.ocrDetector, pageNumber, viewport);
+          pageBlocks = ocrResult.blocks;
+          ocrEngine = ocrResult.engine;
+          if (pageBlocks.length > 0) {
+            source = 'ocr';
+            ocrPageCount++;
+            if (ocrEngine === 'tesseract') bundledOcrPageCount++;
+          }
         }
-      }
 
-      if (pageBlocks.length === 0) {
-        source = 'none';
-        unreadablePageCount++;
-      }
+        if (pageBlocks.length === 0) {
+          source = 'none';
+          unreadablePageCount++;
+        }
 
-      for (const block of pageBlocks) {
-        block.id = blocks.length + 1;
-        blocks.push(block);
-      }
+        for (const block of pageBlocks) {
+          block.id = blocks.length + 1;
+          blocks.push(block);
+        }
 
-      pages.push({
-        pageNumber,
-        width: viewport.width,
-        height: viewport.height,
-        blockCount: pageBlocks.length,
-        source
-      });
+        pages.push({
+          pageNumber,
+          width: viewport.width,
+          height: viewport.height,
+          blockCount: pageBlocks.length,
+          source,
+          ...(ocrEngine ? { ocrEngine } : {})
+        });
+      }
+    } finally {
+      await this.ocrDetector?.dispose?.();
     }
 
-    return { blocks, pages, ocrPageCount, unreadablePageCount };
+    return { blocks, pages, ocrPageCount, bundledOcrPageCount, unreadablePageCount };
   }
 
   private createTextBlocks(
@@ -326,18 +398,21 @@ export class PdfDocumentSession {
     detector: PdfOcrDetector,
     pageNumber: number,
     baseViewport: PdfViewportLike
-  ): Promise<DocumentBlock[]> {
+  ): Promise<{ blocks: DocumentBlock[]; engine?: 'browser' | 'tesseract' }> {
     const canvas = this.createCanvas();
     const viewport = page.getViewport({ scale: OCR_SCALE });
     const context = canvas.getContext('2d', { alpha: false });
-    if (!context) return [];
+    if (!context) return { blocks: [] };
 
     canvas.width = Math.max(1, Math.ceil(viewport.width));
     canvas.height = Math.max(1, Math.ceil(viewport.height));
     await page.render({ canvasContext: context, viewport }).promise;
 
-    const detected = await detector.detect(canvas);
-    return detected
+    const detected = await detector.detect(canvas, progress => {
+      this.onOcrProgress?.({ ...progress, pageNumber });
+    });
+    const engine = detected.find(result => result.engine)?.engine;
+    const blocks = detected
       .filter(result => result.rawValue.trim() && result.boundingBox.width > 0 && result.boundingBox.height > 0)
       .sort((first, second) => first.boundingBox.y - second.boundingBox.y || first.boundingBox.x - second.boundingBox.x)
       .map((result, index) => ({
@@ -353,6 +428,7 @@ export class PdfDocumentSession {
           'pdf-ocr'
         )
       }));
+    return { blocks, ...(engine ? { engine } : {}) };
   }
 
   private createLayout(
@@ -485,7 +561,7 @@ export class PdfDocumentService {
     }
   }
 
-  async open(bytes: Uint8Array): Promise<PdfDocumentSession> {
+  async open(bytes: Uint8Array, options: PdfOpenOptions = {}): Promise<PdfDocumentSession> {
     if (bytes.byteLength === 0) throw new Error('The selected PDF is empty.');
 
     const resourceOptions = hasExtensionResourceUrls()
@@ -501,7 +577,12 @@ export class PdfDocumentService {
       ...resourceOptions
     });
     const pdfDocument = await loadingTask.promise;
-    return new PdfDocumentSession(pdfDocument, this.engine, this.ocrDetectorFactory);
+    return new PdfDocumentSession(
+      pdfDocument,
+      this.engine,
+      this.ocrDetectorFactory(options),
+      options.onOcrProgress
+    );
   }
 }
 

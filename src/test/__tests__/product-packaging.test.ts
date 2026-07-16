@@ -31,8 +31,13 @@ describe('product packaging contract', () => {
       'http://127.0.0.1/*'
     ]);
     expect(JSON.stringify(manifest)).not.toMatch(/[�]|缈|鎻|馃/);
-    expect(JSON.stringify(manifest)).not.toMatch(/pdf|video|ocr|meeting/i);
+    expect(manifest.description).not.toMatch(/pdf|video|ocr|meeting/i);
+    expect(manifest.content_security_policy.extension_pages).toContain("'wasm-unsafe-eval'");
+    expect(manifest.content_security_policy.extension_pages).toContain("worker-src 'self'");
     expect(JSON.stringify(manifest.web_accessible_resources)).not.toContain('src/');
+    expect(JSON.stringify(manifest.web_accessible_resources)).toContain('ocr/worker.min.js');
+    expect(JSON.stringify(manifest.web_accessible_resources)).toContain('ocr/core/*');
+    expect(JSON.stringify(manifest.web_accessible_resources)).toContain('ocr/lang/*');
   });
 
   it('ships release-ready user documentation and privacy disclosure', () => {
@@ -87,6 +92,8 @@ describe('product packaging contract', () => {
     expect(readme).toContain('Parse and render PDF pages locally with Mozilla PDF.js');
     expect(readme).toContain('Export translated PDF pages locally as a flattened visual PDF');
     expect(readme).toContain('Attempt local OCR on image-only PDF pages');
+    expect(readme).toContain('bundled Tesseract fallback');
+    expect(readme).toContain('Simplified Chinese, Traditional Chinese, Japanese, or Korean');
     expect(readme).toContain('separate translation overlays for detected OCR text blocks');
     expect(readme).toContain('without recording audio');
     expect(readme).toContain('100+ target language options');
@@ -111,6 +118,9 @@ describe('product packaging contract', () => {
     expect(privacy).toContain('domain-specific translation rules');
     expect(privacy).toContain('do not trigger translation on page load');
     expect(privacy).toContain('Main-content detection runs locally');
+    expect(privacy).toContain('bundled Tesseract worker');
+    expect(privacy).toContain('do not contact an OCR server');
+    expect(privacy).toContain('local OCR worker is terminated');
 
     const checklist = readProjectFile('RELEASE_CHECKLIST.md');
     expect(checklist).toContain('Chrome Web Store');
@@ -157,7 +167,8 @@ describe('product packaging contract', () => {
     expect(listing).toContain('Manual image text translation');
     expect(listing).toContain('user-triggered visible-image batch');
     expect(listing).toContain('Opening or scrolling a page never starts OCR');
-    expect(listing).toContain('OCR depends on browser support');
+    expect(listing).toContain('bundled offline OCR');
+    expect(listing).toContain('selected OCR language');
     expect(listing).toContain('separate OCR block overlays');
     expect(listing).toContain('does not record audio');
     expect(listing).toContain('does not record audio, join calls, or transcribe speech');
@@ -184,7 +195,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-08');
-    expect(releaseNotes).toContain('40 test suites and 282 tests');
+    expect(releaseNotes).toContain('41 test suites and 291 tests');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -244,6 +255,8 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('bundled Mozilla PDF.js');
     expect(roadmap).toContain('flattened visual PDF');
     expect(roadmap).toContain('browser `TextDetector`');
+    expect(roadmap).toContain('bundled Tesseract worker');
+    expect(roadmap).toContain('five selectable recognition languages');
     expect(roadmap).toContain('Video subtitle translation');
     expect(roadmap).toContain('DOM-rendered video caption adapters');
     expect(roadmap).toContain('SRT export for translated subtitle cues');
@@ -265,12 +278,23 @@ describe('product packaging contract', () => {
 
     expect(packageJson.dependencies).toEqual(expect.objectContaining({
       'pdf-lib': expect.any(String),
-      'pdfjs-dist': expect.any(String)
+      'pdfjs-dist': expect.any(String),
+      'tesseract.js': expect.any(String),
+      '@tesseract.js-data/eng': expect.any(String),
+      '@tesseract.js-data/chi_sim': expect.any(String),
+      '@tesseract.js-data/chi_tra': expect.any(String),
+      '@tesseract.js-data/jpn': expect.any(String),
+      '@tesseract.js-data/kor': expect.any(String)
     }));
     expect(webpackConfig).toContain('pdf.worker.min.js');
     expect(webpackConfig).toContain("path.join(pdfjsRoot, 'cmaps')");
     expect(webpackConfig).toContain("path.join(pdfjsRoot, 'standard_fonts')");
+    expect(webpackConfig).toContain("path.join(tesseractRoot, 'dist/worker.min.js')");
+    expect(webpackConfig).toContain('tesseract-core-simd-lstm.wasm');
+    expect(webpackConfig).toContain('ocrLanguagePackages');
     expect(documentHtml).toContain('id="pdfViewer"');
     expect(documentHtml).toContain('id="exportPdfFile"');
+    expect(documentHtml).toContain('id="ocrLanguage"');
+    expect(readProjectFile('src/options/options.html')).toContain('id="documentOcrLanguage"');
   });
 });

@@ -196,5 +196,19 @@ describe('BackgroundService provider configuration messages', () => {
       expect.any(Function)
     );
     expect(settingsResponse).toEqual({ success: true });
+
+    const resetResponse = await send({ action: 'resetSettings' });
+    expect(mockStorageManager.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      documentOcrLanguage: 'eng',
+      autoTranslate: false
+    }));
+    expect(resetResponse).toEqual({ success: true });
+
+    const resetAllResponse = await send({ action: 'resetAllSettings' });
+    expect(mockStorageManager.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      documentOcrLanguage: 'eng',
+      autoTranslate: false
+    }));
+    expect(resetAllResponse).toEqual({ success: true });
   });
 });

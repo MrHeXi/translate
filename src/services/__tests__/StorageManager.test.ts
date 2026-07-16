@@ -9,6 +9,7 @@ import {
   TranslationStylePreset,
   UserData
 } from '../StorageManager';
+import type { BundledOcrLanguageCode } from '../BundledOcrService';
 
 // 模拟 Chrome Storage API
 const mockChromeStorage = {
@@ -36,6 +37,13 @@ const mockChromeStorage = {
 
 const translationStyleArbitrary = fc.constantFrom<TranslationStylePreset>('subtle', 'highlight', 'plain');
 const translationScopeArbitrary = fc.constantFrom<PageTranslationScope>('main-content', 'whole-page');
+const ocrLanguageArbitrary = fc.constantFrom<BundledOcrLanguageCode>(
+  'eng',
+  'chi_sim',
+  'chi_tra',
+  'jpn',
+  'kor'
+);
 const siteTranslationRuleArbitrary: fc.Arbitrary<SiteTranslationRule> = fc.record({
   pattern: fc.constantFrom('example.com', 'docs.example.com', '*.example.org'),
   translationEnabled: fc.boolean(),
@@ -59,6 +67,23 @@ describe('StorageManager', () => {
   describe('单元测试', () => {
     it('应该创建 StorageManager 实例', () => {
       expect(storageManager).toBeInstanceOf(StorageManager);
+    });
+
+    it('defaults the bundled OCR language to English and restores a saved choice', async () => {
+      mockChromeStorage.sync.get.mockResolvedValue({});
+      mockChromeStorage.local.get.mockResolvedValue({});
+
+      await expect(storageManager.getSettings()).resolves.toEqual(
+        expect.objectContaining({ documentOcrLanguage: 'eng' })
+      );
+
+      mockChromeStorage.sync.get.mockResolvedValue({
+        settings: { documentOcrLanguage: 'kor' }
+      });
+
+      await expect(storageManager.getSettings()).resolves.toEqual(
+        expect.objectContaining({ documentOcrLanguage: 'kor' })
+      );
     });
 
     it('应该能够保存用户数据到同步存储', async () => {
@@ -214,7 +239,8 @@ describe('StorageManager', () => {
               ),
               translationStyle: translationStyleArbitrary,
               pageTranslationScope: translationScopeArbitrary,
-              siteTranslationRules: fc.array(siteTranslationRuleArbitrary, { maxLength: 3 })
+              siteTranslationRules: fc.array(siteTranslationRuleArbitrary, { maxLength: 3 }),
+              documentOcrLanguage: ocrLanguageArbitrary
             }),
             vocabulary: fc.array(
               fc.record({
@@ -259,6 +285,7 @@ describe('StorageManager', () => {
             expect(loadedData.settings.translationStyle).toBe(originalData.settings.translationStyle);
             expect(loadedData.settings.pageTranslationScope).toBe(originalData.settings.pageTranslationScope);
             expect(loadedData.settings.siteTranslationRules).toEqual(originalData.settings.siteTranslationRules);
+            expect(loadedData.settings.documentOcrLanguage).toBe(originalData.settings.documentOcrLanguage);
             expect(loadedData.settings.learningModeEnabled).toBe(originalData.settings.learningModeEnabled);
             expect(loadedData.vocabulary.length).toBe(originalData.vocabulary.length);
           }
@@ -291,7 +318,8 @@ describe('StorageManager', () => {
               ),
               translationStyle: translationStyleArbitrary,
               pageTranslationScope: translationScopeArbitrary,
-              siteTranslationRules: fc.array(siteTranslationRuleArbitrary, { maxLength: 3 })
+              siteTranslationRules: fc.array(siteTranslationRuleArbitrary, { maxLength: 3 }),
+              documentOcrLanguage: ocrLanguageArbitrary
             }),
             vocabulary: fc.array(
               fc.record({
@@ -359,6 +387,7 @@ describe('StorageManager', () => {
             expect(exportedUserData.settings.translationStyle).toBe(originalData.settings.translationStyle);
             expect(exportedUserData.settings.pageTranslationScope).toBe(originalData.settings.pageTranslationScope);
             expect(exportedUserData.settings.siteTranslationRules).toEqual(originalData.settings.siteTranslationRules);
+            expect(exportedUserData.settings.documentOcrLanguage).toBe(originalData.settings.documentOcrLanguage);
 
             // 验证词汇数据完整性 - 不直接比较，因为日期会被序列化
             // expect(exportedUserData.vocabulary).toEqual(originalData.vocabulary);
@@ -446,7 +475,8 @@ describe('StorageManager', () => {
               ),
               translationStyle: translationStyleArbitrary,
               pageTranslationScope: translationScopeArbitrary,
-              siteTranslationRules: fc.array(siteTranslationRuleArbitrary, { maxLength: 3 })
+              siteTranslationRules: fc.array(siteTranslationRuleArbitrary, { maxLength: 3 }),
+              documentOcrLanguage: ocrLanguageArbitrary
             }),
             vocabulary: fc.array(
               fc.record({
@@ -506,6 +536,7 @@ describe('StorageManager', () => {
               expect(deviceBData.settings.translationStyle).toBe(deviceAData.settings.translationStyle);
               expect(deviceBData.settings.pageTranslationScope).toBe(deviceAData.settings.pageTranslationScope);
               expect(deviceBData.settings.siteTranslationRules).toEqual(deviceAData.settings.siteTranslationRules);
+              expect(deviceBData.settings.documentOcrLanguage).toBe(deviceAData.settings.documentOcrLanguage);
             }
 
             // 验证词汇数据同步一致性

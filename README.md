@@ -14,7 +14,7 @@ It is best for:
 - Translating pasted or uploaded text documents, HTML files, JSON files, DOCX files, EPUB files, subtitle files, and PDFs with local page rendering.
 - Translating video captions when the page exposes subtitle/caption tracks or common DOM-rendered captions.
 - Translating and locally exporting live caption text that is already visible in a page.
-- Translating text from selected or currently visible images, SVGs, and canvases when readable text or browser OCR is available.
+- Translating text from selected or currently visible images, SVGs, and canvases with browser OCR or the bundled offline OCR fallback.
 - Collecting useful words from real context.
 - Reviewing CET4, CET6, GRE, IELTS, TOEFL vocabulary.
 - Keeping a local-first vocabulary notebook with Chrome storage sync support.
@@ -64,9 +64,10 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Export translated `.srt` and `.vtt` subtitle files with their original timing preserved.
 - Parse and render PDF pages locally with Mozilla PDF.js, including compressed text streams, font mappings, page sizes, and positioned text lines.
 - Show original and translated PDF pages side by side, or switch to translation-only or original-only display.
-- Attempt local OCR on image-only PDF pages when the browser provides `TextDetector`, retaining detected bounding boxes for positioned translations.
+- Attempt local OCR on image-only PDF pages with browser `TextDetector` first and bundled Tesseract fallback, retaining detected bounding boxes for positioned translations.
+- Choose bundled OCR recognition for English, Simplified Chinese, Traditional Chinese, Japanese, or Korean and see per-page recognition progress.
 - Export translated PDF pages locally as a flattened visual PDF so browser fonts and the rendered source page remain visible.
-- Browser OCR availability and recognition quality vary. Editable text reflow, form/annotation editing, and layout-perfect Office/eBook conversion remain later work.
+- OCR quality still depends on scan resolution, contrast, orientation, language choice, and page complexity. Editable text reflow, form/annotation editing, and layout-perfect Office/eBook conversion remain later work.
 
 ### Video Subtitle Translation
 
@@ -93,10 +94,10 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Drag over an image or canvas to translate only the selected region, useful for comic speech bubbles or dense screenshots.
 - Click Translate visible images to process eligible images, canvases, and SVGs currently intersecting the viewport.
 - Skip hidden, offscreen, tiny, and extension-owned graphics during a visible-image batch, and stop the batch as soon as image mode is turned off.
-- Use browser `TextDetector` OCR when available, with SVG text and image accessibility text as fallbacks.
-- Render separate translation overlays for detected OCR text blocks when the browser provides bounding boxes.
+- Use browser `TextDetector` OCR when available, then fall back to bundled offline Tesseract OCR for English, Simplified Chinese, Traditional Chinese, Japanese, or Korean.
+- Render separate translation overlays for detected OCR text blocks when either OCR engine provides bounding boxes.
 - Keep every OCR action explicit; opening or scrolling a page never starts image translation.
-- Full scanned-document OCR and automatic manga panel segmentation are planned for later batches.
+- Automatic manga panel segmentation, source-text removal, and in-place image reconstruction are planned for later batches.
 
 ### Vocabulary Learning
 
@@ -214,9 +215,10 @@ In Main content scope, LexiBridge prefers semantic `article`, `main`, and `[role
 ### Translate PDF Files
 
 1. Open the document translator and choose a `.pdf` file.
-2. Review the locally rendered pages and any reported OCR limitations before clicking Translate document.
-3. Choose bilingual, translation-only, or original-only display for the page preview.
-4. Click Export PDF to download flattened translated page images as a new PDF.
+2. Choose the OCR language that matches image-only pages in the file.
+3. Review the locally rendered pages and any reported OCR limitations before clicking Translate document.
+4. Choose bilingual, translation-only, or original-only display for the page preview.
+5. Click Export PDF to download flattened translated page images as a new PDF.
 
 ### Translate Live Captions
 
@@ -228,10 +230,10 @@ In Main content scope, LexiBridge prefers semantic `article`, `main`, and `[role
 
 ### Translate Image Text
 
-1. Open the extension popup.
-2. Click Start in Image text.
+1. Choose the image and PDF OCR language in settings when the image is not English.
+2. Open the extension popup and click Start in Image text.
 3. Click an image, canvas, or SVG, drag over a specific image region, or click Translate visible images to process eligible graphics in the current viewport.
-4. Click Stop to cancel any active visible-image batch, remove its overlays, and exit image text translation mode.
+4. Click Stop to cancel active recognition or a visible-image batch, terminate its local OCR session, remove overlays, and exit image text translation mode.
 
 ### Study Vocabulary
 

@@ -1,7 +1,12 @@
 import { DocumentBlock, DocumentTextExtractor } from '../services/DocumentTextExtractor';
 import {
+  BUNDLED_OCR_LANGUAGES,
+  BundledOcrLanguageCode
+} from '../services/BundledOcrService';
+import {
   PdfDocumentAnalysis,
   PdfDocumentSession,
+  PdfOcrProgress,
   PdfPageSummary,
   pdfDocumentService
 } from '../services/PdfDocumentService';
@@ -18,6 +23,7 @@ interface UserSettings {
   defaultTargetLanguage?: string;
   translationProvider?: string;
   pageTranslationDisplayMode?: DisplayMode;
+  documentOcrLanguage?: BundledOcrLanguageCode;
 }
 
 interface PdfPageView {
@@ -43,6 +49,7 @@ class DocumentTranslatorController {
   private targetLanguage: HTMLSelectElement | null = null;
   private translationProvider: HTMLSelectElement | null = null;
   private displayMode: HTMLSelectElement | null = null;
+  private ocrLanguage: HTMLSelectElement | null = null;
   private message: HTMLElement | null = null;
   private progressBar: HTMLElement | null = null;
   private progressText: HTMLElement | null = null;
@@ -75,6 +82,7 @@ class DocumentTranslatorController {
     this.targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement | null;
     this.translationProvider = document.getElementById('translationProvider') as HTMLSelectElement | null;
     this.displayMode = document.getElementById('displayMode') as HTMLSelectElement | null;
+    this.ocrLanguage = document.getElementById('ocrLanguage') as HTMLSelectElement | null;
     this.message = document.getElementById('documentMessage');
     this.progressBar = document.getElementById('progressBar');
     this.progressText = document.getElementById('progressText');
@@ -111,6 +119,17 @@ class DocumentTranslatorController {
         })
       );
     }
+
+    if (this.ocrLanguage) {
+      this.ocrLanguage.replaceChildren(
+        ...BUNDLED_OCR_LANGUAGES.map(language => {
+          const option = document.createElement('option');
+          option.value = language.code;
+          option.textContent = language.label;
+          return option;
+        })
+      );
+    }
   }
 
   private async loadSettings(): Promise<void> {
@@ -128,6 +147,10 @@ class DocumentTranslatorController {
 
       if (this.displayMode) {
         this.displayMode.value = settings.pageTranslationDisplayMode || 'bilingual';
+      }
+
+      if (this.ocrLanguage) {
+        this.ocrLanguage.value = settings.documentOcrLanguage || 'eng';
       }
     } catch (error) {
       this.showMessage('Could not load settings. Using defaults.', 'error');
@@ -153,6 +176,7 @@ class DocumentTranslatorController {
     this.exportPdfButton?.addEventListener('click', () => void this.exportTranslatedPdf());
     this.clearButton?.addEventListener('click', () => this.clearDocument());
     this.displayMode?.addEventListener('change', () => this.applyDisplayMode());
+    this.ocrLanguage?.addEventListener('change', () => void this.handleOcrLanguageChange());
 
     const openOptions = document.getElementById('openOptions');
     openOptions?.addEventListener('click', () => chrome.runtime.openOptionsPage());
@@ -178,7 +202,10 @@ class DocumentTranslatorController {
 
       if (isPdfDocument && rawBytes) {
         try {
-          this.pdfSession = await pdfDocumentService.open(rawBytes);
+          this.pdfSession = await pdfDocumentService.open(rawBytes, {
+            ocrLanguage: this.getOcrLanguage(),
+            onOcrProgress: progress => this.showOcrProgress(file.name, progress)
+          });
           this.pdfAnalysis = await this.pdfSession.analyze();
           blocks = this.pdfAnalysis.blocks;
           await this.renderPdfPreview();
@@ -612,14 +639,78 @@ class DocumentTranslatorController {
     this.applyPdfDisplayMode();
   }
 
+  private getOcrLanguage(): BundledOcrLanguageCode {
+    const selected = this.ocrLanguage?.value;
+    return BUNDLED_OCR_LANGUAGES.some(language => language.code === selected)
+      ? selected as BundledOcrLanguageCode
+      : 'eng';
+  }
+
+  private showOcrProgress(fileName: string, progress: PdfOcrProgress): void {
+    const percent = Math.round(Math.max(0, Math.min(1, progress.progress)) * 100);
+    const status = progress.status
+      .replace(/[_-]+/g, ' ')
+      .replace(/\b\w/g, character => character.toUpperCase());
+    this.showMessage(`${fileName}: OCR page ${progress.pageNumber}, ${status} ${percent}%`);
+  }
+
+  private async handleOcrLanguageChange(): Promise<void> {
+    const language = this.getOcrLanguage();
+    try {
+      await this.sendMessage({
+        action: 'updateSettings',
+        data: { documentOcrLanguage: language }
+      });
+    } catch {
+      this.showMessage('Could not save the PDF OCR language.', 'error');
+    }
+
+    if (!this.loadedRawFileBytes || !this.isPdfFileName(this.loadedFileName)) return;
+
+    const bytes = this.loadedRawFileBytes;
+    const fileName = this.loadedFileName;
+    try {
+      this.setBusy(true);
+      await this.disposePdfSession();
+      this.pdfSession = await pdfDocumentService.open(bytes, {
+        ocrLanguage: language,
+        onOcrProgress: progress => this.showOcrProgress(fileName, progress)
+      });
+      this.pdfAnalysis = await this.pdfSession.analyze();
+      const blocks = this.pdfAnalysis.blocks;
+      const text = blocks.map(block => block.originalText).join('\n\n');
+      this.loadedDocumentBlocks = blocks;
+      this.loadedSourceText = text;
+      this.currentResults = [];
+      if (this.sourceText) this.sourceText.value = text;
+      await this.renderPdfPreview();
+      this.renderResults([]);
+      this.updateProgress(0, 0);
+      this.updateExportButtons();
+      this.showMessage(
+        this.createPdfLoadedMessage(fileName, this.pdfAnalysis),
+        text.trim() ? 'info' : 'error'
+      );
+    } catch (error) {
+      this.showMessage(error instanceof Error ? error.message : 'Could not rerun PDF OCR.', 'error');
+    } finally {
+      this.setBusy(false);
+    }
+  }
+
   private createPdfLoadedMessage(fileName: string, analysis: PdfDocumentAnalysis): string {
     const parts = [
       `${fileName} loaded`,
       `${analysis.pages.length} page${analysis.pages.length === 1 ? '' : 's'}`,
       `${analysis.blocks.length} positioned block${analysis.blocks.length === 1 ? '' : 's'}`
     ];
-    if (analysis.ocrPageCount > 0) {
-      parts.push(`${analysis.ocrPageCount} OCR page${analysis.ocrPageCount === 1 ? '' : 's'}`);
+    const bundledOcrPageCount = analysis.bundledOcrPageCount || 0;
+    const browserOcrPageCount = Math.max(0, analysis.ocrPageCount - bundledOcrPageCount);
+    if (browserOcrPageCount > 0) {
+      parts.push(`${browserOcrPageCount} browser OCR page${browserOcrPageCount === 1 ? '' : 's'}`);
+    }
+    if (bundledOcrPageCount > 0) {
+      parts.push(`${bundledOcrPageCount} bundled OCR page${bundledOcrPageCount === 1 ? '' : 's'}`);
     }
     if (analysis.unreadablePageCount > 0) {
       parts.push(
@@ -787,6 +878,10 @@ class DocumentTranslatorController {
 
   private isPdfDocumentFile(file: File): boolean {
     return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+  }
+
+  private isPdfFileName(fileName: string): boolean {
+    return fileName.toLowerCase().endsWith('.pdf');
   }
 
   private showMessage(message: string, type: 'info' | 'error' = 'info'): void {

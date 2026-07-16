@@ -29,6 +29,7 @@ import {
   SiteTranslationRule,
   TranslationStylePreset
 } from '../services/TranslationPreferences';
+import type { BundledOcrLanguageCode } from '../services/BundledOcrService';
 
 // 翻译结果接口
 interface TranslationResult {
@@ -54,6 +55,7 @@ interface UserSettings {
   translationStyle?: TranslationStylePreset;
   pageTranslationScope?: PageTranslationScope;
   siteTranslationRules?: SiteTranslationRule[];
+  documentOcrLanguage?: BundledOcrLanguageCode;
 }
 
 class ContentScript {
@@ -260,7 +262,8 @@ class ContentScript {
       pageTranslationExcludeSelectors: [],
       translationStyle: 'subtle',
       pageTranslationScope: 'main-content',
-      siteTranslationRules: []
+      siteTranslationRules: [],
+      documentOcrLanguage: 'eng'
     };
   }
 
@@ -449,7 +452,10 @@ class ContentScript {
   }
 
   private async toggleImageTranslation(): Promise<{ isActive: boolean; hasImage: boolean; message: string }> {
-    return this.imageTranslator.toggle((text) => this.translateInteractiveText(text));
+    return this.imageTranslator.toggle(
+      (text) => this.translateInteractiveText(text),
+      this.userSettings?.documentOcrLanguage || 'eng'
+    );
   }
 
   private async translateVisibleImages(): Promise<VisibleImageTranslationResult> {

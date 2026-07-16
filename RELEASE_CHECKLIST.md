@@ -23,7 +23,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Short description explains web translation plus vocabulary review.
 - [ ] Detailed description mentions manual page translation, selection translation, built-in dictionaries, vocabulary notebook, review, import/export, and Chrome storage sync.
 - [ ] Site-rule and translation-style claims remain limited to manual page translation; do not imply page-load auto translation.
-- [ ] Claim only verified, bounded document, video subtitle, live caption, and image text features; describe PDF output as flattened, browser OCR as availability-dependent, and do not claim editable PDF reflow, guaranteed scanned-PDF OCR, automatic manga translation, audio transcription, meeting bots, or account cloud sync.
+- [ ] Claim only verified, bounded document, video subtitle, live caption, and image text features; describe PDF output as flattened, bundled OCR as local but accuracy-dependent, and do not claim editable PDF reflow, guaranteed scanned-PDF OCR, automatic manga translation, image inpainting, audio transcription, meeting bots, or account cloud sync.
 - [ ] Include support contact or repository issue link.
 
 ## Screenshots
@@ -67,7 +67,10 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Confirm exact and wildcard site rules override display/scope/style/exclusions, and a blocked site remains untranslated after a manual Start click.
 - [ ] Confirm Main content excludes navigation/footer text on a representative article and Whole page includes it only after manual Start.
 - [ ] Load a standards-compliant PDF, confirm original and translated page previews render, switch all three display modes, and export a flattened translated PDF.
-- [ ] Confirm an image-only PDF attempts local browser OCR when `TextDetector` is available and reports pages without detected text otherwise.
+- [ ] Confirm an image-only PDF tries local browser OCR first, falls back to bundled Tesseract OCR, reports per-page progress, and reports pages without detected text.
+- [ ] Confirm English, Simplified Chinese, Traditional Chinese, Japanese, and Korean OCR choices persist and are shared by PDF and image translation.
+- [ ] Confirm `dist/ocr` includes the worker, SIMD/non-SIMD LSTM core files, five compressed language models, and license files.
+- [ ] Confirm Stop terminates an active image OCR session and removes all image overlays without starting work on another image.
 - [ ] Confirm selected text shows a translation tooltip.
 - [ ] Configure each credentialed provider with a test key or mock endpoint, verify masked-key display, and verify Remove credentials.
 - [ ] Confirm Image text stays idle until Start plus a click, drag, or Translate visible images action; confirm Stop cancels the remaining visible-image batch and clears overlays.

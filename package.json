@@ -49,8 +49,14 @@
     "webpack-cli": "^5.1.4"
   },
   "dependencies": {
+    "@tesseract.js-data/chi_sim": "^1.0.0",
+    "@tesseract.js-data/chi_tra": "^1.0.0",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "@tesseract.js-data/jpn": "^1.0.0",
+    "@tesseract.js-data/kor": "^1.0.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^3.11.174",
+    "tesseract.js": "^5.1.1",
     "webextension-polyfill": "^0.10.0"
   }
 }

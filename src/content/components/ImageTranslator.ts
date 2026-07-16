@@ -1,3 +1,10 @@
+import {
+  BundledOcrLanguageCode,
+  BundledOcrSession,
+  BundledOcrService,
+  bundledOcrService
+} from '../../services/BundledOcrService';
+
 export interface ImageTranslatorState {
   isActive: boolean;
   hasImage: boolean;
@@ -87,6 +94,8 @@ export class ImageTranslator {
   private nextTargetTranslationRun = 0;
   private visibleImageRun = 0;
   private nextOverlayId = 0;
+  private ocrLanguage: BundledOcrLanguageCode = 'eng';
+  private bundledOcrSession: BundledOcrSession | null = null;
   private boundHandleClick = (event: MouseEvent): void => {
     void this.handleImageClick(event);
   };
@@ -100,7 +109,12 @@ export class ImageTranslator {
     void this.handleMouseUp(event);
   };
 
-  async toggle(translateText: TranslateText): Promise<ImageTranslatorState> {
+  constructor(private readonly imageOcrService: BundledOcrService = bundledOcrService) {}
+
+  async toggle(
+    translateText: TranslateText,
+    ocrLanguage: BundledOcrLanguageCode = 'eng'
+  ): Promise<ImageTranslatorState> {
     if (this.isActive) {
       this.disable();
       return {
@@ -110,12 +124,16 @@ export class ImageTranslator {
       };
     }
 
-    return this.enable(translateText);
+    return this.enable(translateText, ocrLanguage);
   }
 
-  enable(translateText: TranslateText): ImageTranslatorState {
+  enable(
+    translateText: TranslateText,
+    ocrLanguage: BundledOcrLanguageCode = 'eng'
+  ): ImageTranslatorState {
     this.isActive = true;
     this.translateText = translateText;
+    this.ocrLanguage = ocrLanguage;
     this.createStyleElement();
     document.body.classList.add('lexibridge-image-translation-mode');
     document.addEventListener('mousedown', this.boundHandleMouseDown, true);
@@ -147,6 +165,7 @@ export class ImageTranslator {
     this.styleElement?.remove();
     this.styleElement = null;
     this.targetTranslationRuns = new WeakMap();
+    void this.terminateBundledOcrSession();
   }
 
   getStatus(): ImageTranslatorState {
@@ -254,6 +273,7 @@ export class ImageTranslator {
     this.renderStatus(target, 'Reading image text...');
 
     const imageBlocks = await this.extractImageTextBlocks(target);
+    if (!this.isActive) return;
     if (imageBlocks.length === 0) {
       this.renderStatus(target, 'No readable image text found');
       return;
@@ -306,6 +326,7 @@ export class ImageTranslator {
     this.renderStatus(selectionState.target, 'Reading selected image area...', region);
 
     const imageBlocks = await this.extractImageTextBlocks(selectionState.target, region);
+    if (!this.isActive) return;
     if (imageBlocks.length === 0) {
       this.renderStatus(selectionState.target, 'No readable text found in selection', region);
       return;
@@ -454,6 +475,11 @@ export class ImageTranslator {
       return this.uniqueImageTextBlocks(detectedBlocks);
     }
 
+    const bundledBlocks = await this.extractWithBundledOcr(element, region);
+    if (bundledBlocks.length > 0) {
+      return this.uniqueImageTextBlocks(bundledBlocks);
+    }
+
     const svgText = this.extractSvgText(element);
     const accessibleText = region ? '' : this.extractAccessibleText(element);
 
@@ -495,6 +521,62 @@ export class ImageTranslator {
     } catch (error) {
       return [];
     }
+  }
+
+  private async extractWithBundledOcr(
+    element: Element,
+    region?: ImageSelectionRegion
+  ): Promise<ImageTextBlock[]> {
+    if (!(element instanceof HTMLImageElement) && !(element instanceof HTMLCanvasElement)) {
+      return [];
+    }
+
+    try {
+      if (element instanceof HTMLImageElement && !element.complete && typeof element.decode === 'function') {
+        await element.decode();
+      }
+
+      const mapping = this.getImageBitmapMapping(element, region);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.ceil(mapping.sourceWidth));
+      canvas.height = Math.max(1, Math.ceil(mapping.sourceHeight));
+      const context = canvas.getContext('2d', { alpha: false });
+      if (!context) return [];
+
+      context.drawImage(
+        element,
+        mapping.sourceX,
+        mapping.sourceY,
+        mapping.sourceWidth,
+        mapping.sourceHeight,
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
+      const session = this.getBundledOcrSession();
+      const lines = await session.recognize(canvas);
+
+      return lines.map(line => ({
+        text: this.normalizeText(line.text),
+        viewportRect: this.mapDetectedTextBoxToViewport(line.boundingBox, mapping)
+      })).filter(block => Boolean(block.text));
+    } catch {
+      return [];
+    }
+  }
+
+  private getBundledOcrSession(): BundledOcrSession {
+    if (!this.bundledOcrSession) {
+      this.bundledOcrSession = this.imageOcrService.createSession(this.ocrLanguage);
+    }
+    return this.bundledOcrSession;
+  }
+
+  private async terminateBundledOcrSession(): Promise<void> {
+    const session = this.bundledOcrSession;
+    this.bundledOcrSession = null;
+    await session?.terminate();
   }
 
   private async createRegionBitmap(

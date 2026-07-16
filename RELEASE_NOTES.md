@@ -17,12 +17,13 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Selected-text translation tooltip with vocabulary collection actions.
 - Control-hover paragraph translation for on-demand reading help.
 - Input box translation by typing three trailing spaces.
-- Document translator for pasted text, text files, HTML, JSON, DOCX, EPUB, subtitle files, and PDFs, with bundled PDF.js page rendering, positioned text extraction, local browser OCR fallback for image-only pages, side-by-side original/translated previews, and flattened translated-PDF export.
+- Document translator for pasted text, text files, HTML, JSON, DOCX, EPUB, subtitle files, and PDFs, with bundled PDF.js page rendering, positioned text extraction, browser-plus-bundled offline OCR for image-only pages, side-by-side original/translated previews, and flattened translated-PDF export.
 - Video subtitle translation for pages that expose caption/subtitle text tracks or common DOM-rendered caption containers.
 - SRT export for translated video subtitle cues from the current session.
 - Live caption translation for caption text already visible in the page DOM, with Google Meet, Zoom, Microsoft Teams, and Webex-style speaker label handling.
 - Timestamped bilingual live-caption transcripts with incremental-caption coalescing, in-memory session retention after Stop, explicit Clear, and local TXT/SRT/VTT/JSON export.
-- Manual image text translation for selected images, canvases, SVGs, dragged image regions, and eligible graphics currently visible in the viewport, using browser OCR when available and retaining separate per-image or OCR-block overlays.
+- Manual image text translation for selected images, canvases, SVGs, dragged image regions, and eligible graphics currently visible in the viewport, using browser OCR first and bundled offline OCR otherwise while retaining separate per-image or OCR-block overlays.
+- Persisted offline OCR language selection for English, Simplified Chinese, Traditional Chinese, Japanese, and Korean, with PDF page progress and local worker cleanup on Stop.
 - Explicit Translate visible images command with hidden/offscreen/tiny/extension-owned filtering, duplicate-text request caching, and immediate batch cancellation when Image text stops.
 - 100+ target language choices in settings.
 - Six working provider integrations: Google Translate and MyMemory without credentials, plus user-configured DeepL, Microsoft Translator, OpenAI-compatible endpoints, and Google Gemini.
@@ -38,7 +39,7 @@ Verified on 2026-07-16:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 40 test suites and 282 tests.
+- `jest --runInBand --silent`: passed, 41 test suites and 291 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 
@@ -46,11 +47,14 @@ Expected build warnings:
 
 - Built-in vocabulary JSON files exceed the default webpack asset-size recommendation.
 - The PDF.js document bundle and worker also exceed the recommendation because PDF parsing, rendering, fonts, and character maps are shipped locally instead of loaded from a CDN.
-- These warnings are accepted because the dictionaries and PDF runtime are bundled product data.
+- Bundled OCR language models and WebAssembly cores also exceed the recommendation because recognition runs locally without an OCR server.
+- These warnings are accepted because the dictionaries, PDF runtime, and OCR runtime are bundled product data.
 
 ### Local Install Package
 
 - Unpacked extension folder: `dist`
 - Test package: `chrome-translation-extension.zip`
+- ZIP size: `17,680,300` bytes
+- SHA-256: `7C0E52261F41BCE9A01F02E1BAF6D90E476119E606F6DB7AB734A5364192B983`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

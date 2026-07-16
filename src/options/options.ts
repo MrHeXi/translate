@@ -14,6 +14,10 @@ import {
   SiteTranslationRule,
   TranslationStylePreset
 } from '../services/TranslationPreferences';
+import {
+  BUNDLED_OCR_LANGUAGES,
+  BundledOcrLanguageCode
+} from '../services/BundledOcrService';
 
 interface UserSettings {
   defaultTargetLanguage: string;
@@ -32,6 +36,7 @@ interface UserSettings {
   translationStyle?: TranslationStylePreset;
   pageTranslationScope?: PageTranslationScope;
   siteTranslationRules?: SiteTranslationRule[];
+  documentOcrLanguage?: BundledOcrLanguageCode;
 }
 
 interface LearningStats {
@@ -162,6 +167,9 @@ class OptionsController {
     const targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement;
     targetLanguage?.addEventListener('change', () => this.onSettingChange());
 
+    const documentOcrLanguage = document.getElementById('documentOcrLanguage') as HTMLSelectElement;
+    documentOcrLanguage?.addEventListener('change', () => this.onSettingChange());
+
     const translationProvider = document.getElementById('translationProvider') as HTMLSelectElement;
     translationProvider?.addEventListener('change', () => {
       this.onSettingChange();
@@ -220,6 +228,18 @@ class OptionsController {
     if (targetLanguage && typeof targetLanguage.replaceChildren === 'function') {
       targetLanguage.replaceChildren(
         ...TRANSLATION_LANGUAGES.map(language => {
+          const option = document.createElement('option');
+          option.value = language.code;
+          option.textContent = language.label;
+          return option;
+        })
+      );
+    }
+
+    const documentOcrLanguage = document.getElementById('documentOcrLanguage') as HTMLSelectElement | null;
+    if (documentOcrLanguage && typeof documentOcrLanguage.replaceChildren === 'function') {
+      documentOcrLanguage.replaceChildren(
+        ...BUNDLED_OCR_LANGUAGES.map(language => {
           const option = document.createElement('option');
           option.value = language.code;
           option.textContent = language.label;
@@ -338,6 +358,11 @@ class OptionsController {
 
     const targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement;
     if (targetLanguage) this.setSelectValue(targetLanguage, this.settings.defaultTargetLanguage, 'zh-CN');
+
+    const documentOcrLanguage = document.getElementById('documentOcrLanguage') as HTMLSelectElement;
+    if (documentOcrLanguage) {
+      this.setSelectValue(documentOcrLanguage, this.settings.documentOcrLanguage || 'eng', 'eng');
+    }
 
     const translationProvider = document.getElementById('translationProvider') as HTMLSelectElement;
     if (translationProvider) this.setSelectValue(translationProvider, this.settings.translationProvider, 'google');
@@ -889,6 +914,10 @@ class OptionsController {
 
   private collectSettingsFromUI(): UserSettings {
     const targetLanguage = (document.getElementById('targetLanguage') as HTMLSelectElement)?.value || 'zh-CN';
+    const selectedOcrLanguage = (document.getElementById('documentOcrLanguage') as HTMLSelectElement)?.value;
+    const documentOcrLanguage = BUNDLED_OCR_LANGUAGES.some(language => language.code === selectedOcrLanguage)
+      ? selectedOcrLanguage as BundledOcrLanguageCode
+      : 'eng';
     const translationProvider = (document.getElementById('translationProvider') as HTMLSelectElement)?.value || 'google';
     const pageTranslationDisplayMode = (
       (document.getElementById('pageTranslationDisplayMode') as HTMLSelectElement)?.value || 'bilingual'
@@ -929,6 +958,7 @@ class OptionsController {
 
     return {
       defaultTargetLanguage: targetLanguage,
+      documentOcrLanguage,
       translationProvider: translationProvider,
       pageTranslationDisplayMode: pageTranslationDisplayMode,
       translationStyle,

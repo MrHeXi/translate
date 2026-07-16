@@ -2,6 +2,9 @@ const path = require('path');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const pdfjsRoot = path.dirname(require.resolve('pdfjs-dist/package.json'));
+const tesseractRoot = path.dirname(require.resolve('tesseract.js/package.json'));
+const tesseractCoreRoot = path.dirname(require.resolve('tesseract.js-core/package.json'));
+const ocrLanguagePackages = ['eng', 'chi_sim', 'chi_tra', 'jpn', 'kor'];
 
 module.exports = (env, argv) => {
   const isProduction = argv.mode === 'production';
@@ -122,7 +125,35 @@ module.exports = (env, argv) => {
           {
             from: path.join(pdfjsRoot, 'standard_fonts'),
             to: 'pdfjs/standard_fonts'
-          }
+          },
+          {
+            from: path.join(tesseractRoot, 'dist/worker.min.js'),
+            to: 'ocr/worker.min.js'
+          },
+          {
+            from: path.join(tesseractRoot, 'LICENSE.md'),
+            to: 'ocr/licenses/tesseract-js.txt'
+          },
+          {
+            from: path.join(tesseractCoreRoot, 'LICENSE'),
+            to: 'ocr/licenses/tesseract-core.txt'
+          },
+          ...[
+            'tesseract-core-lstm.wasm.js',
+            'tesseract-core-lstm.wasm',
+            'tesseract-core-simd-lstm.wasm.js',
+            'tesseract-core-simd-lstm.wasm'
+          ].map(fileName => ({
+            from: path.join(tesseractCoreRoot, fileName),
+            to: `ocr/core/${fileName}`
+          })),
+          ...ocrLanguagePackages.map(language => ({
+            from: path.join(
+              path.dirname(require.resolve(`@tesseract.js-data/${language}/package.json`)),
+              `4.0.0_best_int/${language}.traineddata.gz`
+            ),
+            to: `ocr/lang/${language}.traineddata.gz`
+          }))
         ]
       })
     ],
