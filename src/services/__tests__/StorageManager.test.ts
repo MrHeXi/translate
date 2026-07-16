@@ -1,7 +1,13 @@
 // StorageManager 属性测试文件
 
 import * as fc from 'fast-check';
-import { PageTranslationDisplayMode, StorageManager, UserData } from '../StorageManager';
+import {
+  PageTranslationDisplayMode,
+  SiteTranslationRule,
+  StorageManager,
+  TranslationStylePreset,
+  UserData
+} from '../StorageManager';
 
 // 模拟 Chrome Storage API
 const mockChromeStorage = {
@@ -26,6 +32,18 @@ const mockChromeStorage = {
 (global as any).chrome = {
   storage: mockChromeStorage
 };
+
+const translationStyleArbitrary = fc.constantFrom<TranslationStylePreset>('subtle', 'highlight', 'plain');
+const siteTranslationRuleArbitrary: fc.Arbitrary<SiteTranslationRule> = fc.record({
+  pattern: fc.constantFrom('example.com', 'docs.example.com', '*.example.org'),
+  translationEnabled: fc.boolean(),
+  displayMode: fc.option(
+    fc.constantFrom<PageTranslationDisplayMode>('bilingual', 'translation-only', 'original-only'),
+    { nil: undefined }
+  ),
+  translationStyle: fc.option(translationStyleArbitrary, { nil: undefined }),
+  excludeSelectors: fc.array(fc.constantFrom('nav', 'footer', '.comments'), { maxLength: 3 })
+});
 
 describe('StorageManager', () => {
   let storageManager: StorageManager;
@@ -132,7 +150,15 @@ describe('StorageManager', () => {
 
     it('keeps provider credentials out of Chrome sync', async () => {
       mockChromeStorage.local.get.mockResolvedValue({
-        settings: { translationProvider: 'openai' },
+        settings: {
+          translationProvider: 'openai',
+          translationStyle: 'highlight',
+          siteTranslationRules: [{
+            pattern: '*.example.com',
+            translationEnabled: false,
+            excludeSelectors: ['nav']
+          }]
+        },
         vocabulary: [{ word: 'private' }],
         translationProviderConfigs: {
           openai: { apiKey: 'must-stay-local' }
@@ -143,7 +169,15 @@ describe('StorageManager', () => {
       await storageManager.syncData();
 
       expect(mockChromeStorage.sync.set).toHaveBeenCalledWith({
-        settings: { translationProvider: 'openai' },
+        settings: {
+          translationProvider: 'openai',
+          translationStyle: 'highlight',
+          siteTranslationRules: [{
+            pattern: '*.example.com',
+            translationEnabled: false,
+            excludeSelectors: ['nav']
+          }]
+        },
         vocabulary: [{ word: 'private' }]
       });
       expect(JSON.stringify(mockChromeStorage.sync.set.mock.calls)).not.toContain('must-stay-local');
@@ -172,7 +206,9 @@ describe('StorageManager', () => {
               pageTranslationExcludeSelectors: fc.array(
                 fc.constantFrom('nav', 'footer', '.comments', '[data-no-translate]'),
                 { maxLength: 4 }
-              )
+              ),
+              translationStyle: translationStyleArbitrary,
+              siteTranslationRules: fc.array(siteTranslationRuleArbitrary, { maxLength: 3 })
             }),
             vocabulary: fc.array(
               fc.record({
@@ -214,6 +250,8 @@ describe('StorageManager', () => {
             expect(loadedData.settings.defaultTargetLanguage).toBe(originalData.settings.defaultTargetLanguage);
             expect(loadedData.settings.translationProvider).toBe(originalData.settings.translationProvider);
             expect(loadedData.settings.pageTranslationDisplayMode).toBe(originalData.settings.pageTranslationDisplayMode);
+            expect(loadedData.settings.translationStyle).toBe(originalData.settings.translationStyle);
+            expect(loadedData.settings.siteTranslationRules).toEqual(originalData.settings.siteTranslationRules);
             expect(loadedData.settings.learningModeEnabled).toBe(originalData.settings.learningModeEnabled);
             expect(loadedData.vocabulary.length).toBe(originalData.vocabulary.length);
           }
@@ -243,7 +281,9 @@ describe('StorageManager', () => {
               pageTranslationExcludeSelectors: fc.array(
                 fc.constantFrom('nav', 'footer', '.comments', '[data-no-translate]'),
                 { maxLength: 4 }
-              )
+              ),
+              translationStyle: translationStyleArbitrary,
+              siteTranslationRules: fc.array(siteTranslationRuleArbitrary, { maxLength: 3 })
             }),
             vocabulary: fc.array(
               fc.record({
@@ -308,6 +348,8 @@ describe('StorageManager', () => {
             expect(exportedUserData.settings.pageTranslationExcludeSelectors).toEqual(
               originalData.settings.pageTranslationExcludeSelectors
             );
+            expect(exportedUserData.settings.translationStyle).toBe(originalData.settings.translationStyle);
+            expect(exportedUserData.settings.siteTranslationRules).toEqual(originalData.settings.siteTranslationRules);
 
             // 验证词汇数据完整性 - 不直接比较，因为日期会被序列化
             // expect(exportedUserData.vocabulary).toEqual(originalData.vocabulary);
@@ -392,7 +434,9 @@ describe('StorageManager', () => {
               pageTranslationExcludeSelectors: fc.array(
                 fc.constantFrom('nav', 'footer', '.comments', '[data-no-translate]'),
                 { maxLength: 4 }
-              )
+              ),
+              translationStyle: translationStyleArbitrary,
+              siteTranslationRules: fc.array(siteTranslationRuleArbitrary, { maxLength: 3 })
             }),
             vocabulary: fc.array(
               fc.record({
@@ -449,6 +493,8 @@ describe('StorageManager', () => {
               expect(deviceBData.settings.pageTranslationExcludeSelectors).toEqual(
                 deviceAData.settings.pageTranslationExcludeSelectors
               );
+              expect(deviceBData.settings.translationStyle).toBe(deviceAData.settings.translationStyle);
+              expect(deviceBData.settings.siteTranslationRules).toEqual(deviceAData.settings.siteTranslationRules);
             }
 
             // 验证词汇数据同步一致性

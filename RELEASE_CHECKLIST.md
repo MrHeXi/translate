@@ -22,6 +22,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Name: `LexiBridge Translate`.
 - [ ] Short description explains web translation plus vocabulary review.
 - [ ] Detailed description mentions manual page translation, selection translation, built-in dictionaries, vocabulary notebook, review, import/export, and Chrome storage sync.
+- [ ] Site-rule and translation-style claims remain limited to manual page translation; do not imply page-load auto translation.
 - [ ] Claim only verified, bounded document, video subtitle, live caption, and image text features; do not claim full PDF layout translation, scanned-PDF OCR, automatic manga translation, audio transcription, meeting bots, or account cloud sync.
 - [ ] Include support contact or repository issue link.
 
@@ -62,6 +63,8 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Confirm extension name and icon are correct in Chrome.
 - [ ] Confirm page translation does not start automatically.
 - [ ] Confirm the floating button starts translation and the next click stops it.
+- [ ] Confirm all three translation styles update existing translated blocks.
+- [ ] Confirm exact and wildcard site rules override display/style/exclusions, and a blocked site remains untranslated after a manual Start click.
 - [ ] Confirm selected text shows a translation tooltip.
 - [ ] Configure each credentialed provider with a test key or mock endpoint, verify masked-key display, and verify Remove credentials.
 - [ ] Confirm Image text stays idle until Start plus a click, drag, or Translate visible images action; confirm Stop cancels the remaining visible-image batch and clears overlays.

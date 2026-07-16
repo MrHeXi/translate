@@ -194,10 +194,133 @@ body {
   color: #b42318;
 }
 
+.site-rules-section {
+  min-width: 0;
+  margin: 18px 0 0;
+  padding: 16px 0 0;
+  border: 0;
+  border-top: 1px solid #dce3ee;
+}
+
+.site-rules-section legend {
+  padding: 0;
+  color: #25334a;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.site-rule-editor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin-top: 12px;
+}
+
+.site-rule-field {
+  display: grid;
+  gap: 6px;
+  color: #555;
+  font-weight: 500;
+}
+
+.site-rule-field input,
+.site-rule-field select,
+.site-rule-field textarea {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #cfd8e6;
+  border-radius: 4px;
+  color: #172033;
+  font: inherit;
+}
+
+.site-rule-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: end;
+  min-height: 38px;
+  color: #555;
+  font-weight: 500;
+}
+
+.site-rule-selectors,
+.site-rule-editor-footer {
+  grid-column: 1 / -1;
+}
+
+.site-rule-editor-footer,
+.site-rule-editor-actions,
+.site-rule-row,
+.site-rule-actions {
+  display: flex;
+  align-items: center;
+}
+
+.site-rule-editor-footer,
+.site-rule-row {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.site-rule-editor-actions,
+.site-rule-actions {
+  gap: 8px;
+}
+
+.site-rule-editor-footer p {
+  min-height: 18px;
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.site-rule-editor-footer p.error {
+  color: #b42318;
+}
+
+.site-rule-list {
+  margin-top: 14px;
+  border-top: 1px solid #e7ebf2;
+}
+
+.site-rule-row {
+  min-width: 0;
+  padding: 10px 0;
+  border-bottom: 1px solid #e7ebf2;
+}
+
+.site-rule-summary {
+  min-width: 0;
+}
+
+.site-rule-summary strong,
+.site-rule-summary span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.site-rule-summary strong {
+  color: #25334a;
+  font-size: 14px;
+}
+
+.site-rule-summary span,
+.site-rule-empty {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.site-rule-actions button {
+  min-width: 64px;
+}
+
 @media (max-width: 720px) {
   .provider-config-heading,
   .provider-config-footer,
-  .provider-config-field {
+  .provider-config-field,
+  .site-rule-editor {
     grid-template-columns: 1fr;
     align-items: stretch;
   }
@@ -205,6 +328,22 @@ body {
   .provider-config-heading,
   .provider-config-footer {
     flex-direction: column;
+  }
+
+  .site-rule-selectors,
+  .site-rule-editor-footer {
+    grid-column: 1;
+  }
+
+  .site-rule-editor-footer,
+  .site-rule-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .site-rule-editor-actions,
+  .site-rule-actions {
+    justify-content: flex-end;
   }
 }
 

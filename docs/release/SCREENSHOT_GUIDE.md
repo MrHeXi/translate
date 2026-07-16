@@ -125,6 +125,7 @@ Capture the options page with:
 - Dictionary selection visible.
 - Translation provider and target language controls visible.
 - A credentialed provider configuration panel may be shown with only a masked key summary; never expose a full API key.
+- Translation style and site-rule controls visible with a non-private sample domain.
 - Floating button setting visible.
 - Page translation exclude selectors visible.
 
@@ -132,6 +133,7 @@ Capture the options page with:
 
 - Private browsing data or account details.
 - Any claim that translation starts automatically.
+- Private intranet domains or personal site-rule entries.
 - Unsupported feature claims beyond web page translation, text-based document translation, selected-text translation, vocabulary collection, review, import/export, and Chrome storage sync.
 - Claims for full scanned PDF OCR, automatic manga segmentation, or layout-preserving PDF translation.
 - Claims for layout-perfect Office/eBook conversion.

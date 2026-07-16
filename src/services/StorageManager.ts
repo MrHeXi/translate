@@ -5,6 +5,13 @@ import {
   isAvailableTranslationProvider,
   TranslationProviderRuntimeConfig
 } from './TranslationProviderRegistry';
+import type {
+  PageTranslationDisplayMode,
+  SiteTranslationRule,
+  TranslationStylePreset
+} from './TranslationPreferences';
+
+export type { PageTranslationDisplayMode, SiteTranslationRule, TranslationStylePreset } from './TranslationPreferences';
 
 export interface UserSettings {
   defaultTargetLanguage: string;
@@ -17,6 +24,8 @@ export interface UserSettings {
   autoTranslate: boolean;
   showFloatingIcon: boolean;
   pageTranslationExcludeSelectors?: string[];
+  translationStyle?: TranslationStylePreset;
+  siteTranslationRules?: SiteTranslationRule[];
 }
 
 export interface TranslationProviderConfigSummary {
@@ -27,8 +36,6 @@ export interface TranslationProviderConfigSummary {
   model: string;
   region: string;
 }
-
-export type PageTranslationDisplayMode = 'bilingual' | 'translation-only' | 'original-only';
 
 export interface UserData {
   settings: UserSettings;
@@ -55,7 +62,9 @@ export class StorageManager {
     },
     autoTranslate: false,
     showFloatingIcon: true,
-    pageTranslationExcludeSelectors: []
+    pageTranslationExcludeSelectors: [],
+    translationStyle: 'subtle',
+    siteTranslationRules: []
   };
 
   async saveUserData(data: Partial<UserData>): Promise<void> {

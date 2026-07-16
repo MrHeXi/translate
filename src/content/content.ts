@@ -2,7 +2,7 @@
 // 在网页中注入翻译功能
 
 import { FloatingIcon } from './components/FloatingIcon';
-import { PageTranslationDisplayMode, TranslationOverlay } from './components/TranslationOverlay';
+import { TranslationOverlay } from './components/TranslationOverlay';
 import { SelectionHandler } from './components/SelectionHandler';
 import { HoverTranslator } from './components/HoverTranslator';
 import { InputBoxTranslator } from './components/InputBoxTranslator';
@@ -20,6 +20,13 @@ import { performanceManager } from '../services/PerformanceManager';
 import { errorHandler, ErrorType, ErrorSeverity } from '../services/ErrorHandler';
 import { offlineManager } from '../services/OfflineManager';
 import { loadingManager } from '../services/LoadingManager';
+import {
+  EffectivePageTranslationPreferences,
+  PageTranslationDisplayMode,
+  resolvePageTranslationPreferences,
+  SiteTranslationRule,
+  TranslationStylePreset
+} from '../services/TranslationPreferences';
 
 // 翻译结果接口
 interface TranslationResult {
@@ -42,6 +49,8 @@ interface UserSettings {
   autoTranslate: boolean;
   showFloatingIcon: boolean;
   pageTranslationExcludeSelectors?: string[];
+  translationStyle?: TranslationStylePreset;
+  siteTranslationRules?: SiteTranslationRule[];
 }
 
 class ContentScript {
@@ -62,6 +71,12 @@ class ContentScript {
   private isInitialized: boolean = false;
   private translationRunId: number = 0;
   private pageTranslationLoadingId: string | null = null;
+  private effectivePageTranslationPreferences: EffectivePageTranslationPreferences = {
+    translationEnabled: true,
+    displayMode: 'bilingual',
+    translationStyle: 'subtle',
+    excludeSelectors: []
+  };
 
   constructor() {
     this.floatingIcon = new FloatingIcon();
@@ -142,12 +157,12 @@ class ContentScript {
       chrome.runtime.sendMessage({ action: 'getSettings' }, (response) => {
         if (response?.success) {
           this.userSettings = response.data;
-          this.translationOverlay.setDisplayMode(this.userSettings?.pageTranslationDisplayMode || 'bilingual');
+          this.applyPageTranslationPreferences();
           resolve();
         } else {
           console.warn('加载用户设置失败，使用默认设置');
           this.userSettings = this.getDefaultSettings();
-          this.translationOverlay.setDisplayMode(this.userSettings.pageTranslationDisplayMode);
+          this.applyPageTranslationPreferences();
           resolve();
         }
       });
@@ -237,7 +252,9 @@ class ContentScript {
       },
       autoTranslate: false,
       showFloatingIcon: true,
-      pageTranslationExcludeSelectors: []
+      pageTranslationExcludeSelectors: [],
+      translationStyle: 'subtle',
+      siteTranslationRules: []
     };
   }
 
@@ -345,6 +362,14 @@ class ContentScript {
 
     if (this.isTranslationMode) {
       this.disableTranslationMode();
+      return;
+    }
+
+    this.applyPageTranslationPreferences();
+    const preferences = this.getEffectivePageTranslationPreferences();
+    if (!preferences.translationEnabled) {
+      this.translationOverlay.showError('Page translation is disabled for this site in settings.');
+      this.floatingIcon.updateState(false);
       return;
     }
 
@@ -758,7 +783,7 @@ class ContentScript {
           this.translationOverlay.addTranslation(
             node,
             translation,
-            this.userSettings?.pageTranslationDisplayMode || 'bilingual'
+            this.getEffectivePageTranslationPreferences().displayMode
           );
         } catch (error) {
           console.warn('翻译文本节点失败:', error);
@@ -825,7 +850,7 @@ class ContentScript {
       return true;
     }
 
-    const selectors = this.userSettings?.pageTranslationExcludeSelectors || [];
+    const selectors = this.getEffectivePageTranslationPreferences().excludeSelectors;
     return selectors.some(selector => this.safeClosest(element, selector));
   }
 
@@ -916,7 +941,10 @@ class ContentScript {
     if (!this.userSettings) return;
 
     try {
-      this.translationOverlay.setDisplayMode(this.userSettings.pageTranslationDisplayMode || 'bilingual');
+      const preferences = this.applyPageTranslationPreferences();
+      if (this.isTranslationMode && !preferences.translationEnabled) {
+        this.disableTranslationMode();
+      }
 
       // 更新浮动图标位置
       this.floatingIcon.updatePosition(this.userSettings.floatingIconPosition);
@@ -940,6 +968,7 @@ class ContentScript {
   }
 
   private getPageInfo(): any {
+    const preferences = this.getEffectivePageTranslationPreferences();
     return {
       url: window.location.href,
       title: document.title,
@@ -949,8 +978,25 @@ class ContentScript {
       isLearningMode: this.isLearningMode,
       isVideoSubtitleMode: this.videoSubtitleTranslator.getStatus().isActive,
       isLiveCaptionMode: this.liveCaptionTranslator.getStatus().isActive,
-      isImageTranslationMode: this.imageTranslator.getStatus().isActive
+      isImageTranslationMode: this.imageTranslator.getStatus().isActive,
+      pageTranslationAllowed: preferences.translationEnabled,
+      matchedSiteRule: preferences.matchedPattern || null
     };
+  }
+
+  private getEffectivePageTranslationPreferences(): EffectivePageTranslationPreferences {
+    return this.effectivePageTranslationPreferences;
+  }
+
+  private applyPageTranslationPreferences(): EffectivePageTranslationPreferences {
+    const preferences = resolvePageTranslationPreferences(
+      window.location.hostname,
+      this.userSettings || this.getDefaultSettings()
+    );
+    this.effectivePageTranslationPreferences = preferences;
+    this.translationOverlay.setDisplayMode(preferences.displayMode);
+    this.translationOverlay.setStylePreset(preferences.translationStyle);
+    return preferences;
   }
 
   // 清理资源

@@ -570,7 +570,36 @@ class BackgroundService {
 
   private async handleUpdateSettingsRequest(request: MessageRequest): Promise<MessageResponse> {
     await this.storageManager.saveSettings(request.data);
+    await this.broadcastSettingsUpdate(request.data);
     return { success: true };
+  }
+
+  private async broadcastSettingsUpdate(settings: Record<string, unknown>): Promise<void> {
+    if (!chrome.tabs?.query || !chrome.tabs?.sendMessage) return;
+
+    try {
+      const tabs = await new Promise<chrome.tabs.Tab[]>(resolve => {
+        chrome.tabs.query({}, resolve);
+      });
+
+      await Promise.all(tabs.map(tab => new Promise<void>(resolve => {
+        if (tab.id === undefined) {
+          resolve();
+          return;
+        }
+
+        try {
+          chrome.tabs.sendMessage(tab.id, { action: 'updateSettings', data: settings }, () => {
+            void chrome.runtime.lastError;
+            resolve();
+          });
+        } catch {
+          resolve();
+        }
+      })));
+    } catch {
+      // Settings are already saved; tabs without a content script can refresh later.
+    }
   }
 
   private async handleGetTranslationProviderConfigsRequest(): Promise<MessageResponse> {
@@ -686,9 +715,11 @@ class BackgroundService {
       defaultTargetLanguage: 'zh-CN',
       translationProvider: 'google',
       pageTranslationDisplayMode: 'bilingual' as const,
+      translationStyle: 'subtle' as const,
       autoTranslate: false,
       showFloatingIcon: true,
       pageTranslationExcludeSelectors: [],
+      siteTranslationRules: [],
       floatingIconPosition: { x: 9999, y: 9999 },
       learningModeEnabled: true,
       activeDictionaries: ['gre', 'toefl'],
@@ -705,6 +736,7 @@ class BackgroundService {
     };
     
     await this.storageManager.saveSettings(defaultSettings);
+    await this.broadcastSettingsUpdate(defaultSettings);
     return { success: true };
   }
 
@@ -737,9 +769,11 @@ class BackgroundService {
       defaultTargetLanguage: 'zh-CN',
       translationProvider: 'google',
       pageTranslationDisplayMode: 'bilingual' as const,
+      translationStyle: 'subtle' as const,
       autoTranslate: false,
       showFloatingIcon: true,
       pageTranslationExcludeSelectors: [],
+      siteTranslationRules: [],
       floatingIconPosition: { x: 9999, y: 9999 },
       learningModeEnabled: true,
       activeDictionaries: ['gre', 'toefl'],
@@ -756,6 +790,7 @@ class BackgroundService {
     };
     
     await this.storageManager.saveSettings(defaultSettings);
+    await this.broadcastSettingsUpdate(defaultSettings);
     return { success: true };
   }
 

@@ -19,6 +19,7 @@ describe('Content script direct runtime message contract', () => {
     const addListener = jest.fn((listener) => {
       listeners.push(listener);
     });
+    const showError = jest.fn();
 
     (global as any).chrome = {
       runtime: {
@@ -77,10 +78,11 @@ describe('Content script direct runtime message contract', () => {
         addTranslation: jest.fn(),
         removeAllTranslations: jest.fn(),
         setDisplayMode: jest.fn(),
+        setStylePreset: jest.fn(),
         showTooltip: jest.fn(),
         showAddToVocabularyOption: jest.fn(),
         showWordDetails: jest.fn(),
-        showError: jest.fn(),
+        showError,
         cleanup: jest.fn()
       }))
     }));
@@ -156,6 +158,21 @@ describe('Content script direct runtime message contract', () => {
       isLiveCaptionMode: false,
       isImageTranslationMode: false
     });
+
+    const settingsResponse = await sendDirectMessage({
+      action: 'updateSettings',
+      data: {
+        siteTranslationRules: [{ pattern: 'localhost', translationEnabled: false }]
+      }
+    });
+    expect(settingsResponse).toEqual({ success: true });
+
+    const stoppedStatus = await sendDirectMessage({ action: 'getTranslationStatus' });
+    expect(stoppedStatus).toEqual(expect.objectContaining({ success: true, isActive: false }));
+
+    const blockedToggle = await sendDirectMessage({ action: 'toggleTranslation' });
+    expect(blockedToggle).toEqual({ success: true, isActive: false });
+    expect(showError).toHaveBeenCalledWith('Page translation is disabled for this site in settings.');
   });
 
   it('lets popup close translation mode immediately while page translation is still running', async () => {
@@ -229,6 +246,7 @@ describe('Content script direct runtime message contract', () => {
         addTranslation: jest.fn(),
         removeAllTranslations: jest.fn(),
         setDisplayMode: jest.fn(),
+        setStylePreset: jest.fn(),
         showTooltip: jest.fn(),
         showAddToVocabularyOption: jest.fn(),
         showWordDetails: jest.fn(),
@@ -317,6 +335,7 @@ describe('Content script direct runtime message contract', () => {
         <p>Primary article text for translation.</p>
         <nav>Navigation text should stay original.</nav>
         <section class="comments">Comment text should stay original.</section>
+        <section class="site-only">Site rule text should stay original.</section>
         <aside data-no-translate>Sponsored text should stay original.</aside>
       </main>
     `;
@@ -326,6 +345,8 @@ describe('Content script direct runtime message contract', () => {
       listeners.push(listener);
     });
     const addTranslation = jest.fn();
+    const setDisplayMode = jest.fn();
+    const setStylePreset = jest.fn();
     const sendToBackground = jest.fn(async (request) => ({
       success: true,
       data: {
@@ -348,6 +369,14 @@ describe('Content script direct runtime message contract', () => {
                 translationProvider: 'google',
                 pageTranslationDisplayMode: 'bilingual',
                 pageTranslationExcludeSelectors: ['nav', '.comments', 'main >> invalid'],
+                translationStyle: 'subtle',
+                siteTranslationRules: [{
+                  pattern: 'localhost',
+                  translationEnabled: true,
+                  displayMode: 'translation-only',
+                  translationStyle: 'highlight',
+                  excludeSelectors: ['.site-only']
+                }],
                 floatingIconPosition: { x: 20, y: 20 },
                 learningModeEnabled: false,
                 activeDictionaries: ['gre'],
@@ -394,7 +423,8 @@ describe('Content script direct runtime message contract', () => {
       TranslationOverlay: jest.fn().mockImplementation(() => ({
         addTranslation,
         removeAllTranslations: jest.fn(),
-        setDisplayMode: jest.fn(),
+        setDisplayMode,
+        setStylePreset,
         showTooltip: jest.fn(),
         showAddToVocabularyOption: jest.fn(),
         showWordDetails: jest.fn(),
@@ -463,6 +493,9 @@ describe('Content script direct runtime message contract', () => {
     }));
     expect(addTranslation).toHaveBeenCalledTimes(1);
     expect(addTranslation.mock.calls[0][0].textContent).toBe('Primary article text for translation.');
+    expect(addTranslation.mock.calls[0][2]).toBe('translation-only');
+    expect(setDisplayMode).toHaveBeenCalledWith('translation-only');
+    expect(setStylePreset).toHaveBeenCalledWith('highlight');
   });
 
   it('does not start page translation automatically when the content script initializes', async () => {
@@ -539,6 +572,7 @@ describe('Content script direct runtime message contract', () => {
         addTranslation: jest.fn(),
         removeAllTranslations: jest.fn(),
         setDisplayMode: jest.fn(),
+        setStylePreset: jest.fn(),
         showTooltip: jest.fn(),
         showAddToVocabularyOption: jest.fn(),
         showWordDetails: jest.fn(),
@@ -676,6 +710,7 @@ describe('Content script direct runtime message contract', () => {
         addTranslation: jest.fn(),
         removeAllTranslations: jest.fn(),
         setDisplayMode: jest.fn(),
+        setStylePreset: jest.fn(),
         showTooltip: jest.fn(),
         showAddToVocabularyOption: jest.fn(),
         showWordDetails: jest.fn(),

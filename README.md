@@ -30,7 +30,9 @@ It is not marketed as a full scanned-PDF OCR translator, layout-perfect Office/e
 - Turn translation mode off immediately to remove added page translations.
 - Show page translation progress without blocking the whole page.
 - Choose page display mode: bilingual, translation only, or original only.
+- Choose a translation appearance: subtle panel, highlighted block, or plain text.
 - Skip configured page areas such as navigation, comments, ads, or `[data-no-translate]` regions during manual page translation.
+- Create exact-domain or wildcard site rules that can block page translation or override display mode, translation style, and excluded selectors.
 - Choose from 100+ target language options in settings.
 - Use Google Translate or MyMemory without a key, or configure DeepL, Microsoft Translator, an OpenAI-compatible endpoint, or Google Gemini with your own API credentials.
 - Keep provider API keys in local Chrome storage only; keys are excluded from Chrome sync and learning-data exports.
@@ -157,6 +159,15 @@ The generated test package is `chrome-translation-extension.zip`.
 4. A custom OpenAI-compatible or DeepL endpoint must use HTTPS, except for HTTP endpoints on localhost. LexiBridge requests access only to that endpoint's origin.
 
 Google Translate and MyMemory remain available without user credentials. Credentialed providers do not silently fall back to another service when authentication or configuration fails.
+
+### Configure Site Rules
+
+1. Open the options page and choose the global page translation display mode and translation style.
+2. Add an exact domain such as `docs.example.com` or a wildcard such as `*.example.com`.
+3. Choose whether page translation is allowed, then optionally override the display mode, style, and excluded selectors for that domain.
+4. Edit or delete saved rules from the same settings section.
+
+Site rules are applied to manual page translation only. They never start translation when a page opens.
 
 ### Translate Video Subtitles
 

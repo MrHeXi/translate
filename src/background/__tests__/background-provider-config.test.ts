@@ -57,6 +57,7 @@ describe('BackgroundService provider configuration messages', () => {
       loadVocabulary: jest.fn().mockResolvedValue(undefined)
     };
     const mockStorageManager = {
+      saveSettings: jest.fn().mockResolvedValue(undefined),
       getTranslationProviderConfig: jest.fn().mockResolvedValue(providerConfig),
       getTranslationProviderConfigSummaries: jest.fn().mockResolvedValue([providerSummary]),
       saveTranslationProviderConfig: jest.fn().mockResolvedValue(providerSummary),
@@ -85,7 +86,12 @@ describe('BackgroundService provider configuration messages', () => {
         onConnect: { addListener: jest.fn() },
         onInstalled: { addListener: jest.fn() },
         onStartup: { addListener: jest.fn() },
-        openOptionsPage: jest.fn()
+        openOptionsPage: jest.fn(),
+        lastError: null
+      },
+      tabs: {
+        query: jest.fn((_query, callback) => callback([{ id: 42 }, {}])),
+        sendMessage: jest.fn((_tabId, _message, callback) => callback())
       }
     };
 
@@ -177,5 +183,18 @@ describe('BackgroundService provider configuration messages', () => {
     expect(mockStorageManager.removeTranslationProviderConfig).toHaveBeenCalledWith('openai');
     expect(removeResponse).toEqual({ success: true });
     expect(mockTranslationService.clearCache).toHaveBeenCalledTimes(2);
+
+    const settings = {
+      translationStyle: 'highlight',
+      siteTranslationRules: [{ pattern: 'docs.example.com', translationEnabled: false }]
+    };
+    const settingsResponse = await send({ action: 'updateSettings', data: settings });
+    expect(mockStorageManager.saveSettings).toHaveBeenCalledWith(settings);
+    expect((global as any).chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      42,
+      { action: 'updateSettings', data: settings },
+      expect.any(Function)
+    );
+    expect(settingsResponse).toEqual({ success: true });
   });
 });

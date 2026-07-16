@@ -91,10 +91,12 @@
           </div>
 
           <div class="setting-item">
-            <label>
-              <input type="checkbox" id="autoTranslate">
-              Automatically translate the page after you turn page translation on
-            </label>
+            <label for="translationStyle">Translation style:</label>
+            <select id="translationStyle">
+              <option value="subtle">Subtle</option>
+              <option value="highlight">Highlight</option>
+              <option value="plain">Plain text</option>
+            </select>
           </div>
 
           <div class="setting-item">
@@ -102,6 +104,56 @@
             <textarea id="pageTranslationExcludeSelectors" rows="4" placeholder="nav, footer, .comments, [data-no-translate]"></textarea>
             <p class="setting-help">One selector per line or comma. Matching page areas are skipped after you manually start page translation.</p>
           </div>
+
+          <fieldset class="site-rules-section">
+            <legend>Site rules</legend>
+            <div class="site-rule-editor">
+              <label class="site-rule-field" for="siteRulePattern">
+                Domain
+                <input id="siteRulePattern" type="text" spellcheck="false" placeholder="example.com or *.example.com">
+              </label>
+
+              <label class="site-rule-toggle">
+                <input id="siteRuleTranslationEnabled" type="checkbox" checked>
+                Allow page translation
+              </label>
+
+              <label class="site-rule-field" for="siteRuleDisplayMode">
+                Display
+                <select id="siteRuleDisplayMode">
+                  <option value="">Use global</option>
+                  <option value="bilingual">Bilingual</option>
+                  <option value="translation-only">Translation only</option>
+                  <option value="original-only">Original only</option>
+                </select>
+              </label>
+
+              <label class="site-rule-field" for="siteRuleTranslationStyle">
+                Style
+                <select id="siteRuleTranslationStyle">
+                  <option value="">Use global</option>
+                  <option value="subtle">Subtle</option>
+                  <option value="highlight">Highlight</option>
+                  <option value="plain">Plain text</option>
+                </select>
+              </label>
+
+              <label class="site-rule-field site-rule-selectors" for="siteRuleExcludeSelectors">
+                Excluded selectors
+                <textarea id="siteRuleExcludeSelectors" rows="3" placeholder="nav, footer, .comments"></textarea>
+              </label>
+
+              <div class="site-rule-editor-footer">
+                <p id="siteRuleMessage" role="status"></p>
+                <div class="site-rule-editor-actions">
+                  <button id="cancelSiteRule" class="secondary-btn" type="button" hidden>Cancel</button>
+                  <button id="saveSiteRule" class="primary-btn" type="button">Add rule</button>
+                </div>
+              </div>
+            </div>
+
+            <div id="siteRuleList" class="site-rule-list" aria-live="polite"></div>
+          </fieldset>
         </div>
 
         <div class="setting-group">

@@ -7,8 +7,12 @@ import {
   TranslationProviderRuntimeConfig
 } from '../services/TranslationProviderRegistry';
 import type { TranslationProviderConfigSummary } from '../services/StorageManager';
-
-type PageTranslationDisplayMode = 'bilingual' | 'translation-only' | 'original-only';
+import {
+  normalizeSitePattern,
+  PageTranslationDisplayMode,
+  SiteTranslationRule,
+  TranslationStylePreset
+} from '../services/TranslationPreferences';
 
 interface UserSettings {
   defaultTargetLanguage: string;
@@ -24,6 +28,8 @@ interface UserSettings {
   reviewInterval: string;
   difficultyAdjustment: string;
   pageTranslationExcludeSelectors?: string[];
+  translationStyle?: TranslationStylePreset;
+  siteTranslationRules?: SiteTranslationRule[];
 }
 
 interface LearningStats {
@@ -49,6 +55,8 @@ class OptionsController {
   private stats: LearningStats | null = null;
   private dictionaryProgress: DictionaryProgress = {};
   private providerConfigSummaries: Map<string, TranslationProviderConfigSummary> = new Map();
+  private siteTranslationRules: Map<string, SiteTranslationRule> = new Map();
+  private editingSiteRulePattern: string | null = null;
   private readonly floatingIconEdgeMargin = 24;
   private readonly floatingIconFarEdge = 9999;
 
@@ -98,6 +106,15 @@ class OptionsController {
 
     const removeProviderConfig = document.getElementById('removeProviderConfig');
     removeProviderConfig?.addEventListener('click', () => this.removeTranslationProviderConfig());
+
+    const saveSiteRule = document.getElementById('saveSiteRule');
+    saveSiteRule?.addEventListener('click', () => this.upsertSiteTranslationRule());
+
+    const cancelSiteRule = document.getElementById('cancelSiteRule');
+    cancelSiteRule?.addEventListener('click', () => this.resetSiteRuleEditor());
+
+    const siteRuleList = document.getElementById('siteRuleList');
+    siteRuleList?.addEventListener('click', (event) => this.handleSiteRuleListClick(event));
 
     // 恢复默认设置
     const resetBtn = document.getElementById('resetToDefault');
@@ -151,6 +168,9 @@ class OptionsController {
 
     const pageTranslationDisplayMode = document.getElementById('pageTranslationDisplayMode') as HTMLSelectElement;
     pageTranslationDisplayMode?.addEventListener('change', () => this.onSettingChange());
+
+    const translationStyle = document.getElementById('translationStyle') as HTMLSelectElement;
+    translationStyle?.addEventListener('change', () => this.onSettingChange());
 
     const autoTranslate = document.getElementById('autoTranslate') as HTMLInputElement;
     autoTranslate?.addEventListener('change', () => this.onSettingChange());
@@ -322,6 +342,11 @@ class OptionsController {
       this.setSelectValue(pageTranslationDisplayMode, this.settings.pageTranslationDisplayMode || 'bilingual', 'bilingual');
     }
 
+    const translationStyle = document.getElementById('translationStyle') as HTMLSelectElement;
+    if (translationStyle) {
+      this.setSelectValue(translationStyle, this.settings.translationStyle || 'subtle', 'subtle');
+    }
+
     const autoTranslate = document.getElementById('autoTranslate') as HTMLInputElement;
     if (autoTranslate) autoTranslate.checked = this.settings.autoTranslate;
 
@@ -332,6 +357,14 @@ class OptionsController {
     if (pageTranslationExcludeSelectors) {
       pageTranslationExcludeSelectors.value = (this.settings.pageTranslationExcludeSelectors || []).join('\n');
     }
+
+    this.siteTranslationRules = new Map();
+    for (const rule of this.settings.siteTranslationRules || []) {
+      const pattern = normalizeSitePattern(rule.pattern);
+      if (pattern) this.siteTranslationRules.set(pattern, { ...rule, pattern });
+    }
+    this.renderSiteTranslationRules();
+    this.resetSiteRuleEditor();
 
     // 根据浮动图标位置设置选择框
     const iconPosition = document.getElementById('iconPosition') as HTMLSelectElement;
@@ -611,13 +644,207 @@ class OptionsController {
     element.classList.toggle('error', isError);
   }
 
-  private async saveSettings(): Promise<void> {
+  private handleSiteRuleListClick(event: Event): void {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+
+    const button = target.closest<HTMLButtonElement>('button[data-site-rule-action]');
+    const action = button?.dataset['siteRuleAction'];
+    const pattern = button?.dataset['siteRulePattern'];
+    if (!action || !pattern) return;
+
+    if (action === 'edit') {
+      this.editSiteTranslationRule(pattern);
+    } else if (action === 'delete') {
+      void this.deleteSiteTranslationRule(pattern);
+    }
+  }
+
+  private editSiteTranslationRule(pattern: string): void {
+    const rule = this.siteTranslationRules.get(pattern);
+    if (!rule) return;
+
+    this.editingSiteRulePattern = pattern;
+    const patternInput = document.getElementById('siteRulePattern') as HTMLInputElement | null;
+    const enabledInput = document.getElementById('siteRuleTranslationEnabled') as HTMLInputElement | null;
+    const displayMode = document.getElementById('siteRuleDisplayMode') as HTMLSelectElement | null;
+    const translationStyle = document.getElementById('siteRuleTranslationStyle') as HTMLSelectElement | null;
+    const excludeSelectors = document.getElementById('siteRuleExcludeSelectors') as HTMLTextAreaElement | null;
+    const saveButton = document.getElementById('saveSiteRule') as HTMLButtonElement | null;
+    const cancelButton = document.getElementById('cancelSiteRule') as HTMLButtonElement | null;
+
+    if (patternInput) patternInput.value = rule.pattern;
+    if (enabledInput) enabledInput.checked = rule.translationEnabled !== false;
+    if (displayMode) displayMode.value = rule.displayMode || '';
+    if (translationStyle) translationStyle.value = rule.translationStyle || '';
+    if (excludeSelectors) excludeSelectors.value = (rule.excludeSelectors || []).join('\n');
+    if (saveButton) saveButton.textContent = 'Update rule';
+    if (cancelButton) cancelButton.hidden = false;
+    this.showSiteRuleMessage('');
+    patternInput?.focus();
+  }
+
+  private async upsertSiteTranslationRule(): Promise<void> {
+    const patternInput = document.getElementById('siteRulePattern') as HTMLInputElement | null;
+    const pattern = normalizeSitePattern(patternInput?.value || '');
+    if (!pattern) {
+      this.showSiteRuleMessage('Enter a valid domain or wildcard domain', true);
+      return;
+    }
+
+    const previousRules = new Map(this.siteTranslationRules);
+    const enabledInput = document.getElementById('siteRuleTranslationEnabled') as HTMLInputElement | null;
+    const displayModeValue = (document.getElementById('siteRuleDisplayMode') as HTMLSelectElement | null)?.value || '';
+    const translationStyleValue = (document.getElementById('siteRuleTranslationStyle') as HTMLSelectElement | null)?.value || '';
+    const excludeSelectors = this.parseSelectorList(
+      (document.getElementById('siteRuleExcludeSelectors') as HTMLTextAreaElement | null)?.value || ''
+    );
+
+    const rule: SiteTranslationRule = {
+      pattern,
+      translationEnabled: enabledInput?.checked !== false,
+      ...(displayModeValue ? { displayMode: displayModeValue as PageTranslationDisplayMode } : {}),
+      ...(translationStyleValue ? { translationStyle: translationStyleValue as TranslationStylePreset } : {}),
+      ...(excludeSelectors.length > 0 ? { excludeSelectors } : {})
+    };
+
+    if (this.editingSiteRulePattern && this.editingSiteRulePattern !== pattern) {
+      this.siteTranslationRules.delete(this.editingSiteRulePattern);
+    }
+    this.siteTranslationRules.set(pattern, rule);
+    this.renderSiteTranslationRules();
+
+    const saved = await this.saveSettings('Site rule saved');
+    if (!saved) {
+      this.siteTranslationRules = previousRules;
+      this.renderSiteTranslationRules();
+      return;
+    }
+
+    this.resetSiteRuleEditor();
+    this.showSiteRuleMessage('Site rule saved');
+  }
+
+  private async deleteSiteTranslationRule(pattern: string): Promise<void> {
+    if (!this.siteTranslationRules.has(pattern)) return;
+
+    const previousRules = new Map(this.siteTranslationRules);
+    this.siteTranslationRules.delete(pattern);
+    this.renderSiteTranslationRules();
+
+    const saved = await this.saveSettings('Site rule deleted');
+    if (!saved) {
+      this.siteTranslationRules = previousRules;
+      this.renderSiteTranslationRules();
+      return;
+    }
+
+    if (this.editingSiteRulePattern === pattern) this.resetSiteRuleEditor();
+    this.showSiteRuleMessage('Site rule deleted');
+  }
+
+  private resetSiteRuleEditor(): void {
+    this.editingSiteRulePattern = null;
+    const patternInput = document.getElementById('siteRulePattern') as HTMLInputElement | null;
+    const enabledInput = document.getElementById('siteRuleTranslationEnabled') as HTMLInputElement | null;
+    const displayMode = document.getElementById('siteRuleDisplayMode') as HTMLSelectElement | null;
+    const translationStyle = document.getElementById('siteRuleTranslationStyle') as HTMLSelectElement | null;
+    const excludeSelectors = document.getElementById('siteRuleExcludeSelectors') as HTMLTextAreaElement | null;
+    const saveButton = document.getElementById('saveSiteRule') as HTMLButtonElement | null;
+    const cancelButton = document.getElementById('cancelSiteRule') as HTMLButtonElement | null;
+
+    if (patternInput) patternInput.value = '';
+    if (enabledInput) enabledInput.checked = true;
+    if (displayMode) displayMode.value = '';
+    if (translationStyle) translationStyle.value = '';
+    if (excludeSelectors) excludeSelectors.value = '';
+    if (saveButton) saveButton.textContent = 'Add rule';
+    if (cancelButton) cancelButton.hidden = true;
+    this.showSiteRuleMessage('');
+  }
+
+  private renderSiteTranslationRules(): void {
+    const list = document.getElementById('siteRuleList');
+    if (!list) return;
+    list.replaceChildren();
+
+    const rules = Array.from(this.siteTranslationRules.values())
+      .sort((left, right) => left.pattern.localeCompare(right.pattern));
+    if (rules.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'site-rule-empty';
+      empty.textContent = 'No site rules';
+      list.appendChild(empty);
+      return;
+    }
+
+    const displayLabels: Record<PageTranslationDisplayMode, string> = {
+      bilingual: 'Bilingual',
+      'translation-only': 'Translation only',
+      'original-only': 'Original only'
+    };
+    const styleLabels: Record<TranslationStylePreset, string> = {
+      subtle: 'Subtle',
+      highlight: 'Highlight',
+      plain: 'Plain text'
+    };
+
+    for (const rule of rules) {
+      const row = document.createElement('div');
+      row.className = 'site-rule-row';
+
+      const summary = document.createElement('div');
+      summary.className = 'site-rule-summary';
+      const pattern = document.createElement('strong');
+      pattern.textContent = rule.pattern;
+      const details = document.createElement('span');
+      details.textContent = [
+        rule.translationEnabled === false ? 'Blocked' : 'Allowed',
+        rule.displayMode ? displayLabels[rule.displayMode] : 'Global display',
+        rule.translationStyle ? styleLabels[rule.translationStyle] : 'Global style',
+        `${rule.excludeSelectors?.length || 0} exclusions`
+      ].join(' | ');
+      summary.append(pattern, details);
+
+      const actions = document.createElement('div');
+      actions.className = 'site-rule-actions';
+      const editButton = this.createSiteRuleActionButton('Edit', 'edit', rule.pattern, 'secondary-btn');
+      const deleteButton = this.createSiteRuleActionButton('Delete', 'delete', rule.pattern, 'danger-btn');
+      actions.append(editButton, deleteButton);
+      row.append(summary, actions);
+      list.appendChild(row);
+    }
+  }
+
+  private createSiteRuleActionButton(
+    label: string,
+    action: 'edit' | 'delete',
+    pattern: string,
+    className: string
+  ): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = className;
+    button.textContent = label;
+    button.dataset['siteRuleAction'] = action;
+    button.dataset['siteRulePattern'] = pattern;
+    return button;
+  }
+
+  private showSiteRuleMessage(message: string, isError: boolean = false): void {
+    const element = document.getElementById('siteRuleMessage');
+    if (!element) return;
+    element.textContent = message;
+    element.classList.toggle('error', isError);
+  }
+
+  private async saveSettings(successMessage: string = '设置保存成功'): Promise<boolean> {
     try {
       const settings = this.collectSettingsFromUI();
       const provider = getTranslationProvider(settings.translationProvider);
       if (provider?.requiresApiKey && !this.providerConfigSummaries.get(provider.id)?.configured) {
         this.showMessage(`Configure ${provider.label} credentials before selecting it`, 'error');
-        return;
+        return false;
       }
       const response = await this.sendMessage({
         action: 'updateSettings',
@@ -626,13 +853,16 @@ class OptionsController {
 
       if (response.success) {
         this.settings = settings;
-        this.showMessage('设置保存成功', 'success');
+        this.showMessage(successMessage, 'success');
+        return true;
       } else {
         this.showMessage('设置保存失败: ' + response.error, 'error');
+        return false;
       }
     } catch (error) {
       console.error('保存设置失败:', error);
       this.showMessage('设置保存失败', 'error');
+      return false;
     }
   }
 
@@ -642,6 +872,9 @@ class OptionsController {
     const pageTranslationDisplayMode = (
       (document.getElementById('pageTranslationDisplayMode') as HTMLSelectElement)?.value || 'bilingual'
     ) as PageTranslationDisplayMode;
+    const translationStyle = (
+      (document.getElementById('translationStyle') as HTMLSelectElement)?.value || 'subtle'
+    ) as TranslationStylePreset;
     const autoTranslate = (document.getElementById('autoTranslate') as HTMLInputElement)?.checked || false;
     const showFloatingIconInput = document.getElementById('showFloatingIcon') as HTMLInputElement | null;
     const showFloatingIcon = showFloatingIconInput ? showFloatingIconInput.checked : true;
@@ -674,10 +907,13 @@ class OptionsController {
       defaultTargetLanguage: targetLanguage,
       translationProvider: translationProvider,
       pageTranslationDisplayMode: pageTranslationDisplayMode,
+      translationStyle,
       autoTranslate: autoTranslate,
       showFloatingIcon: showFloatingIcon,
       floatingIconPosition: this.getSelectedFloatingIconPosition(),
       pageTranslationExcludeSelectors,
+      siteTranslationRules: Array.from(this.siteTranslationRules.values())
+        .sort((left, right) => left.pattern.localeCompare(right.pattern)),
       learningModeEnabled: learningModeEnabled,
       activeDictionaries: activeDictionaries,
       highlightColors: highlightColors,

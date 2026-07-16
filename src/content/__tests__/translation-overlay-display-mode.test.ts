@@ -68,4 +68,27 @@ describe('TranslationOverlay display modes', () => {
     expect(document.querySelector('.translation-wrapper')).toBeNull();
     expect(document.querySelector('.translation-overlay')).toBeNull();
   });
+
+  it('applies a highlight preset and its hover state', () => {
+    overlay.setStylePreset('highlight');
+    addParagraphTranslation();
+
+    const translation = document.querySelector('.translation-overlay') as HTMLElement;
+    expect(translation.style.backgroundColor).toBe('rgb(255, 247, 214)');
+    expect(translation.style.borderLeftWidth).toBe('3px');
+
+    translation.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(translation.style.backgroundColor).toBe('rgb(255, 239, 173)');
+  });
+
+  it('updates existing translations when the style preset changes', () => {
+    addParagraphTranslation();
+    const translation = document.querySelector('.translation-overlay') as HTMLElement;
+
+    overlay.setStylePreset('plain');
+
+    expect(translation.style.backgroundColor).toBe('transparent');
+    expect(translation.style.borderLeftColor).toBe('transparent');
+    expect(translation.style.padding).toBe('0px');
+  });
 });

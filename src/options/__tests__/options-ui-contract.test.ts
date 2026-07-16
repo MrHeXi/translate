@@ -30,6 +30,11 @@ describe('options UI settings contract', () => {
         <option value="translation-only">Translation only</option>
         <option value="original-only">Original only</option>
       </select>
+      <select id="translationStyle">
+        <option value="subtle" selected>Subtle</option>
+        <option value="highlight">Highlight</option>
+        <option value="plain">Plain text</option>
+      </select>
       <select id="iconPosition">
         <option value="top-left" selected>Top left</option>
         <option value="top-right">Top right</option>
@@ -39,6 +44,25 @@ describe('options UI settings contract', () => {
       <input id="autoTranslate" type="checkbox">
       <input id="showFloatingIcon" type="checkbox">
       <textarea id="pageTranslationExcludeSelectors"></textarea>
+      <input id="siteRulePattern">
+      <input id="siteRuleTranslationEnabled" type="checkbox" checked>
+      <select id="siteRuleDisplayMode">
+        <option value="" selected>Use global</option>
+        <option value="bilingual">Bilingual</option>
+        <option value="translation-only">Translation only</option>
+        <option value="original-only">Original only</option>
+      </select>
+      <select id="siteRuleTranslationStyle">
+        <option value="" selected>Use global</option>
+        <option value="subtle">Subtle</option>
+        <option value="highlight">Highlight</option>
+        <option value="plain">Plain text</option>
+      </select>
+      <textarea id="siteRuleExcludeSelectors"></textarea>
+      <p id="siteRuleMessage"></p>
+      <button id="saveSiteRule" type="button">Add rule</button>
+      <button id="cancelSiteRule" type="button" hidden>Cancel</button>
+      <div id="siteRuleList"></div>
       <input id="learningModeEnabled" type="checkbox">
       <input id="dailyGoal" value="20">
       <input id="greEnabled" type="checkbox" checked>
@@ -690,5 +714,96 @@ describe('options UI settings contract', () => {
     }, expect.any(Function));
     expect(removeButton.disabled).toBe(true);
     expect(document.getElementById('providerConfigMessage')?.textContent).toContain('removed');
+  });
+
+  it('normalizes, edits, persists, and deletes site translation rules', async () => {
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getSettings') {
+        callback({
+          success: true,
+          data: createSettings({
+            translationStyle: 'highlight',
+            siteTranslationRules: [{
+              pattern: 'Docs.Example.com',
+              translationEnabled: true,
+              displayMode: 'bilingual',
+              translationStyle: 'plain',
+              excludeSelectors: ['aside']
+            }]
+          })
+        });
+        return;
+      }
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({ success: true, data: [] });
+        return;
+      }
+      if (message.action === 'getLearningStats') {
+        callback({ success: true, data: createStats() });
+        return;
+      }
+      if (message.action === 'getDictionaryProgress') {
+        callback({ success: true, data: {} });
+        return;
+      }
+      callback({ success: true });
+    });
+
+    (global as any).chrome = {
+      runtime: { sendMessage, lastError: null }
+    };
+
+    require('../options');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    expect((document.getElementById('translationStyle') as HTMLSelectElement).value).toBe('highlight');
+    expect(document.getElementById('siteRuleList')?.textContent).toContain('docs.example.com');
+
+    const editButton = document.querySelector<HTMLButtonElement>('button[data-site-rule-action="edit"]')!;
+    editButton.dispatchEvent(new Event('click', { bubbles: true }));
+    expect((document.getElementById('siteRulePattern') as HTMLInputElement).value).toBe('docs.example.com');
+    expect((document.getElementById('siteRuleTranslationStyle') as HTMLSelectElement).value).toBe('plain');
+
+    (document.getElementById('siteRulePattern') as HTMLInputElement).value = '*.Example.com';
+    (document.getElementById('siteRuleTranslationEnabled') as HTMLInputElement).checked = false;
+    (document.getElementById('siteRuleDisplayMode') as HTMLSelectElement).value = 'translation-only';
+    (document.getElementById('siteRuleTranslationStyle') as HTMLSelectElement).value = 'highlight';
+    (document.getElementById('siteRuleExcludeSelectors') as HTMLTextAreaElement).value = 'nav, .comments\nnav';
+    document.getElementById('saveSiteRule')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    const updateMessages = sendMessage.mock.calls
+      .map(call => call[0])
+      .filter(message => message.action === 'updateSettings');
+    expect(updateMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        data: expect.objectContaining({
+          translationStyle: 'highlight',
+          siteTranslationRules: [{
+            pattern: '*.example.com',
+            translationEnabled: false,
+            displayMode: 'translation-only',
+            translationStyle: 'highlight',
+            excludeSelectors: ['nav', '.comments']
+          }]
+        })
+      })
+    ]));
+    expect(document.getElementById('siteRuleList')?.textContent).toContain('*.example.com');
+
+    const deleteButton = document.querySelector<HTMLButtonElement>('button[data-site-rule-action="delete"]')!;
+    deleteButton.dispatchEvent(new Event('click', { bubbles: true }));
+    await flushPromises();
+
+    const deleteMessages = sendMessage.mock.calls
+      .map(call => call[0])
+      .filter(message => message.action === 'updateSettings');
+    expect(deleteMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        data: expect.objectContaining({ siteTranslationRules: [] })
+      })
+    ]));
+    expect(document.getElementById('siteRuleList')?.textContent).toContain('No site rules');
   });
 });

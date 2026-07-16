@@ -55,6 +55,7 @@ jest.mock('../components/TranslationOverlay', () => ({
     addTranslation: jest.fn(),
     removeAllTranslations: jest.fn(),
     setDisplayMode: jest.fn(),
+    setStylePreset: jest.fn(),
     showTooltip: jest.fn(),
     showAddToVocabularyOption: jest.fn(),
     showWordDetails: jest.fn(),

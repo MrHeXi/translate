@@ -56,6 +56,9 @@ describe('product packaging contract', () => {
     expect(readme).toContain('LexiBridge Translate');
     expect(readme).toContain('manual floating button');
     expect(readme).toContain('Skip configured page areas');
+    expect(readme).toContain('translation appearance: subtle panel, highlighted block, or plain text');
+    expect(readme).toContain('exact-domain or wildcard site rules');
+    expect(readme).toContain('They never start translation when a page opens');
     expect(readme).toContain('Hold Control while hovering');
     expect(readme).toContain('Press Space three times');
     expect(readme).toContain('Document Translation');
@@ -102,6 +105,8 @@ describe('product packaging contract', () => {
     expect(privacy).toContain('generativelanguage.googleapis.com');
     expect(privacy).toContain('not written to Chrome Sync');
     expect(privacy).toContain('exact configured origin');
+    expect(privacy).toContain('domain-specific translation rules');
+    expect(privacy).toContain('do not trigger translation on page load');
 
     const checklist = readProjectFile('RELEASE_CHECKLIST.md');
     expect(checklist).toContain('Chrome Web Store');
@@ -121,6 +126,9 @@ describe('product packaging contract', () => {
     expect(listing).toContain('Translate web pages on demand');
     expect(listing).toContain('Manual page translation');
     expect(listing).toContain('Configurable CSS selector exclusions');
+    expect(listing).toContain('subtle, highlighted, or plain-text translation styles');
+    expect(listing).toContain('Exact-domain and wildcard site rules');
+    expect(listing).toContain('Site rules never translate a page automatically');
     expect(listing).toContain('Selection translation tooltip');
     expect(listing).toContain('Control-hover paragraph translation');
     expect(listing).toContain('Input box translation');
@@ -170,7 +178,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-08');
-    expect(releaseNotes).toContain('37 test suites and 263 tests');
+    expect(releaseNotes).toContain('38 test suites and 270 tests');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -201,6 +209,7 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('Review Page');
     expect(screenshotGuide).toContain('Options');
     expect(screenshotGuide).toContain('Page translation exclude selectors');
+    expect(screenshotGuide).toContain('Translation style and site-rule controls');
     expect(screenshotGuide).toContain('No translated page text yet');
     expect(screenshotGuide).toContain('STORE_LISTING.md');
   });
@@ -210,6 +219,8 @@ describe('product packaging contract', () => {
 
     expect(roadmap).toContain('Web page bilingual translation');
     expect(roadmap).toContain('Configurable page translation exclude selectors');
+    expect(roadmap).toContain('Site Rules and Translation Appearance');
+    expect(roadmap).toContain('site rules never start translation on page load');
     expect(roadmap).toContain('Hover paragraph translation');
     expect(roadmap).toContain('Input box translation');
     expect(roadmap).toContain('PDF and document translation');

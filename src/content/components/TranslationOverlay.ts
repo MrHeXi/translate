@@ -1,7 +1,12 @@
 // 翻译覆盖层组件
 // 负责在原文下方显示译文
 
-export type PageTranslationDisplayMode = 'bilingual' | 'translation-only' | 'original-only';
+import type {
+  PageTranslationDisplayMode,
+  TranslationStylePreset
+} from '../../services/TranslationPreferences';
+
+export type { PageTranslationDisplayMode, TranslationStylePreset } from '../../services/TranslationPreferences';
 
 interface TranslationEntry {
   wrapper: HTMLElement;
@@ -14,12 +19,20 @@ export class TranslationOverlay {
   private tooltipElement: HTMLElement | null = null;
   private wordDetailsModal: HTMLElement | null = null;
   private displayMode: PageTranslationDisplayMode = 'bilingual';
+  private stylePreset: TranslationStylePreset = 'subtle';
 
   setDisplayMode(mode: PageTranslationDisplayMode): void {
     this.displayMode = mode;
 
     for (const entry of this.translations.values()) {
       this.applyDisplayMode(entry);
+    }
+  }
+
+  setStylePreset(preset: TranslationStylePreset): void {
+    this.stylePreset = preset;
+    for (const entry of this.translations.values()) {
+      this.applyTranslationStyle(entry.translationElement);
     }
   }
 
@@ -89,31 +102,54 @@ export class TranslationOverlay {
   }
 
   private setTranslationStyles(element: HTMLElement): void {
-    Object.assign(element.style, {
-      display: 'block',
-      color: '#4a5568',
-      fontSize: '0.85em',
-      fontStyle: 'normal',
-      marginTop: '3px',
-      lineHeight: '1.4',
-      backgroundColor: '#f7fafc',
-      padding: '4px 6px',
-      borderRadius: '4px',
-      border: '1px solid #e2e8f0',
-      cursor: 'pointer',
-      transition: 'all 0.2s ease',
-      position: 'relative'
-    });
+    this.applyTranslationStyle(element);
 
-    // 添加悬停效果
     element.addEventListener('mouseenter', () => {
-      element.style.backgroundColor = '#edf2f7';
-      element.style.borderColor = '#cbd5e0';
+      this.applyTranslationStyle(element, true);
     });
 
     element.addEventListener('mouseleave', () => {
-      element.style.backgroundColor = '#f7fafc';
-      element.style.borderColor = '#e2e8f0';
+      this.applyTranslationStyle(element);
+    });
+  }
+
+  private applyTranslationStyle(element: HTMLElement, isHovered: boolean = false): void {
+    const presetStyles: Record<TranslationStylePreset, Record<string, string>> = {
+      subtle: {
+        color: '#4a5568',
+        backgroundColor: isHovered ? '#edf2f7' : '#f7fafc',
+        padding: '4px 6px',
+        borderRadius: '4px',
+        border: `1px solid ${isHovered ? '#cbd5e0' : '#e2e8f0'}`,
+        borderLeft: `1px solid ${isHovered ? '#cbd5e0' : '#e2e8f0'}`
+      },
+      highlight: {
+        color: '#263238',
+        backgroundColor: isHovered ? '#ffefad' : '#fff7d6',
+        padding: '5px 8px',
+        borderRadius: '2px',
+        border: `1px solid ${isHovered ? '#c99716' : '#e3c45f'}`,
+        borderLeft: '3px solid #b7791f'
+      },
+      plain: {
+        color: isHovered ? '#174f3a' : '#2f6f52',
+        backgroundColor: 'transparent',
+        padding: '0',
+        borderRadius: '0',
+        border: '1px solid transparent',
+        borderLeft: '1px solid transparent'
+      }
+    };
+
+    Object.assign(element.style, {
+      display: 'block',
+      fontSize: '0.85em',
+      fontStyle: 'normal',
+      lineHeight: '1.4',
+      cursor: 'pointer',
+      transition: 'all 0.2s ease',
+      position: 'relative',
+      ...presetStyles[this.stylePreset]
     });
   }
 
@@ -284,7 +320,7 @@ export class TranslationOverlay {
     
     setTimeout(() => {
       element.textContent = originalText;
-      element.style.color = '#4a5568';
+      this.applyTranslationStyle(element);
     }, 2000);
   }
 
