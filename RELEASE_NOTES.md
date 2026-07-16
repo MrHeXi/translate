@@ -18,7 +18,8 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Control-hover paragraph translation for on-demand reading help.
 - Input box translation by typing three trailing spaces.
 - Chrome side-panel text translation opened from the popup or `Alt+S`, with configured-provider filtering, provider-specific target languages, `Ctrl+Enter`, copy, and clear controls.
-- Side-panel initialization loads settings only and never sends a translation request until the user submits text.
+- AI-assisted side-panel polish, rewrite, drafting, reply, and summary actions with configured-AI-provider enforcement, output-language, tone, length, optional-instruction, and iterative-use controls.
+- Side-panel initialization and mode switching load or update local controls only and never send a provider request until the user submits text.
 - Document translator for pasted text, text files, HTML, JSON, DOCX, EPUB, subtitle files, and PDFs, with bundled PDF.js page rendering, positioned text extraction, browser-plus-bundled offline OCR for image-only pages, side-by-side original/translated previews, and flattened translated-PDF export.
 - Video subtitle translation for pages that expose caption/subtitle text tracks or common DOM-rendered caption containers.
 - SRT export for translated video subtitle cues from the current session.
@@ -44,7 +45,7 @@ Verified on 2026-07-17:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 44 test suites and 314 tests.
+- `jest --runInBand --silent`: passed, 45 test suites and 320 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 
@@ -59,7 +60,7 @@ Expected build warnings:
 
 - Unpacked extension folder: `dist`
 - Test package: `chrome-translation-extension.zip`
-- ZIP size: `17,694,408` bytes
-- SHA-256: `2CE049151C7C71AB21852DC6B06B6203695D0D152A19D5DC91C6F3D849585704`
+- ZIP size: `17,699,552` bytes
+- SHA-256: `C1FC09B7949807BE36AC18E6B6D6DFDDF428529DC772A14743562BBBB728595F`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

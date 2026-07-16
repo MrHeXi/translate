@@ -17,23 +17,47 @@
     </header>
 
     <main class="panel-main">
-      <section class="translation-controls" aria-label="Translation settings">
+      <nav class="task-tabs" role="group" aria-label="Text action">
+        <button class="task-tab active" type="button" data-mode="translate" aria-pressed="true">Translate</button>
+        <button class="task-tab" type="button" data-mode="polish" aria-pressed="false">Polish</button>
+        <button class="task-tab" type="button" data-mode="rewrite" aria-pressed="false">Rewrite</button>
+        <button class="task-tab" type="button" data-mode="compose" aria-pressed="false">Write</button>
+        <button class="task-tab" type="button" data-mode="reply" aria-pressed="false">Reply</button>
+        <button class="task-tab" type="button" data-mode="summarize" aria-pressed="false">Summarize</button>
+      </nav>
+
+      <section class="translation-controls" aria-label="Text processing settings">
         <label>
           Provider
           <select id="translationProvider"></select>
         </label>
         <label>
-          Translate to
+          <span id="targetLanguageLabel">Translate to</span>
           <select id="targetLanguage"></select>
+        </label>
+      </section>
+
+      <section id="aiControls" class="ai-controls" aria-label="AI writing settings" hidden>
+        <label>
+          Tone
+          <select id="writingTone"></select>
+        </label>
+        <label>
+          Length
+          <select id="writingLength"></select>
+        </label>
+        <label class="instruction-control">
+          Additional requirement
+          <input id="writingInstruction" type="text" maxlength="1200" placeholder="Optional style, purpose, or detail">
         </label>
       </section>
 
       <section class="source-section">
         <div class="section-heading">
-          <label for="sourceText">Source text</label>
+          <label id="sourceLabel" for="sourceText">Source text</label>
           <button id="clearText" class="icon-button icon-button-dark" type="button" title="Clear text" aria-label="Clear text">&#10005;</button>
         </div>
-        <textarea id="sourceText" rows="10" placeholder="Enter or paste text" spellcheck="true"></textarea>
+        <textarea id="sourceText" rows="10" maxlength="20000" placeholder="Enter or paste text" spellcheck="true"></textarea>
         <div class="source-actions">
           <span id="characterCount" class="character-count">0 characters</span>
           <button id="translateText" class="primary-button" type="button">Translate</button>
@@ -42,8 +66,11 @@
 
       <section id="resultSection" class="result-section" hidden>
         <div class="section-heading">
-          <h2>Translation</h2>
-          <button id="copyTranslation" class="icon-button icon-button-dark" type="button" title="Copy translation" aria-label="Copy translation" disabled>&#10697;</button>
+          <h2 id="resultHeading">Translation</h2>
+          <div class="result-actions">
+            <button id="useResultAsInput" class="icon-button icon-button-dark" type="button" title="Use result as input" aria-label="Use result as input" disabled>&#8679;</button>
+            <button id="copyTranslation" class="icon-button icon-button-dark" type="button" title="Copy result" aria-label="Copy result" disabled>&#10697;</button>
+          </div>
         </div>
         <div id="translationResult" class="translation-result" tabindex="0"></div>
       </section>

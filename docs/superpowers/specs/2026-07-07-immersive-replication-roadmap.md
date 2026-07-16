@@ -33,6 +33,7 @@ Current batch:
 - Hover paragraph translation using a modifier-key interaction.
 - Input box translation using a deliberate shortcut.
 - User-invoked Chrome side-panel text translation with popup and `Alt+S` entry points.
+- Side-panel AI polish, rewrite, compose, reply, and summary actions with language, tone, length, optional instruction, and iterative-use controls.
 - 21 implemented provider adapters spanning public machine translation, hosted AI, self-hosted AI, and local Ollama endpoints.
 - AI-capable provider context-aware translation with opt-in neighboring text, domain experts, terminology mappings, and custom instructions.
 - Local-only API credential storage with masked UI summaries and exact-origin permission requests for custom endpoints.
@@ -162,7 +163,9 @@ Current batch:
 - Done: keep panel initialization idle and translate only after Translate or `Ctrl+Enter`.
 - Done: add copy, clear, and provider-settings controls.
 - Done: open the panel from the popup and the `Alt+S` extension command.
-- Remaining: AI Write/Reply workflows, richer text-processing actions, and cross-browser side-panel equivalents.
+- Done: add AI-assisted polish, rewrite, compose, reply, and summary workflows with explicit submission only.
+- Done: restrict writing actions to configured AI-capable providers and support output language, tone, length, bounded custom instructions, and iterative result reuse.
+- Remaining: cross-browser side-panel equivalents and additional specialized text-processing templates.
 
 ## Non-Negotiable Product Rules
 

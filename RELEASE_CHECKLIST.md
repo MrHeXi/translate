@@ -77,7 +77,8 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Confirm `dist/ocr` includes the worker, SIMD/non-SIMD LSTM core files, five compressed language models, and license files.
 - [ ] Confirm Stop terminates an active image OCR session and removes all image overlays without starting work on another image.
 - [ ] Confirm selected text shows a translation tooltip.
-- [ ] Open the side panel from the popup and with `Alt+S`; confirm opening sends no translation request, configured providers are selectable, `Ctrl+Enter` translates, and Copy/Clear work.
+- [ ] Open the side panel from the popup and with `Alt+S`; confirm opening and mode changes send no provider request, configured providers are selectable, `Ctrl+Enter` translates, and Copy/Clear work.
+- [ ] Run Polish, Rewrite, Write, Reply, and Summarize with a configured AI provider; confirm ordinary translation providers are disabled, output language/Tone/Length/Additional requirement are applied, and Use result as input works.
 - [ ] Configure each credentialed provider with a test key or mock endpoint, verify masked-key display, and verify Remove configuration.
 - [ ] Save Ollama without an API key, confirm Chrome requests `http://localhost/*`, and verify settings cannot activate it before provider configuration is saved.
 - [ ] Confirm Image text stays idle until Start plus a click, drag, or Translate visible images action; confirm Stop cancels the remaining visible-image batch and clears overlays.

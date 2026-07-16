@@ -16,7 +16,8 @@ import { performanceManager } from '../services/PerformanceManager';
 import { errorHandler, ErrorType, ErrorSeverity } from '../services/ErrorHandler';
 import { offlineManager } from '../services/OfflineManager';
 import { normalizeAiTranslationPreferences } from '../services/AiTranslationPreferences';
-import { getTranslationProvider } from '../services/TranslationProviderRegistry';
+import { isAiWritingAction, normalizeAiWritingTask } from '../services/AiWritingAssistant';
+import { getTranslationProvider, TRANSLATION_LANGUAGES } from '../services/TranslationProviderRegistry';
 import { openTranslationSidePanel } from '../services/SidePanelManager';
 
 // 消息类型定义（保留兼容性）
@@ -173,6 +174,10 @@ class BackgroundService {
       switch (request.action) {
         case 'translate':
           response = await this.handleTranslateRequest(request);
+          break;
+
+        case 'processAiText':
+          response = await this.handleProcessAiTextRequest(request);
           break;
         
         case 'detectLanguage':
@@ -512,8 +517,9 @@ class BackgroundService {
           customPrompt: settings.aiCustomPrompt
         })
         : undefined;
+      const { aiWritingTask: _ignoredAiWritingTask, ...translationData } = request.data;
       const translationRequest = {
-        ...request.data,
+        ...translationData,
         context: aiPreferences?.contextEnabled ? request.data.context : undefined,
         aiPreferences,
         providerConfig
@@ -545,6 +551,62 @@ class BackgroundService {
         { component: 'background', action: 'translate' }
       );
       
+      throw error;
+    }
+  }
+
+  private async handleProcessAiTextRequest(request: MessageRequest): Promise<MessageResponse> {
+    const startTime = Date.now();
+    try {
+      const text = typeof request.data?.text === 'string' ? request.data.text.trim() : '';
+      if (!text) throw new Error('Enter text for the AI writing task.');
+      if (text.length > 20000) throw new Error('AI writing input must be 20,000 characters or fewer.');
+
+      const providerId = typeof request.data?.provider === 'string' ? request.data.provider : '';
+      const provider = getTranslationProvider(providerId);
+      if (!provider || provider.status !== 'available' || !provider.supportsAiPreferences) {
+        throw new Error('Choose a configured AI provider for writing tasks.');
+      }
+
+      const action = request.data?.task?.action;
+      if (!isAiWritingAction(action)) throw new Error('Unknown AI writing action.');
+
+      const targetLang = typeof request.data?.targetLang === 'string'
+        ? request.data.targetLang
+        : 'same';
+      const isKnownLanguage = targetLang === 'same'
+        || TRANSLATION_LANGUAGES.some(language => language.code === targetLang);
+      if (!isKnownLanguage) throw new Error('Choose a supported output language.');
+
+      const providerConfig = await this.storageManager.getTranslationProviderConfig(providerId);
+      const aiWritingTask = normalizeAiWritingTask(request.data.task);
+      const result = await this.translationService.translate({
+        text,
+        sourceLang: 'auto',
+        targetLang,
+        provider: providerId,
+        providerConfig,
+        aiWritingTask
+      });
+
+      performanceManager.recordRequest(Date.now() - startTime, true);
+      return {
+        success: true,
+        data: {
+          ...result,
+          outputText: result.translatedText,
+          action: aiWritingTask.action
+        }
+      };
+    } catch (error) {
+      performanceManager.recordRequest(Date.now() - startTime, false);
+      errorHandler.logError(
+        ErrorType.TRANSLATION_API_ERROR,
+        'AI writing request failed',
+        error,
+        ErrorSeverity.MEDIUM,
+        { component: 'background', action: 'processAiText' }
+      );
       throw error;
     }
   }

@@ -75,6 +75,9 @@ describe('product packaging contract', () => {
     expect(readme).toContain('Press Space three times');
     expect(readme).toContain('Side Panel Text Translation');
     expect(readme).toContain('no text is sent until the user submits it');
+    expect(readme).toContain('polish, rewrite, compose, reply, or summarize');
+    expect(readme).toContain('keep the input language');
+    expect(readme).toContain('ordinary machine-translation providers remain translation-only');
     expect(readme).toContain('Document Translation');
     expect(readme).toContain('Video Subtitle Translation');
     expect(readme).toContain('Export translated subtitle cues from the current session as an `.srt` file');
@@ -218,9 +221,9 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('44 test suites and 314 tests');
-    expect(releaseNotes).toContain('17,694,408');
-    expect(releaseNotes).toContain('2CE049151C7C71AB21852DC6B06B6203695D0D152A19D5DC91C6F3D849585704');
+    expect(releaseNotes).toContain('45 test suites and 320 tests');
+    expect(releaseNotes).toContain('17,699,552');
+    expect(releaseNotes).toContain('C1FC09B7949807BE36AC18E6B6D6DFDDF428529DC772A14743562BBBB728595F');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -336,8 +339,17 @@ describe('product packaging contract', () => {
     expect(optionsHtml).toContain('Remove configuration');
     expect(webpackConfig).toContain("sidepanel: './src/sidepanel/sidepanel.ts'");
     expect(webpackConfig).toContain("from: 'src/sidepanel/sidepanel.html'");
-    expect(readProjectFile('src/sidepanel/sidepanel.html')).toContain('id="translateText"');
-    expect(readProjectFile('src/sidepanel/sidepanel.html')).toContain('id="copyTranslation"');
+    const sidePanelHtml = readProjectFile('src/sidepanel/sidepanel.html');
+    expect(sidePanelHtml).toContain('id="translateText"');
+    expect(sidePanelHtml).toContain('id="copyTranslation"');
+    expect(sidePanelHtml).toContain('data-mode="polish"');
+    expect(sidePanelHtml).toContain('data-mode="compose"');
+    expect(sidePanelHtml).toContain('data-mode="reply"');
+    expect(sidePanelHtml).toContain('data-mode="summarize"');
+    expect(sidePanelHtml).toContain('id="writingTone"');
+    expect(sidePanelHtml).toContain('id="writingLength"');
+    expect(sidePanelHtml).toContain('id="writingInstruction"');
+    expect(sidePanelHtml).toContain('id="useResultAsInput"');
     expect(readProjectFile('src/popup/popup.html')).toContain('id="openSidePanelBtn"');
   });
 });

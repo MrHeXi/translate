@@ -55,9 +55,10 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 ### Side Panel Text Translation
 
 - Open the Chrome side panel from the popup header or with `Alt+S`.
-- Paste or type text, choose any configured provider and supported target language, then translate explicitly.
-- Use `Ctrl+Enter` to submit, copy the result, or clear the current text without storing a side-panel history.
-- Keep side-panel translation idle when the panel opens; no text is sent until the user submits it.
+- Translate with any configured provider, or use a configured AI-capable provider to polish, rewrite, compose, reply, or summarize.
+- For AI writing actions, choose the output language or keep the input language, then select tone, length, and an optional additional requirement.
+- Use `Ctrl+Enter` to submit, copy the result, move a result back into the input for another pass, or clear the current text without storing a side-panel history.
+- Keep all side-panel actions idle when the panel opens or the user changes modes; no text is sent until the user submits it.
 
 ### Document Translation
 
@@ -168,9 +169,11 @@ The generated test package is `chrome-translation-extension.zip`.
 ### Translate Text in the Side Panel
 
 1. Click the side-panel button in the popup header or press `Alt+S`.
-2. Choose a configured provider and target language.
-3. Enter text and click Translate or press `Ctrl+Enter`.
-4. Copy the translation or clear the panel when finished.
+2. Choose Translate, Polish, Rewrite, Write, Reply, or Summarize.
+3. Choose a configured provider and output language. Writing actions require an AI-capable provider.
+4. For a writing action, optionally select tone, length, and an additional requirement.
+5. Enter text and click the action button or press `Ctrl+Enter`.
+6. Copy the result, use it as the next input, or clear the panel.
 
 ### Configure a Translation Provider
 
@@ -181,7 +184,7 @@ The generated test package is `chrome-translation-extension.zip`.
 
 Google Translate and MyMemory remain available without provider configuration. Credentialed providers do not silently fall back to another service when authentication or configuration fails. Provider request formats and failure behavior are covered by automated contract tests; live use still depends on a valid provider account, API plan, endpoint, model, and regional availability.
 
-For AI-capable providers, the AI translation controls in settings can select a subject domain, define terminology as `source term => required translation`, and add custom instructions. Neighboring context is opt-in and applies to manually translated page batches and document blocks only.
+For AI-capable providers, the AI translation controls in settings can select a subject domain, define terminology as `source term => required translation`, and add custom instructions. Neighboring context is opt-in and applies to manually translated page batches and document blocks only. Configured AI-capable providers also power the side-panel writing actions; ordinary machine-translation providers remain translation-only.
 
 ### Configure Site Rules
 

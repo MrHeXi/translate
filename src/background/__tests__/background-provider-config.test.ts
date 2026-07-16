@@ -209,6 +209,60 @@ describe('BackgroundService provider configuration messages', () => {
       }
     }));
 
+    const writingResponse = await send({
+      action: 'processAiText',
+      data: {
+        text: 'Can you meet tomorrow?',
+        targetLang: 'same',
+        provider: 'openai',
+        task: {
+          action: 'reply',
+          tone: 'professional',
+          length: 'shorter',
+          instruction: 'Suggest next Tuesday.'
+        }
+      }
+    });
+    expect(mockStorageManager.getTranslationProviderConfig).toHaveBeenLastCalledWith('openai');
+    expect(mockTranslationService.translate).toHaveBeenLastCalledWith({
+      text: 'Can you meet tomorrow?',
+      sourceLang: 'auto',
+      targetLang: 'same',
+      provider: 'openai',
+      providerConfig,
+      aiWritingTask: {
+        action: 'reply',
+        tone: 'professional',
+        length: 'shorter',
+        instruction: 'Suggest next Tuesday.'
+      }
+    });
+    expect(writingResponse).toEqual({
+      success: true,
+      data: {
+        ...translationResult,
+        outputText: 'Bonjour',
+        action: 'reply'
+      }
+    });
+    expect(JSON.stringify(writingResponse)).not.toContain('server-side-secret');
+
+    const callsBeforeRejectedWritingRequest = mockTranslationService.translate.mock.calls.length;
+    const rejectedWritingResponse = await send({
+      action: 'processAiText',
+      data: {
+        text: 'Write this',
+        targetLang: 'en',
+        provider: 'google',
+        task: { action: 'compose' }
+      }
+    });
+    expect(rejectedWritingResponse).toEqual({
+      success: false,
+      error: 'Choose a configured AI provider for writing tasks.'
+    });
+    expect(mockTranslationService.translate).toHaveBeenCalledTimes(callsBeforeRejectedWritingRequest);
+
     const getResponse = await send({ action: 'getTranslationProviderConfigs' });
     expect(getResponse).toEqual({ success: true, data: [providerSummary] });
     expect(JSON.stringify(getResponse)).not.toContain('server-side-secret');

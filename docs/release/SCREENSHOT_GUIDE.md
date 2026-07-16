@@ -64,10 +64,19 @@ Capture a supported input box, textarea, or editable field with:
 
 Capture the Chrome side panel after an explicit text translation with:
 
-- Provider and target-language controls visible.
+- The Translate, Polish, Rewrite, Write, Reply, and Summarize mode control visible.
+- Provider and output-language controls visible.
 - Safe source text and its translated result visible.
 - Copy, clear, settings, and Translate controls visible.
 - No private text or implication that opening the panel translates automatically.
+
+Capture a second side-panel image after an explicit AI Reply action with:
+
+- A configured AI-capable provider selected.
+- Tone, length, and optional additional-requirement controls visible.
+- A harmless sample message and reply draft visible.
+- Copy and Use result as input controls visible.
+- No claim that ordinary machine-translation providers can generate writing.
 
 ### Document Translator
 

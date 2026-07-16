@@ -13,6 +13,12 @@ import {
   buildAiTranslationUserMessage,
   normalizeAiTranslationPreferences
 } from './AiTranslationPreferences';
+import {
+  AiWritingTask,
+  buildAiWritingSystemPrompt,
+  buildAiWritingUserMessage,
+  normalizeAiWritingTask
+} from './AiWritingAssistant';
 
 export interface TranslationRequest {
   text: string;
@@ -22,6 +28,7 @@ export interface TranslationRequest {
   providerConfig?: TranslationProviderRuntimeConfig | undefined;
   context?: string;
   aiPreferences?: Partial<AiTranslationPreferences>;
+  aiWritingTask?: Partial<AiWritingTask>;
 }
 
 export interface TranslationResult {
@@ -192,7 +199,8 @@ export class TranslationService {
 
     const aiVariant = JSON.stringify({
       context: request.context || '',
-      preferences: normalizeAiTranslationPreferences(request.aiPreferences)
+      preferences: normalizeAiTranslationPreferences(request.aiPreferences),
+      writingTask: request.aiWritingTask ? normalizeAiWritingTask(request.aiWritingTask) : null
     });
 
     return `${request.provider || 'auto-provider'}_${providerVariant}_${aiVariant}_${request.text}_${request.sourceLang || 'auto'}_${request.targetLang}`;
@@ -243,7 +251,10 @@ export class TranslationService {
         if (!definition?.adapter) {
           throw new TranslationProviderError(`${definition?.label || provider} is not implemented`);
         }
-        if (!providerSupportsTargetLanguage(provider, request.targetLang)) {
+        if (request.aiWritingTask && !definition.supportsAiPreferences) {
+          throw new TranslationProviderError(`${definition.label} does not support AI writing tasks`);
+        }
+        if (!request.aiWritingTask && !providerSupportsTargetLanguage(provider, request.targetLang)) {
           throw new TranslationProviderError(
             `${definition.label} does not support ${this.getLanguageLabel(request.targetLang)}`
           );
@@ -288,6 +299,41 @@ export class TranslationService {
     }
 
     return ['mymemory', 'google'];
+  }
+
+  private buildAiProviderPrompt(request: TranslationRequest): {
+    systemPrompt: string;
+    userMessage: string;
+    temperature: number;
+  } {
+    if (request.aiWritingTask) {
+      const outputLanguage = request.targetLang === 'same'
+        ? 'the same language as the input'
+        : this.getLanguageLabel(request.targetLang);
+      return {
+        systemPrompt: buildAiWritingSystemPrompt(outputLanguage, request.aiWritingTask),
+        userMessage: buildAiWritingUserMessage(request.text, request.aiWritingTask),
+        temperature: 0.3
+      };
+    }
+
+    const sourceLanguage = request.sourceLang && request.sourceLang !== 'auto'
+      ? this.getLanguageLabel(request.sourceLang)
+      : 'the detected source language';
+    const targetLanguage = this.getLanguageLabel(request.targetLang);
+    return {
+      systemPrompt: buildAiTranslationSystemPrompt(
+        sourceLanguage,
+        targetLanguage,
+        request.aiPreferences
+      ),
+      userMessage: buildAiTranslationUserMessage(
+        request.text,
+        request.context,
+        request.aiPreferences
+      ),
+      temperature: 0
+    };
   }
 
   private async callTranslationAPI(request: TranslationRequest): Promise<TranslationResult> {
@@ -450,20 +496,7 @@ export class TranslationService {
   ): Promise<TranslationResult> {
     const provider = getTranslationProvider(providerId)!;
     const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
-    const sourceLanguage = request.sourceLang && request.sourceLang !== 'auto'
-      ? this.getLanguageLabel(request.sourceLang)
-      : 'the detected source language';
-    const targetLanguage = this.getLanguageLabel(request.targetLang);
-    const systemPrompt = buildAiTranslationSystemPrompt(
-      sourceLanguage,
-      targetLanguage,
-      request.aiPreferences
-    );
-    const userMessage = buildAiTranslationUserMessage(
-      request.text,
-      request.context,
-      request.aiPreferences
-    );
+    const { systemPrompt, userMessage, temperature } = this.buildAiProviderPrompt(request);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json'
     };
@@ -474,7 +507,7 @@ export class TranslationService {
       headers,
       body: JSON.stringify({
         model: config.model,
-        temperature: 0,
+        temperature,
         messages: [
           {
             role: 'system',
@@ -509,20 +542,7 @@ export class TranslationService {
 
   private async callGeminiAPI(request: TranslationRequest): Promise<TranslationResult> {
     const config = this.getProviderRuntimeConfig('gemini', request.providerConfig);
-    const sourceLanguage = request.sourceLang && request.sourceLang !== 'auto'
-      ? this.getLanguageLabel(request.sourceLang)
-      : 'the detected source language';
-    const targetLanguage = this.getLanguageLabel(request.targetLang);
-    const systemPrompt = buildAiTranslationSystemPrompt(
-      sourceLanguage,
-      targetLanguage,
-      request.aiPreferences
-    );
-    const userMessage = buildAiTranslationUserMessage(
-      request.text,
-      request.context,
-      request.aiPreferences
-    );
+    const { systemPrompt, userMessage, temperature } = this.buildAiProviderPrompt(request);
     const endpoint = `${config.endpoint.replace(/\/$/, '')}/${encodeURIComponent(config.model)}:generateContent`;
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -537,7 +557,7 @@ export class TranslationService {
           }]
         },
         contents: [{ role: 'user', parts: [{ text: userMessage }] }],
-        generationConfig: { temperature: 0 }
+        generationConfig: { temperature }
       })
     });
     const data = await this.readProviderJson(response, 'Google Gemini');
@@ -567,10 +587,7 @@ export class TranslationService {
   ): Promise<TranslationResult> {
     const provider = getTranslationProvider(providerId)!;
     const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
-    const sourceLanguage = request.sourceLang && request.sourceLang !== 'auto'
-      ? this.getLanguageLabel(request.sourceLang)
-      : 'the detected source language';
-    const targetLanguage = this.getLanguageLabel(request.targetLang);
+    const { systemPrompt, userMessage, temperature } = this.buildAiProviderPrompt(request);
     const response = await fetch(config.endpoint, {
       method: 'POST',
       headers: {
@@ -578,15 +595,15 @@ export class TranslationService {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        temperature: 0,
+        temperature,
         messages: [
           {
             role: 'system',
-            content: buildAiTranslationSystemPrompt(sourceLanguage, targetLanguage, request.aiPreferences)
+            content: systemPrompt
           },
           {
             role: 'user',
-            content: buildAiTranslationUserMessage(request.text, request.context, request.aiPreferences)
+            content: userMessage
           }
         ]
       })
@@ -605,10 +622,7 @@ export class TranslationService {
   ): Promise<TranslationResult> {
     const provider = getTranslationProvider(providerId)!;
     const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
-    const sourceLanguage = request.sourceLang && request.sourceLang !== 'auto'
-      ? this.getLanguageLabel(request.sourceLang)
-      : 'the detected source language';
-    const targetLanguage = this.getLanguageLabel(request.targetLang);
+    const { systemPrompt, userMessage, temperature } = this.buildAiProviderPrompt(request);
     const response = await fetch(config.endpoint, {
       method: 'POST',
       headers: {
@@ -619,11 +633,11 @@ export class TranslationService {
       body: JSON.stringify({
         model: config.model,
         max_tokens: 4096,
-        temperature: 0,
-        system: buildAiTranslationSystemPrompt(sourceLanguage, targetLanguage, request.aiPreferences),
+        temperature,
+        system: systemPrompt,
         messages: [{
           role: 'user',
-          content: buildAiTranslationUserMessage(request.text, request.context, request.aiPreferences)
+          content: userMessage
         }]
       })
     });
