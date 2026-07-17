@@ -53,6 +53,7 @@ Current batch:
 - Timing-preserving subtitle file export from the document translator.
 - Manual document entry prompt on detected document URLs.
 - Manual video subtitle translation for pages that expose caption or subtitle text tracks.
+- User-invoked local-media transcription through configured OpenAI/Groq endpoints with optional caption translation and SRT/VTT export.
 - DOM-rendered video caption adapters for common caption containers.
 - SRT export for translated subtitle cues collected during the current video session.
 - Manual live caption translation for caption text already visible in the page DOM.
@@ -131,7 +132,9 @@ Current batch:
 - Done: translate active subtitle cues after the user starts Video subtitles from the popup.
 - Done: render bilingual subtitle overlays without blocking playback.
 - Done: export translated subtitle cues from the current session as SRT.
-- Remaining: deeper site-specific optimizations, AI subtitle generation for videos without captions, and richer caption timing controls.
+- Done: generate timestamped captions from explicitly selected local audio/video files through configured OpenAI or Groq transcription endpoints.
+- Done: upload media in bounded ordered chunks, abort on cancellation/disconnect, keep bytes in memory only, optionally translate normalized cues, and export bilingual SRT/VTT.
+- Remaining: automatic current-tab media capture, deeper site-specific optimizations, additional speech providers, files above provider limits, and richer caption timing/editing controls.
 
 ### Batch F: Image, Manga, and OCR Translation
 

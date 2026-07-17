@@ -23,7 +23,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Short description explains web translation plus vocabulary review.
 - [ ] Detailed description mentions manual page translation, selection translation, built-in dictionaries, vocabulary notebook, review, import/export, and Chrome storage sync.
 - [ ] Site-rule and translation-style claims remain limited to manual page translation; do not imply page-load auto translation.
-- [ ] Claim only verified, bounded document, video subtitle, live caption, and image text features; describe PDF output as flattened, bundled OCR as local but accuracy-dependent, and do not claim editable PDF reflow, guaranteed scanned-PDF OCR, automatic manga translation, image inpainting, audio transcription, meeting bots, or account cloud sync.
+- [ ] Claim only verified, bounded document, video subtitle, local-media transcription, live caption, and image text features; describe PDF output as flattened, bundled OCR as local but accuracy-dependent, and do not claim editable PDF reflow, guaranteed scanned-PDF OCR, automatic manga translation, image inpainting, automatic tab-audio capture, meeting bots, or account cloud sync.
 - [ ] Include support contact or repository issue link.
 
 ## Screenshots
@@ -85,6 +85,8 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Save Ollama without an API key, confirm Chrome requests `http://localhost/*`, and verify settings cannot activate it before provider configuration is saved.
 - [ ] Confirm Image text stays idle until Start plus a click, drag, or Translate visible images action; confirm Stop cancels the remaining visible-image batch and clears overlays.
 - [ ] Confirm Live captions captures only visible DOM captions after Start, merges incremental updates, retains cues after Stop, exports TXT/SRT/VTT/JSON locally, and clears without recording audio.
+- [ ] Configure OpenAI or Groq, select a supported local media file under 25 MB, click Generate subtitles, confirm timed cues can be translated and exported as SRT/VTT, and confirm Cancel stops the temporary upload.
+- [ ] Confirm opening the subtitle generator and selecting a file send nothing; verify media bytes are cleared after completion, cancellation, disconnection, and provider errors.
 - [ ] Confirm a word can be saved and appears in the vocabulary page.
 - [ ] Confirm review page can load due or new words.
 - [ ] Confirm export and import controls are reachable.

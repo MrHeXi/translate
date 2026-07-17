@@ -103,6 +103,16 @@ Capture a regular video page with available text-track or DOM-rendered captions 
 - Playback controls or the video context visible enough to show this is a video subtitle flow.
 - No claim or visual implication that LexiBridge records audio or transcribes meetings.
 
+### Local Media Subtitle Generator
+
+Capture the subtitle generator after an explicit run with:
+
+- A harmless local media filename and no personal file path.
+- A configured OpenAI or Groq speech service, spoken language, and translation controls visible.
+- Timed original and translated caption text visible.
+- Export SRT and Export VTT controls visible.
+- No implication that opening the page, selecting a file, or visiting a video page captures audio automatically.
+
 ### Live Captions
 
 Capture a safe sample page where captions are already visible after manually starting Live captions from the popup:
@@ -159,7 +169,7 @@ Capture the options page with:
 - Unsupported feature claims beyond web page translation, text-based document translation, selected-text translation, vocabulary collection, review, import/export, and Chrome storage sync.
 - Claims for guaranteed scanned PDF OCR, editable PDF text reflow, or automatic manga segmentation. Exported translated PDFs are flattened visual pages.
 - Claims for layout-perfect Office/eBook conversion.
-- Claims for audio transcription, automatic subtitle generation, meeting bots, or guaranteed support for every video site.
+- Claims for automatic tab-audio capture, meeting transcription, files above the documented provider limit, or guaranteed support for every speech/video provider.
 - Console errors, developer tools, or local file explorer windows.
 
 ## Final Check

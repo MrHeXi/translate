@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LexiBridge Subtitle Generator</title>
+  <link rel="stylesheet" href="subtitles.css">
+</head>
+<body>
+  <div class="subtitle-page">
+    <header class="page-header">
+      <div>
+        <span class="brand-name">LexiBridge</span>
+        <h1>Subtitle generator</h1>
+      </div>
+      <button id="openSettings" class="icon-button" type="button" title="Provider settings" aria-label="Provider settings">&#9881;</button>
+    </header>
+
+    <main>
+      <section class="file-band" aria-label="Media file">
+        <label class="file-picker">
+          <span>Choose media</span>
+          <input id="mediaFile" type="file" accept="audio/*,video/mp4,video/webm,.mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm">
+        </label>
+        <div class="file-summary">
+          <strong id="fileName">No media selected</strong>
+          <span id="fileDetails">Audio or video, up to 25 MB</span>
+        </div>
+      </section>
+
+      <section class="control-band" aria-label="Subtitle generation settings">
+        <label>
+          Speech service
+          <select id="transcriptionProvider"></select>
+        </label>
+        <label>
+          Spoken language
+          <select id="sourceLanguage"></select>
+        </label>
+        <label class="prompt-control">
+          Vocabulary or context
+          <input id="transcriptionPrompt" type="text" maxlength="1000" placeholder="Optional names and specialist terms">
+        </label>
+        <label class="toggle-control">
+          <input id="translateCaptions" type="checkbox" checked>
+          <span>Translate captions</span>
+        </label>
+        <label>
+          Translation service
+          <select id="translationProvider"></select>
+        </label>
+        <label>
+          Translate to
+          <select id="targetLanguage"></select>
+        </label>
+      </section>
+
+      <section class="run-band" aria-label="Generation progress">
+        <div class="progress-copy">
+          <strong id="generationStatus" role="status" aria-live="polite">Ready</strong>
+          <span id="progressText">0%</span>
+        </div>
+        <progress id="generationProgress" max="100" value="0"></progress>
+        <div class="run-actions">
+          <button id="cancelGeneration" class="secondary-button" type="button" hidden>Cancel</button>
+          <button id="generateSubtitles" class="primary-button" type="button" disabled>Generate subtitles</button>
+        </div>
+      </section>
+
+      <section id="resultSection" class="result-section" hidden>
+        <div class="result-header">
+          <div>
+            <h2>Generated captions</h2>
+            <p id="resultSummary"></p>
+          </div>
+          <div class="result-actions">
+            <button id="clearResult" class="icon-button icon-button-dark" type="button" title="Clear captions" aria-label="Clear captions">&#10005;</button>
+            <button id="exportSrt" class="secondary-button" type="button">Export SRT</button>
+            <button id="exportVtt" class="secondary-button" type="button">Export VTT</button>
+          </div>
+        </div>
+        <div id="cueList" class="cue-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="subtitles.js"></script>
+</body>
+</html>

@@ -76,6 +76,9 @@ class PopupController {
     const clearLiveCaptionTranscript = document.getElementById('clearLiveCaptionTranscript') as HTMLButtonElement;
     clearLiveCaptionTranscript?.addEventListener('click', () => this.clearLiveCaptionTranscript());
 
+    const openSubtitleGenerator = document.getElementById('openSubtitleGenerator') as HTMLButtonElement;
+    openSubtitleGenerator?.addEventListener('click', () => this.openSubtitleGenerator());
+
     const toggleImageTranslation = document.getElementById('toggleImageTranslation') as HTMLButtonElement;
     toggleImageTranslation?.addEventListener('click', () => this.toggleImageTranslationMode());
 
@@ -778,6 +781,10 @@ class PopupController {
 
   private isDocumentUrl(url: string): boolean {
     return /\.(pdf|txt|md|markdown|html|htm|json|docx|epub|srt|vtt)([?#].*)?$/i.test(url);
+  }
+
+  private openSubtitleGenerator(): void {
+    chrome.tabs.create({ url: chrome.runtime.getURL('subtitles.html') });
   }
 
   private async openSidePanel(): Promise<void> {

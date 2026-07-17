@@ -19,6 +19,11 @@ import { normalizeAiTranslationPreferences } from '../services/AiTranslationPref
 import { isAiWritingAction, normalizeAiWritingTask } from '../services/AiWritingAssistant';
 import { getTranslationProvider, TRANSLATION_LANGUAGES } from '../services/TranslationProviderRegistry';
 import { openTranslationSidePanel } from '../services/SidePanelManager';
+import {
+  MediaTranscriptionMetadata,
+  MediaTranscriptionUpload,
+  mediaTranscriptionService
+} from '../services/MediaTranscriptionService';
 
 // 消息类型定义（保留兼容性）
 interface MessageRequest {
@@ -335,6 +340,11 @@ class BackgroundService {
   }
 
   private handleConnection(port: chrome.runtime.Port): void {
+    if (port.name === 'lexibridge-media-transcription') {
+      this.handleMediaTranscriptionConnection(port);
+      return;
+    }
+
     console.log('建立连接:', port.name);
     
     port.onMessage.addListener((message) => {
@@ -344,6 +354,102 @@ class BackgroundService {
 
     port.onDisconnect.addListener(() => {
       console.log('连接断开:', port.name);
+    });
+  }
+
+  private handleMediaTranscriptionConnection(port: chrome.runtime.Port): void {
+    let upload: MediaTranscriptionUpload | null = null;
+    let abortController: AbortController | null = null;
+    let processing = false;
+    let canceled = false;
+    let disconnected = false;
+
+    const postMessage = (message: Record<string, unknown>): void => {
+      if (disconnected) return;
+      try {
+        port.postMessage(message);
+      } catch {
+        disconnected = true;
+      }
+    };
+    const clearUpload = (): void => {
+      upload?.clear();
+      upload = null;
+    };
+
+    port.onMessage.addListener(message => {
+      void (async () => {
+        try {
+          switch (message?.type) {
+            case 'initialize': {
+              if (processing) throw new Error('A media transcription is already running.');
+              clearUpload();
+              canceled = false;
+              upload = new MediaTranscriptionUpload(message.metadata as MediaTranscriptionMetadata);
+              postMessage({ type: 'ready', totalBytes: upload.metadata.totalBytes });
+              break;
+            }
+            case 'chunk': {
+              if (!upload || processing) throw new Error('Initialize the media upload first.');
+              const progress = upload.appendBase64Chunk(message.index, message.data);
+              postMessage({
+                type: 'chunk-accepted',
+                index: message.index,
+                ...progress
+              });
+              break;
+            }
+            case 'complete': {
+              if (!upload || processing) throw new Error('The media upload is not ready to transcribe.');
+              const activeUpload = upload;
+              processing = true;
+              abortController = new AbortController();
+              postMessage({ type: 'transcribing' });
+              try {
+                const providerConfig = await this.storageManager.getTranslationProviderConfig(
+                  activeUpload.metadata.providerId
+                );
+                const result = await mediaTranscriptionService.transcribe(
+                  activeUpload,
+                  providerConfig,
+                  abortController.signal
+                );
+                if (!canceled) postMessage({ type: 'transcription-complete', result });
+              } finally {
+                activeUpload.clear();
+                if (upload === activeUpload) upload = null;
+                abortController = null;
+                processing = false;
+              }
+              break;
+            }
+            case 'cancel': {
+              canceled = true;
+              abortController?.abort();
+              clearUpload();
+              postMessage({ type: 'canceled' });
+              break;
+            }
+            default:
+              throw new Error('Unknown media transcription message.');
+          }
+        } catch (error) {
+          if (!canceled) {
+            postMessage({
+              type: 'error',
+              error: error instanceof Error ? error.message : 'Media transcription failed.'
+            });
+          }
+          if (!processing) clearUpload();
+        }
+      })();
+    });
+
+    port.onDisconnect.addListener(() => {
+      disconnected = true;
+      canceled = true;
+      abortController?.abort();
+      clearUpload();
     });
   }
 

@@ -81,6 +81,9 @@ describe('product packaging contract', () => {
     expect(readme).toContain('Document Translation');
     expect(readme).toContain('Video Subtitle Translation');
     expect(readme).toContain('Export translated subtitle cues from the current session as an `.srt` file');
+    expect(readme).toContain('Generate Subtitles From Local Media');
+    expect(readme).toContain('configured OpenAI or Groq transcription service');
+    expect(readme).toContain('clear buffered media after completion, cancellation, provider errors, or disconnection');
     expect(readme).toContain('common DOM-rendered captions');
     expect(readme).toContain('Live Caption Translation');
     expect(readme).toContain('Google Meet, Zoom, Microsoft Teams, and Webex-style caption containers');
@@ -124,6 +127,9 @@ describe('product packaging contract', () => {
     expect(privacy).toContain('Chrome storage');
     expect(privacy).toContain('Translation provider requests');
     expect(privacy).toContain('side-panel text');
+    expect(privacy).toContain('selects a supported local audio or video file and clicks Generate subtitles');
+    expect(privacy).toContain('ordered 256 KB chunks');
+    expect(privacy).toContain('Media bytes stay in memory only');
     expect(privacy).toContain('Opening it loads settings and masked provider configuration summaries only');
     expect(privacy).toContain('translate.googleapis.com');
     expect(privacy).toContain('api.mymemory.translated.net');
@@ -188,6 +194,8 @@ describe('product packaging contract', () => {
     expect(listing).toContain('standalone-formula preservation');
     expect(listing).toContain('flattened translated-PDF export');
     expect(listing).toContain('Video subtitle translation');
+    expect(listing).toContain('Explicit subtitle generation for a selected local audio/video file up to 25 MB');
+    expect(listing).toContain('does not capture current-tab audio');
     expect(listing).toContain('common DOM-rendered captions');
     expect(listing).toContain('SRT export for translated cues from the current session');
     expect(listing).toContain('Live caption translation');
@@ -216,6 +224,9 @@ describe('product packaging contract', () => {
     expect(listing).toContain('Screenshot Plan');
     expect(listing).toContain('Permission Justifications');
     expect(listing).toContain('Privacy Questionnaire Notes');
+    expect(listing).toContain('explicit local-media transcription');
+    expect(listing).toContain('media explicitly submitted for transcription');
+    expect(listing).toContain('selected translation or transcription provider');
     expect(listing).toContain('No default telemetry');
     expect(listing).toContain('Translate page');
     expect(listing).toContain('bottom-right');
@@ -227,9 +238,9 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('45 test suites and 323 tests');
-    expect(releaseNotes).toContain('17,701,388');
-    expect(releaseNotes).toContain('B0E2C294D007892B58105CE883288D3D14B4264AC09F92599A46C9E0B3FB2446');
+    expect(releaseNotes).toContain('48 test suites and 334 tests');
+    expect(releaseNotes).toContain('17,716,817');
+    expect(releaseNotes).toContain('53B013B0000EBA0C576E0DBC1D2D1CB87F2B9DD188FC103212701723DE8079EE');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -256,6 +267,8 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('preserved standalone formula');
     expect(screenshotGuide).toContain('Video Subtitles');
     expect(screenshotGuide).toContain('Export SRT');
+    expect(screenshotGuide).toContain('Local Media Subtitle Generator');
+    expect(screenshotGuide).toContain('Export VTT');
     expect(screenshotGuide).toContain('Live Captions');
     expect(screenshotGuide).toContain('TXT/SRT/VTT/JSON format menu');
     expect(screenshotGuide).toContain('Image Text');
@@ -298,6 +311,8 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('bundled Tesseract worker');
     expect(roadmap).toContain('five selectable recognition languages');
     expect(roadmap).toContain('Video subtitle translation');
+    expect(roadmap).toContain('selected local audio/video files');
+    expect(roadmap).toContain('upload media in bounded ordered chunks');
     expect(roadmap).toContain('DOM-rendered video caption adapters');
     expect(roadmap).toContain('SRT export for translated subtitle cues');
     expect(roadmap).toContain('Meeting subtitle translation');
@@ -360,6 +375,14 @@ describe('product packaging contract', () => {
     expect(sidePanelHtml).toContain('id="writingLength"');
     expect(sidePanelHtml).toContain('id="writingInstruction"');
     expect(sidePanelHtml).toContain('id="useResultAsInput"');
+    expect(webpackConfig).toContain("subtitles: './src/subtitles/subtitles.ts'");
+    expect(webpackConfig).toContain("from: 'src/subtitles/subtitles.html'");
+    const subtitlesHtml = readProjectFile('src/subtitles/subtitles.html');
+    expect(subtitlesHtml).toContain('id="mediaFile"');
+    expect(subtitlesHtml).toContain('id="generateSubtitles"');
+    expect(subtitlesHtml).toContain('id="exportSrt"');
+    expect(subtitlesHtml).toContain('id="exportVtt"');
+    expect(readProjectFile('src/popup/popup.html')).toContain('id="openSubtitleGenerator"');
     expect(readProjectFile('src/popup/popup.html')).toContain('id="openSidePanelBtn"');
   });
 });

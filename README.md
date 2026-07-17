@@ -13,13 +13,14 @@ It is best for:
 - Reading English web pages, technical articles, documentation, and study material.
 - Translating pasted or uploaded text documents, HTML files, JSON files, DOCX files, EPUB files, subtitle files, and PDFs with local page rendering.
 - Translating video captions when the page exposes subtitle/caption tracks or common DOM-rendered captions.
+- Generating timed subtitles from a user-selected local audio or video file through a configured OpenAI or Groq transcription service.
 - Translating and locally exporting live caption text that is already visible in a page.
 - Translating text from selected or currently visible images, SVGs, and canvases with browser OCR or the bundled offline OCR fallback.
 - Collecting useful words from real context.
 - Reviewing CET4, CET6, GRE, IELTS, TOEFL vocabulary.
 - Keeping a local-first vocabulary notebook with Chrome storage sync support.
 
-It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-perfect Office/eBook converter, an automatic whole-page image reader, an audio transcription service, or a meeting bot that records or joins calls.
+It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-perfect Office/eBook converter, an automatic whole-page image reader, automatic browser-tab audio capture, or a meeting bot that records or joins calls.
 
 ## Core Features
 
@@ -87,7 +88,10 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Translate active caption or subtitle cues when the current video exposes browser text tracks or common DOM-rendered captions.
 - Render a bilingual subtitle overlay without recording audio or blocking playback.
 - Export translated subtitle cues from the current session as an `.srt` file.
-- Deeper site-specific video support, AI subtitle generation, and richer timing controls are planned for later batches.
+- Open the subtitle generator from the popup to select a local `.mp3`, `.mp4`, `.mpeg`, `.mpga`, `.m4a`, `.wav`, or `.webm` file up to 25 MB.
+- Generate timestamped captions through a configured OpenAI or Groq transcription service, optionally translate them with any configured translation provider, and export bilingual SRT or VTT.
+- Keep media idle until Generate subtitles is clicked, stream it to the background in bounded chunks, and clear buffered media after completion, cancellation, provider errors, or disconnection.
+- Current-tab audio capture, deeper site-specific video support, more speech providers, and richer timing controls remain later work.
 
 ### Live Caption Translation
 
@@ -206,6 +210,14 @@ In Main content scope, LexiBridge prefers semantic `article`, `main`, and `[role
 3. Click Start in Video subtitles.
 4. Click the same control again to remove the overlay and stop subtitle translation.
 5. Click Export SRT to download subtitle cues that were translated during the current session.
+
+### Generate Subtitles From Local Media
+
+1. Open the extension popup and click Generate from media.
+2. Choose a supported local audio or video file up to 25 MB.
+3. Choose a configured OpenAI or Groq speech service, spoken language, and optional vocabulary context.
+4. Choose whether to translate the generated captions, then click Generate subtitles.
+5. Export the generated captions as bilingual SRT or VTT.
 
 ### Translate Subtitle Files
 

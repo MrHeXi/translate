@@ -10,6 +10,7 @@ const setupPopupDom = (): void => {
   document.body.innerHTML = `
     <button id="toggleTranslation"></button>
     <button id="toggleVideoSubtitles"></button>
+    <button id="openSubtitleGenerator"></button>
     <button id="toggleLiveCaptions"></button>
     <button id="toggleImageTranslation"></button>
     <button id="translateBtn"></button>
@@ -160,6 +161,21 @@ describe('Popup current tab state', () => {
 
     expect((global as any).chrome.tabs.create).toHaveBeenCalledWith({
       url: `chrome-extension://test/document.html?sourceUrl=https%3A%2F%2Fexample.com%2F${encodeURIComponent(fileName)}%3Fdownload%3D1`
+    });
+  });
+
+  it('opens the local media subtitle generator only after its popup button is clicked', async () => {
+    require('../popup');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    expect((global as any).chrome.tabs.create).not.toHaveBeenCalled();
+
+    document.getElementById('openSubtitleGenerator')!.dispatchEvent(new Event('click'));
+
+    expect((global as any).chrome.runtime.getURL).toHaveBeenCalledWith('subtitles.html');
+    expect((global as any).chrome.tabs.create).toHaveBeenCalledWith({
+      url: 'chrome-extension://test/subtitles.html'
     });
   });
 });
