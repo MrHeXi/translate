@@ -109,9 +109,12 @@ Capture the subtitle generator after an explicit run with:
 
 - A harmless local media filename and no personal file path.
 - A configured OpenAI or Groq speech service, spoken language, and translation controls visible.
+- The Capture current tab command in its idle state after capture has stopped, without private media titles.
 - Timed original and translated caption text visible.
 - Export SRT and Export VTT controls visible.
-- No implication that opening the page, selecting a file, or visiting a video page captures audio automatically.
+- No implication that opening the page, selecting a file, or visiting a video page captures audio automatically; capture requires its own click and stops when the generator closes.
+
+If documenting the active capture state, use a separate screenshot with no generated captions or provider progress. Show that declared `tabCapture` access is unused until Capture current tab, and do not imply any upload before Stop and generate. Cancel, stream failure, generator close, or the 25 MB limit must be described as local cleanup without provider submission.
 
 ### Live Captions
 
@@ -166,7 +169,7 @@ Capture the options page with:
 - Private browsing data or account details.
 - Any claim that translation starts automatically.
 - Private intranet domains or personal site-rule entries.
-- Unsupported feature claims beyond web page translation, text-based document translation, selected-text translation, vocabulary collection, review, import/export, and Chrome storage sync.
+- Unsupported claims beyond the verified feature boundaries in `STORE_LISTING.md` and `RELEASE_NOTES.md`.
 - Claims for guaranteed scanned PDF OCR, editable PDF text reflow, or automatic manga segmentation. Exported translated PDFs are flattened visual pages.
 - Claims for layout-perfect Office/eBook conversion.
 - Claims for automatic tab-audio capture, meeting transcription, files above the documented provider limit, or guaranteed support for every speech/video provider.

@@ -18,13 +18,17 @@
 
     <main>
       <section class="file-band" aria-label="Media file">
-        <label class="file-picker">
-          <span>Choose media</span>
-          <input id="mediaFile" type="file" accept="audio/*,video/mp4,video/webm,.mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm">
-        </label>
+        <div class="source-actions">
+          <label class="file-picker">
+            <span>Choose media</span>
+            <input id="mediaFile" type="file" accept=".mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm,audio/mpeg,audio/mp4,audio/x-m4a,audio/wav,audio/x-wav,audio/webm,video/mp4,video/webm">
+          </label>
+          <button id="toggleTabCapture" class="secondary-button capture-button" type="button" disabled>Capture current tab</button>
+          <button id="cancelTabCapture" class="icon-button icon-button-dark" type="button" title="Cancel tab capture" aria-label="Cancel tab capture" hidden>&#10005;</button>
+        </div>
         <div class="file-summary">
           <strong id="fileName">No media selected</strong>
-          <span id="fileDetails">Audio or video, up to 25 MB</span>
+          <span id="fileDetails">Local audio/video or current tab, up to 25 MB</span>
         </div>
       </section>
 

@@ -68,9 +68,96 @@ const setMediaFile = (fileInput: HTMLInputElement, bytes: number[] = [1, 2, 3]):
   return file;
 };
 
+interface TabCaptureHarness {
+  connect: jest.Mock;
+  stopTrack: jest.Mock;
+  audioContext: {
+    close: jest.Mock;
+  };
+  recorder: {
+    state: RecordingState;
+    ondataavailable: ((event: BlobEvent) => void) | null;
+    onerror: ((event: Event) => void) | null;
+    onstop: (() => void) | null;
+    stop: jest.Mock;
+  };
+}
+
+const startTabCapture = async (): Promise<TabCaptureHarness> => {
+  window.history.replaceState({}, '', '/subtitles.html?sourceTabId=12');
+  const connect = jest.fn();
+  const sendMessage = jest.fn((message, callback) => {
+    if (message.action === 'getTranslationProviderConfigs') {
+      callback({ success: true, data: [{ providerId: 'groq', configured: true }] });
+      return;
+    }
+    if (message.action === 'getSettings') {
+      callback({ success: true, data: { translationProvider: 'google', defaultTargetLanguage: 'zh-CN' } });
+      return;
+    }
+    if (message.action === 'getTabAudioCaptureStreamId') {
+      callback({ success: true, data: { streamId: 'tab-stream-id' } });
+      return;
+    }
+    callback({ success: true });
+  });
+  const stopTrack = jest.fn();
+  const mediaStream = { getTracks: () => [{ stop: stopTrack }] } as unknown as MediaStream;
+  const playbackSource = { connect: jest.fn(), disconnect: jest.fn() };
+  const audioContext = {
+    destination: {},
+    createMediaStreamSource: jest.fn(() => playbackSource),
+    resume: jest.fn().mockResolvedValue(undefined),
+    close: jest.fn().mockResolvedValue(undefined)
+  };
+  let recorder: TabCaptureHarness['recorder'] | null = null;
+  class MockMediaRecorder {
+    static isTypeSupported = jest.fn().mockReturnValue(true);
+    state: RecordingState = 'inactive';
+    ondataavailable: ((event: BlobEvent) => void) | null = null;
+    onerror: ((event: Event) => void) | null = null;
+    onstop: (() => void) | null = null;
+    start = jest.fn(() => {
+      this.state = 'recording';
+    });
+    stop = jest.fn(() => {
+      this.state = 'inactive';
+    });
+    mimeType = 'audio/webm;codecs=opus';
+
+    constructor(_stream: MediaStream, _options?: MediaRecorderOptions) {
+      recorder = this;
+    }
+  }
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: { getUserMedia: jest.fn().mockResolvedValue(mediaStream) }
+  });
+  Object.defineProperty(window, 'MediaRecorder', { configurable: true, value: MockMediaRecorder });
+  Object.defineProperty(window, 'AudioContext', {
+    configurable: true,
+    value: jest.fn(() => audioContext)
+  });
+  (global as any).chrome = {
+    runtime: { sendMessage, connect, lastError: null, openOptionsPage: jest.fn() }
+  };
+
+  require('../subtitles');
+  document.dispatchEvent(new Event('DOMContentLoaded'));
+  await flushPromises();
+  await flushPromises();
+  document.getElementById('toggleTabCapture')!.dispatchEvent(new Event('click'));
+  await flushPromises();
+  await flushPromises();
+
+  if (!recorder) throw new Error('Expected MediaRecorder to be created');
+  return { connect, stopTrack, audioContext, recorder };
+};
+
 describe('AI subtitle generator', () => {
   beforeEach(() => {
     jest.resetModules();
+    window.history.replaceState({}, '', '/subtitles.html');
     document.body.innerHTML = body;
   });
 
@@ -105,6 +192,7 @@ describe('AI subtitle generator', () => {
     expect((document.getElementById('translationProvider') as HTMLSelectElement).value).toBe('google');
     expect((document.getElementById('targetLanguage') as HTMLSelectElement).value).toBe('fr');
     expect((document.getElementById('generateSubtitles') as HTMLButtonElement).disabled).toBe(true);
+    expect((document.getElementById('toggleTabCapture') as HTMLButtonElement).disabled).toBe(true);
     expect(connect).not.toHaveBeenCalled();
     expect(sendMessage.mock.calls.some(([message]) => message.action === 'translate')).toBe(false);
   });
@@ -253,5 +341,283 @@ describe('AI subtitle generator', () => {
     expect(harness.disconnect).toHaveBeenCalledTimes(1);
     expect(document.getElementById('generationStatus')?.textContent).toBe('Canceled');
     expect((document.getElementById('cancelGeneration') as HTMLButtonElement).hidden).toBe(true);
+  });
+
+  it('does not open a media stream when Chrome denies the source-tab capture', async () => {
+    window.history.replaceState({}, '', '/subtitles.html?sourceTabId=12');
+    const getUserMedia = jest.fn();
+    const connect = jest.fn();
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({ success: true, data: [{ providerId: 'groq', configured: true }] });
+        return;
+      }
+      if (message.action === 'getSettings') {
+        callback({ success: true, data: { translationProvider: 'google', defaultTargetLanguage: 'zh-CN' } });
+        return;
+      }
+      if (message.action === 'getTabAudioCaptureStreamId') {
+        callback({ success: false, error: 'Chrome denied source-tab capture.' });
+        return;
+      }
+      callback({ success: true });
+    });
+    class AvailableMediaRecorder {
+      static isTypeSupported = jest.fn().mockReturnValue(true);
+    }
+    const audioContext = {
+      resume: jest.fn().mockResolvedValue(undefined),
+      close: jest.fn().mockResolvedValue(undefined)
+    };
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia }
+    });
+    Object.defineProperty(window, 'MediaRecorder', {
+      configurable: true,
+      value: AvailableMediaRecorder
+    });
+    Object.defineProperty(window, 'AudioContext', {
+      configurable: true,
+      value: jest.fn(() => audioContext)
+    });
+    (global as any).chrome = {
+      runtime: { sendMessage, connect, lastError: null, openOptionsPage: jest.fn() }
+    };
+
+    require('../subtitles');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+    await flushPromises();
+
+    document.getElementById('toggleTabCapture')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    expect(sendMessage.mock.calls.some(([message]) => message.action === 'getTabAudioCaptureStreamId')).toBe(true);
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(connect).not.toHaveBeenCalled();
+    expect(audioContext.close).toHaveBeenCalledTimes(1);
+    expect(document.getElementById('generationStatus')?.textContent).toBe('Chrome denied source-tab capture.');
+  });
+
+  it('captures the source tab only after a click and uploads after Stop and generate', async () => {
+    window.history.replaceState({}, '', '/subtitles.html?sourceTabId=12');
+    const harness = createPortHarness();
+    const connect = jest.fn(() => harness.port);
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({ success: true, data: [{ providerId: 'groq', configured: true }] });
+        return;
+      }
+      if (message.action === 'getSettings') {
+        callback({ success: true, data: { translationProvider: 'google', defaultTargetLanguage: 'zh-CN' } });
+        return;
+      }
+      if (message.action === 'getTabAudioCaptureStreamId') {
+        callback({ success: true, data: { streamId: 'tab-stream-id' } });
+        return;
+      }
+      callback({ success: true });
+    });
+    const stopTrack = jest.fn();
+    const mediaStream = {
+      getTracks: () => [{ stop: stopTrack }]
+    } as unknown as MediaStream;
+    const getUserMedia = jest.fn().mockResolvedValue(mediaStream);
+    const playbackSource = { connect: jest.fn(), disconnect: jest.fn() };
+    const audioContext = {
+      destination: {},
+      createMediaStreamSource: jest.fn(() => playbackSource),
+      resume: jest.fn().mockResolvedValue(undefined),
+      close: jest.fn().mockResolvedValue(undefined)
+    };
+    let recorderInstance: {
+      state: RecordingState;
+      mimeType: string;
+      ondataavailable: ((event: BlobEvent) => void) | null;
+      onerror: ((event: Event) => void) | null;
+      onstop: (() => void) | null;
+      start: jest.Mock;
+      stop: jest.Mock;
+    } | null = null;
+    class MockMediaRecorder {
+      static isTypeSupported = jest.fn().mockReturnValue(true);
+      state: RecordingState = 'inactive';
+      mimeType: string;
+      ondataavailable: ((event: BlobEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      onstop: (() => void) | null = null;
+      start = jest.fn((_timeslice?: number) => {
+        this.state = 'recording';
+      });
+      stop = jest.fn(() => {
+        this.state = 'inactive';
+        this.onstop?.();
+      });
+
+      constructor(_stream: MediaStream, options?: MediaRecorderOptions) {
+        this.mimeType = options?.mimeType || 'audio/webm';
+        recorderInstance = this;
+      }
+    }
+    const MockAudioContext = jest.fn(() => audioContext);
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getUserMedia }
+    });
+    Object.defineProperty(window, 'MediaRecorder', {
+      configurable: true,
+      value: MockMediaRecorder
+    });
+    Object.defineProperty(window, 'AudioContext', {
+      configurable: true,
+      value: MockAudioContext
+    });
+    (global as any).chrome = {
+      runtime: { sendMessage, connect, lastError: null, openOptionsPage: jest.fn() }
+    };
+
+    try {
+      require('../subtitles');
+      document.dispatchEvent(new Event('DOMContentLoaded'));
+      await flushPromises();
+      await flushPromises();
+
+      const captureButton = document.getElementById('toggleTabCapture') as HTMLButtonElement;
+      const translateCaptions = document.getElementById('translateCaptions') as HTMLInputElement;
+      translateCaptions.checked = false;
+      translateCaptions.dispatchEvent(new Event('change'));
+      expect(captureButton.disabled).toBe(false);
+      expect(connect).not.toHaveBeenCalled();
+
+      captureButton.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      expect(sendMessage).toHaveBeenCalledWith({
+        action: 'getTabAudioCaptureStreamId',
+        data: { targetTabId: 12 }
+      }, expect.any(Function));
+      expect(getUserMedia).toHaveBeenCalledWith({
+        audio: {
+          mandatory: {
+            chromeMediaSource: 'tab',
+            chromeMediaSourceId: 'tab-stream-id'
+          }
+        },
+        video: false
+      });
+      expect(recorderInstance).not.toBeNull();
+      expect(recorderInstance!.start).toHaveBeenCalledWith(1000);
+      expect(captureButton.textContent).toBe('Stop and generate');
+      expect(connect).not.toHaveBeenCalled();
+
+      recorderInstance!.ondataavailable?.({
+        data: new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/webm' })
+      } as BlobEvent);
+      captureButton.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      expect(recorderInstance!.stop).toHaveBeenCalledTimes(1);
+      expect(stopTrack).toHaveBeenCalledTimes(1);
+      expect(audioContext.close).toHaveBeenCalledTimes(1);
+      expect(connect).toHaveBeenCalledWith({ name: 'lexibridge-media-transcription' });
+      expect(harness.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'initialize',
+        metadata: expect.objectContaining({
+          providerId: 'groq',
+          fileName: expect.stringMatching(/^tab-audio-.+\.webm$/),
+          mimeType: 'audio/webm;codecs=opus',
+          totalBytes: 3
+        })
+      }));
+      expect(recorderInstance!.ondataavailable).toBeNull();
+      expect(recorderInstance!.onerror).toBeNull();
+      expect(recorderInstance!.onstop).toBeNull();
+
+      harness.emitMessage({ type: 'transcribing' });
+      harness.emitMessage({
+        type: 'transcription-complete',
+        result: {
+          text: 'Captured speech',
+          language: 'en',
+          duration: 1,
+          segments: [{ id: 1, start: 0, end: 1, text: 'Captured speech' }]
+        }
+      });
+      await flushPromises();
+      await flushPromises();
+
+      document.getElementById('generateSubtitles')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      expect(connect).toHaveBeenCalledTimes(1);
+    } finally {
+      window.dispatchEvent(new Event('pagehide'));
+      window.history.replaceState({}, '', '/subtitles.html');
+    }
+  });
+
+  it('discards recorder errors and ignores late data after stop without uploading', async () => {
+    const { recorder, connect, stopTrack, audioContext } = await startTabCapture();
+    const lateDataHandler = recorder.ondataavailable;
+    const stopHandler = recorder.onstop;
+
+    recorder.onerror?.({ error: { message: 'Recorder failed.' } } as unknown as Event);
+    lateDataHandler?.({ data: new Blob([new Uint8Array([1, 2, 3])]) } as BlobEvent);
+    stopHandler?.();
+    await flushPromises();
+
+    expect(recorder.stop).toHaveBeenCalledTimes(1);
+    expect(stopTrack).toHaveBeenCalledTimes(1);
+    expect(audioContext.close).toHaveBeenCalledTimes(1);
+    expect(recorder.ondataavailable).toBeNull();
+    expect(recorder.onerror).toBeNull();
+    expect(recorder.onstop).toBeNull();
+    expect(document.getElementById('generationStatus')?.textContent).toBe('Recorder failed.');
+    expect(connect).not.toHaveBeenCalled();
+
+    lateDataHandler?.({ data: new Blob([new Uint8Array([4, 5, 6])]) } as BlobEvent);
+    await flushPromises();
+    expect(connect).not.toHaveBeenCalled();
+    expect((document.getElementById('generateSubtitles') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('stops and discards a tab capture chunk exceeding 25 MB without uploading', async () => {
+    const { recorder, connect, stopTrack, audioContext } = await startTabCapture();
+    const stopHandler = recorder.onstop;
+
+    recorder.ondataavailable?.({
+      data: { size: (25 * 1024 * 1024) + 1 } as Blob
+    } as BlobEvent);
+    stopHandler?.();
+    await flushPromises();
+
+    expect(recorder.stop).toHaveBeenCalledTimes(1);
+    expect(stopTrack).toHaveBeenCalledTimes(1);
+    expect(audioContext.close).toHaveBeenCalledTimes(1);
+    expect(document.getElementById('generationStatus')?.textContent)
+      .toBe('Tab audio exceeded 25 MB and was discarded.');
+    expect(connect).not.toHaveBeenCalled();
+    expect((document.getElementById('generateSubtitles') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('releases active tab capture resources on pagehide without uploading', async () => {
+    const { recorder, connect, stopTrack, audioContext } = await startTabCapture();
+
+    recorder.ondataavailable?.({
+      data: new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/webm' })
+    } as BlobEvent);
+    window.dispatchEvent(new Event('pagehide'));
+    await flushPromises();
+
+    expect(recorder.stop).toHaveBeenCalledTimes(1);
+    expect(stopTrack).toHaveBeenCalledTimes(1);
+    expect(audioContext.close).toHaveBeenCalledTimes(1);
+    expect(recorder.ondataavailable).toBeNull();
+    expect(recorder.onerror).toBeNull();
+    expect(recorder.onstop).toBeNull();
+    expect(connect).not.toHaveBeenCalled();
+    expect((document.getElementById('generateSubtitles') as HTMLButtonElement).disabled).toBe(true);
   });
 });

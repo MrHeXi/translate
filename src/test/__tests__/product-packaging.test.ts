@@ -15,7 +15,16 @@ describe('product packaging contract', () => {
     expect(manifest.description).toBe(
       'Translate web pages, collect unknown words, and review CET, GRE, IELTS, and TOEFL vocabulary.'
     );
-    expect(manifest.permissions).toEqual(['storage', 'activeTab', 'scripting', 'tabs', 'sidePanel']);
+    expect(manifest.permissions).toEqual([
+      'storage',
+      'activeTab',
+      'scripting',
+      'tabs',
+      'sidePanel',
+      'tabCapture'
+    ]);
+    expect(manifest.optional_permissions).toBeUndefined();
+    expect(manifest.minimum_chrome_version).toBe('116');
     expect(manifest.side_panel).toEqual({ default_path: 'sidepanel.html' });
     expect(manifest.commands.openTranslationSidePanel).toEqual({
       suggested_key: { default: 'Alt+S' },
@@ -82,8 +91,14 @@ describe('product packaging contract', () => {
     expect(readme).toContain('Video Subtitle Translation');
     expect(readme).toContain('Export translated subtitle cues from the current session as an `.srt` file');
     expect(readme).toContain('Generate Subtitles From Local Media');
+    expect(readme).toContain('Generate Subtitles From Current Tab Audio');
     expect(readme).toContain('configured OpenAI or Groq transcription service');
-    expect(readme).toContain('clear buffered media after completion, cancellation, provider errors, or disconnection');
+    expect(readme).toContain('Capturing audio from the source tab only after an explicit click');
+    expect(readme).toContain('click Stop and generate when enough audio has played');
+    expect(readme).toContain('Use the declared `tabCapture` permission only after the explicit capture button');
+    expect(readme).toContain('requires Chrome 116 or newer');
+    expect(readme).toContain('current-tab audio remains local until Stop and generate');
+    expect(readme).toContain('clear buffers after completion, cancellation, provider errors, or disconnection');
     expect(readme).toContain('common DOM-rendered captions');
     expect(readme).toContain('Live Caption Translation');
     expect(readme).toContain('Google Meet, Zoom, Microsoft Teams, and Webex-style caption containers');
@@ -119,6 +134,8 @@ describe('product packaging contract', () => {
     expect(readme).toContain('Neighboring context is opt-in');
     expect(readme).toContain('API keys in local Chrome storage only');
     expect(readme).toContain('CET4, CET6, GRE, IELTS, TOEFL');
+    expect(readme).toContain('background or automatic browser-tab audio capture');
+    expect(readme).toContain('meeting bot that records or joins calls');
     expect(readme).not.toMatch(/automatic audio transcription|records calls|joins calls automatically/i);
     expect(readme).toContain('not marketed as guaranteed OCR for every scanned PDF');
 
@@ -127,7 +144,19 @@ describe('product packaging contract', () => {
     expect(privacy).toContain('Chrome storage');
     expect(privacy).toContain('Translation provider requests');
     expect(privacy).toContain('side-panel text');
-    expect(privacy).toContain('selects a supported local audio or video file and clicks Generate subtitles');
+    expect(privacy).toContain(
+      'current-tab recording started by an explicit Capture current tab click'
+    );
+    expect(privacy).toContain(
+      'Opening the generator, visiting a media page, or selecting a local file does not capture or upload audio'
+    );
+    expect(privacy).toContain("Chrome grants the declared `tabCapture` permission at installation");
+    expect(privacy).toContain('LexiBridge invokes it only after Capture current tab');
+    expect(privacy).toContain('records only the source tab that opened the generator');
+    expect(privacy).toContain('runs only while the generator page remains open');
+    expect(privacy).toContain('Clicking Stop and generate turns the in-memory recording into a local WebM file');
+    expect(privacy).toContain('After Generate subtitles or Stop and generate');
+    expect(privacy).toContain('provider upload starts only after Stop and generate');
     expect(privacy).toContain('ordered 256 KB chunks');
     expect(privacy).toContain('Media bytes stay in memory only');
     expect(privacy).toContain('Opening it loads settings and masked provider configuration summaries only');
@@ -195,7 +224,10 @@ describe('product packaging contract', () => {
     expect(listing).toContain('flattened translated-PDF export');
     expect(listing).toContain('Video subtitle translation');
     expect(listing).toContain('Explicit subtitle generation for a selected local audio/video file up to 25 MB');
-    expect(listing).toContain('does not capture current-tab audio');
+    expect(listing).toContain('Explicit current-tab audio capture while the subtitle generator remains open');
+    expect(listing).toContain('using the declared permission only after Capture current tab');
+    expect(listing).toContain('Stop-and-generate submission');
+    expect(listing).toContain('no page-load recording');
     expect(listing).toContain('common DOM-rendered captions');
     expect(listing).toContain('SRT export for translated cues from the current session');
     expect(listing).toContain('Live caption translation');
@@ -207,7 +239,6 @@ describe('product packaging contract', () => {
     expect(listing).toContain('bundled offline OCR');
     expect(listing).toContain('selected OCR language');
     expect(listing).toContain('separate OCR block overlays');
-    expect(listing).toContain('does not record audio');
     expect(listing).toContain('does not record audio, join calls, or transcribe speech');
     expect(listing).toContain('100+ target language choices');
     expect(listing).toContain('21 implemented provider adapters');
@@ -224,8 +255,12 @@ describe('product packaging contract', () => {
     expect(listing).toContain('Screenshot Plan');
     expect(listing).toContain('Permission Justifications');
     expect(listing).toContain('Privacy Questionnaire Notes');
-    expect(listing).toContain('explicit local-media transcription');
-    expect(listing).toContain('media explicitly submitted for transcription');
+    expect(listing).toContain('`tabCapture`: required so Chrome can authorize the source tab');
+    expect(listing).toContain('uploads only after Generate subtitles or Stop and generate');
+    expect(listing).toContain('Stop and generate is required before provider upload');
+    expect(listing).toContain('does not start automatically or join meetings');
+    expect(listing).toContain('explicit local-media or current-tab transcription');
+    expect(listing).toContain('selected or explicitly captured media submitted for transcription');
     expect(listing).toContain('selected translation or transcription provider');
     expect(listing).toContain('No default telemetry');
     expect(listing).toContain('Translate page');
@@ -238,7 +273,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('48 test suites and 334 tests');
+    expect(releaseNotes).toContain('49 test suites and 344 tests');
     expect(releaseNotes).toContain('17,716,817');
     expect(releaseNotes).toContain('53B013B0000EBA0C576E0DBC1D2D1CB87F2B9DD188FC103212701723DE8079EE');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
@@ -268,6 +303,8 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('Video Subtitles');
     expect(screenshotGuide).toContain('Export SRT');
     expect(screenshotGuide).toContain('Local Media Subtitle Generator');
+    expect(screenshotGuide).toContain('use a separate screenshot with no generated captions or provider progress');
+    expect(screenshotGuide).toContain('do not imply any upload before Stop and generate');
     expect(screenshotGuide).toContain('Export VTT');
     expect(screenshotGuide).toContain('Live Captions');
     expect(screenshotGuide).toContain('TXT/SRT/VTT/JSON format menu');
@@ -313,6 +350,16 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('Video subtitle translation');
     expect(roadmap).toContain('selected local audio/video files');
     expect(roadmap).toContain('upload media in bounded ordered chunks');
+    expect(roadmap).toContain(
+      'Explicit current-tab audio capture in the open subtitle generator with source-tab authorization'
+    );
+    expect(roadmap).toContain('bounded memory, and Stop-and-generate submission');
+    expect(roadmap).toContain(
+      'Done: declare `tabCapture` so Chrome can authorize the source tab when the popup is invoked'
+    );
+    expect(roadmap).toContain('call it only after an explicit subtitle-generator click');
+    expect(roadmap).toContain('stop/discard on cancel, page close, failure, or the 25 MB limit');
+    expect(roadmap).not.toContain('Remaining: automatic current-tab media capture');
     expect(roadmap).toContain('DOM-rendered video caption adapters');
     expect(roadmap).toContain('SRT export for translated subtitle cues');
     expect(roadmap).toContain('Meeting subtitle translation');
@@ -379,6 +426,9 @@ describe('product packaging contract', () => {
     expect(webpackConfig).toContain("from: 'src/subtitles/subtitles.html'");
     const subtitlesHtml = readProjectFile('src/subtitles/subtitles.html');
     expect(subtitlesHtml).toContain('id="mediaFile"');
+    expect(subtitlesHtml).toMatch(
+      /<button[^>]*id="toggleTabCapture"[^>]*>Capture current tab<\/button>/
+    );
     expect(subtitlesHtml).toContain('id="generateSubtitles"');
     expect(subtitlesHtml).toContain('id="exportSrt"');
     expect(subtitlesHtml).toContain('id="exportVtt"');

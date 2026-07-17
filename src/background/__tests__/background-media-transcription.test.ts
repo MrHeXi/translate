@@ -18,7 +18,12 @@ interface PortHarness {
 interface BackgroundHarness {
   uploads: UploadDouble[];
   getTranslationProviderConfig: jest.Mock;
+  createTabAudioStreamId: jest.Mock;
   connect(): PortHarness;
+  sendRuntimeMessage(
+    message: Record<string, unknown>,
+    sender: chrome.runtime.MessageSender
+  ): Promise<any>;
 }
 
 const transcriptionResult = {
@@ -30,6 +35,11 @@ const transcriptionResult = {
 
 const loadBackgroundHarness = (transcribe: jest.Mock): BackgroundHarness => {
   let connectionListener: ((port: chrome.runtime.Port) => void) | null = null;
+  let runtimeMessageListener: ((
+    request: Record<string, unknown>,
+    sender: chrome.runtime.MessageSender,
+    sendResponse: (response: any) => void
+  ) => boolean) | null = null;
   const uploads: UploadDouble[] = [];
   const providerConfig = {
     apiKey: 'background-only-secret',
@@ -37,10 +47,17 @@ const loadBackgroundHarness = (transcribe: jest.Mock): BackgroundHarness => {
     model: 'chat-model'
   };
   const getTranslationProviderConfig = jest.fn().mockResolvedValue(providerConfig);
+  const createTabAudioStreamId = jest.fn().mockResolvedValue('tab-stream-id');
 
   (global as any).chrome = {
     runtime: {
-      onMessage: { addListener: jest.fn() },
+      id: 'extension-id',
+      getURL: jest.fn((path: string) => `chrome-extension://extension-id/${path}`),
+      onMessage: {
+        addListener: jest.fn(listener => {
+          if (!runtimeMessageListener) runtimeMessageListener = listener;
+        })
+      },
       onConnect: {
         addListener: jest.fn(listener => {
           connectionListener = listener;
@@ -70,6 +87,10 @@ const loadBackgroundHarness = (transcribe: jest.Mock): BackgroundHarness => {
       return upload;
     }),
     mediaTranscriptionService: { transcribe }
+  }));
+  jest.doMock('../../services/TabAudioCaptureService', () => ({
+    isTrustedTabAudioCaptureSender: jest.fn().mockReturnValue(true),
+    tabAudioCaptureService: { createStreamId: createTabAudioStreamId }
   }));
   jest.doMock('../../services/TranslationService', () => ({
     TranslationService: jest.fn().mockImplementation(() => ({
@@ -129,10 +150,12 @@ const loadBackgroundHarness = (transcribe: jest.Mock): BackgroundHarness => {
 
   require('../background');
   if (!connectionListener) throw new Error('Background connection listener was not registered.');
+  if (!runtimeMessageListener) throw new Error('Background message listener was not registered.');
 
   return {
     uploads,
     getTranslationProviderConfig,
+    createTabAudioStreamId,
     connect: () => {
       let messageListener: ((message: Record<string, unknown>) => void) | null = null;
       let disconnectListener: (() => void) | null = null;
@@ -160,7 +183,10 @@ const loadBackgroundHarness = (transcribe: jest.Mock): BackgroundHarness => {
         send: message => messageListener!(message),
         disconnect: () => disconnectListener!()
       };
-    }
+    },
+    sendRuntimeMessage: (message, sender) => new Promise(resolve => {
+      runtimeMessageListener!(message, sender, resolve);
+    })
   };
 };
 
@@ -274,5 +300,25 @@ describe('BackgroundService media transcription port', () => {
       error: 'Speech service unavailable.'
     });
     expect(harness.uploads[0]?.clear).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes a trusted subtitle-page request to tab audio capture', async () => {
+    const harness = loadBackgroundHarness(jest.fn());
+    await flushPromises();
+
+    const response = await harness.sendRuntimeMessage({
+      action: 'getTabAudioCaptureStreamId',
+      data: { targetTabId: 12 }
+    }, {
+      id: 'extension-id',
+      url: 'chrome-extension://extension-id/subtitles.html?sourceTabId=12',
+      tab: { id: 44 } as chrome.tabs.Tab
+    });
+
+    expect(harness.createTabAudioStreamId).toHaveBeenCalledWith({
+      targetTabId: 12,
+      consumerTabId: 44
+    });
+    expect(response).toEqual({ success: true, data: { streamId: 'tab-stream-id' } });
   });
 });

@@ -77,7 +77,7 @@ class PopupController {
     clearLiveCaptionTranscript?.addEventListener('click', () => this.clearLiveCaptionTranscript());
 
     const openSubtitleGenerator = document.getElementById('openSubtitleGenerator') as HTMLButtonElement;
-    openSubtitleGenerator?.addEventListener('click', () => this.openSubtitleGenerator());
+    openSubtitleGenerator?.addEventListener('click', () => void this.openSubtitleGenerator());
 
     const toggleImageTranslation = document.getElementById('toggleImageTranslation') as HTMLButtonElement;
     toggleImageTranslation?.addEventListener('click', () => this.toggleImageTranslationMode());
@@ -783,8 +783,17 @@ class PopupController {
     return /\.(pdf|txt|md|markdown|html|htm|json|docx|epub|srt|vtt)([?#].*)?$/i.test(url);
   }
 
-  private openSubtitleGenerator(): void {
-    chrome.tabs.create({ url: chrome.runtime.getURL('subtitles.html') });
+  private async openSubtitleGenerator(): Promise<void> {
+    const generatorUrl = new URL(chrome.runtime.getURL('subtitles.html'));
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id && this.canInjectContentScript(tab.url)) {
+        generatorUrl.searchParams.set('sourceTabId', String(tab.id));
+      }
+    } catch (error) {
+      console.warn('Could not attach the source tab to the subtitle generator:', error);
+    }
+    chrome.tabs.create({ url: generatorUrl.toString() });
   }
 
   private async openSidePanel(): Promise<void> {

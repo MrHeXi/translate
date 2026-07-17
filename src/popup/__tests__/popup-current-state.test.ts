@@ -172,10 +172,11 @@ describe('Popup current tab state', () => {
     expect((global as any).chrome.tabs.create).not.toHaveBeenCalled();
 
     document.getElementById('openSubtitleGenerator')!.dispatchEvent(new Event('click'));
+    await flushPromises();
 
     expect((global as any).chrome.runtime.getURL).toHaveBeenCalledWith('subtitles.html');
     expect((global as any).chrome.tabs.create).toHaveBeenCalledWith({
-      url: 'chrome-extension://test/subtitles.html'
+      url: 'chrome-extension://test/subtitles.html?sourceTabId=1'
     });
   });
 });

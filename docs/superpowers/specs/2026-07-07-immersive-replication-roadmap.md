@@ -54,6 +54,7 @@ Current batch:
 - Manual document entry prompt on detected document URLs.
 - Manual video subtitle translation for pages that expose caption or subtitle text tracks.
 - User-invoked local-media transcription through configured OpenAI/Groq endpoints with optional caption translation and SRT/VTT export.
+- Explicit current-tab audio capture in the open subtitle generator with source-tab authorization, click-only API use, local playback preservation, bounded memory, and Stop-and-generate submission.
 - DOM-rendered video caption adapters for common caption containers.
 - SRT export for translated subtitle cues collected during the current video session.
 - Manual live caption translation for caption text already visible in the page DOM.
@@ -131,10 +132,12 @@ Current batch:
 - Done: detect common DOM-rendered video caption containers after manual enablement.
 - Done: translate active subtitle cues after the user starts Video subtitles from the popup.
 - Done: render bilingual subtitle overlays without blocking playback.
+- Done: keep Video subtitles text-only; it never starts current-tab recording.
 - Done: export translated subtitle cues from the current session as SRT.
 - Done: generate timestamped captions from explicitly selected local audio/video files through configured OpenAI or Groq transcription endpoints.
 - Done: upload media in bounded ordered chunks, abort on cancellation/disconnect, keep bytes in memory only, optionally translate normalized cues, and export bilingual SRT/VTT.
-- Remaining: automatic current-tab media capture, deeper site-specific optimizations, additional speech providers, files above provider limits, and richer caption timing/editing controls.
+- Done: declare `tabCapture` so Chrome can authorize the source tab when the popup is invoked, call it only after an explicit subtitle-generator click, preserve local playback, and stop/discard on cancel, page close, failure, or the 25 MB limit.
+- Remaining: deeper site-specific optimizations, additional speech providers, files above provider limits, live partial transcription, and richer caption timing/editing controls.
 
 ### Batch F: Image, Manga, and OCR Translation
 
@@ -177,6 +180,8 @@ Current batch:
 ## Non-Negotiable Product Rules
 
 - Do not auto-translate a page on load.
+- Do not capture tab audio on page load, from Video subtitles, or from Live captions.
+- Keep the required tab-audio API unused until Capture current tab; keep recordings local until Stop and generate and discard them on cancel, page close, failure, or limit overflow.
 - Do not weaken existing learning functions.
 - Do not claim a feature in store copy before it is implemented and verified.
 - Each batch must have tests or documented acceptance checks.

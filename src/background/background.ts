@@ -24,6 +24,10 @@ import {
   MediaTranscriptionUpload,
   mediaTranscriptionService
 } from '../services/MediaTranscriptionService';
+import {
+  isTrustedTabAudioCaptureSender,
+  tabAudioCaptureService
+} from '../services/TabAudioCaptureService';
 
 // 消息类型定义（保留兼容性）
 interface MessageRequest {
@@ -168,7 +172,7 @@ class BackgroundService {
 
   private async handleMessage(
     request: MessageRequest, 
-    _sender: chrome.runtime.MessageSender, 
+    sender: chrome.runtime.MessageSender,
     sendResponse: (response: MessageResponse) => void
   ): Promise<void> {
     try {
@@ -227,6 +231,10 @@ class BackgroundService {
 
         case 'getTranslationProviderConfigs':
           response = await this.handleGetTranslationProviderConfigsRequest();
+          break;
+
+        case 'getTabAudioCaptureStreamId':
+          response = await this.handleGetTabAudioCaptureStreamIdRequest(request, sender);
           break;
 
         case 'updateTranslationProviderConfig':
@@ -451,6 +459,27 @@ class BackgroundService {
       abortController?.abort();
       clearUpload();
     });
+  }
+
+  private async handleGetTabAudioCaptureStreamIdRequest(
+    request: MessageRequest,
+    sender: chrome.runtime.MessageSender
+  ): Promise<MessageResponse> {
+    const subtitlePageUrl = chrome.runtime.getURL('subtitles.html');
+    if (!isTrustedTabAudioCaptureSender(sender, chrome.runtime.id, subtitlePageUrl)) {
+      throw new Error('Tab audio capture can start only from the subtitle generator.');
+    }
+
+    const targetTabId = Number(request.data?.targetTabId);
+    const consumerTabId = sender.tab?.id;
+    if (!consumerTabId) {
+      throw new Error('The subtitle generator tab is unavailable.');
+    }
+    const streamId = await tabAudioCaptureService.createStreamId({
+      targetTabId,
+      consumerTabId
+    });
+    return { success: true, data: { streamId } };
   }
 
   private async handleExtensionInstalled(details: chrome.runtime.InstalledDetails): Promise<void> {

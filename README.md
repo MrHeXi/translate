@@ -14,13 +14,14 @@ It is best for:
 - Translating pasted or uploaded text documents, HTML files, JSON files, DOCX files, EPUB files, subtitle files, and PDFs with local page rendering.
 - Translating video captions when the page exposes subtitle/caption tracks or common DOM-rendered captions.
 - Generating timed subtitles from a user-selected local audio or video file through a configured OpenAI or Groq transcription service.
+- Capturing audio from the source tab only after an explicit click, then generating subtitles after the user stops capture.
 - Translating and locally exporting live caption text that is already visible in a page.
 - Translating text from selected or currently visible images, SVGs, and canvases with browser OCR or the bundled offline OCR fallback.
 - Collecting useful words from real context.
 - Reviewing CET4, CET6, GRE, IELTS, TOEFL vocabulary.
 - Keeping a local-first vocabulary notebook with Chrome storage sync support.
 
-It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-perfect Office/eBook converter, an automatic whole-page image reader, automatic browser-tab audio capture, or a meeting bot that records or joins calls.
+It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-perfect Office/eBook converter, an automatic whole-page image reader, background or automatic browser-tab audio capture, or a meeting bot that records or joins calls.
 
 ## Core Features
 
@@ -89,9 +90,11 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Render a bilingual subtitle overlay without recording audio or blocking playback.
 - Export translated subtitle cues from the current session as an `.srt` file.
 - Open the subtitle generator from the popup to select a local `.mp3`, `.mp4`, `.mpeg`, `.mpga`, `.m4a`, `.wav`, or `.webm` file up to 25 MB.
+- From a regular media page, explicitly click Capture current tab, keep the generator open, and click Stop and generate when enough audio has played.
 - Generate timestamped captions through a configured OpenAI or Groq transcription service, optionally translate them with any configured translation provider, and export bilingual SRT or VTT.
-- Keep media idle until Generate subtitles is clicked, stream it to the background in bounded chunks, and clear buffered media after completion, cancellation, provider errors, or disconnection.
-- Current-tab audio capture, deeper site-specific video support, more speech providers, and richer timing controls remain later work.
+- Keep selected local media idle until Generate subtitles is clicked; current-tab audio remains local until Stop and generate. Stream submitted media to the background in bounded chunks and clear buffers after completion, cancellation, provider errors, or disconnection.
+- Use the declared `tabCapture` permission only after the explicit capture button; cancel, page close, stream failure, or the 25 MB limit stops and discards the temporary recording. This workflow requires Chrome 116 or newer.
+- Deeper site-specific video support, more speech providers, files above provider limits, and richer timing controls remain later work.
 
 ### Live Caption Translation
 
@@ -217,6 +220,14 @@ In Main content scope, LexiBridge prefers semantic `article`, `main`, and `[role
 2. Choose a supported local audio or video file up to 25 MB.
 3. Choose a configured OpenAI or Groq speech service, spoken language, and optional vocabulary context.
 4. Choose whether to translate the generated captions, then click Generate subtitles.
+5. Export the generated captions as bilingual SRT or VTT.
+
+### Generate Subtitles From Current Tab Audio
+
+1. Open the extension popup while the source video or audio page is active and click Generate from media.
+2. Choose a configured OpenAI or Groq speech service and optional translation controls.
+3. Click Capture current tab; the installed `tabCapture` permission is not used before this click.
+4. Keep the subtitle generator open while the source plays, then click Stop and generate.
 5. Export the generated captions as bilingual SRT or VTT.
 
 ### Translate Subtitle Files

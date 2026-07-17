@@ -31,6 +31,8 @@ interface GeneratedCue {
   translatedText: string;
 }
 
+type TabCapturePhase = 'idle' | 'starting' | 'recording' | 'stopping';
+
 class SubtitleGeneratorController {
   private fileInput: HTMLInputElement | null = null;
   private transcriptionProvider: HTMLSelectElement | null = null;
@@ -41,6 +43,8 @@ class SubtitleGeneratorController {
   private targetLanguage: HTMLSelectElement | null = null;
   private generateButton: HTMLButtonElement | null = null;
   private cancelButton: HTMLButtonElement | null = null;
+  private tabCaptureButton: HTMLButtonElement | null = null;
+  private cancelTabCaptureButton: HTMLButtonElement | null = null;
   private progress: HTMLProgressElement | null = null;
   private progressText: HTMLElement | null = null;
   private status: HTMLElement | null = null;
@@ -50,11 +54,28 @@ class SubtitleGeneratorController {
   private configuredProviderIds = new Set<string>();
   private port: chrome.runtime.Port | null = null;
   private selectedFile: File | null = null;
+  private selectedFileIsTabCapture = false;
+  private resultFileBaseName = 'generated-subtitles';
   private uploadOffset = 0;
   private uploadChunkIndex = 0;
   private runId = 0;
   private isWorking = false;
   private cues: GeneratedCue[] = [];
+  private sourceTabId: number | null = null;
+  private tabCapturePhase: TabCapturePhase = 'idle';
+  private tabCaptureRunId = 0;
+  private tabCaptureStream: MediaStream | null = null;
+  private tabCaptureRecorder: MediaRecorder | null = null;
+  private tabCaptureAudioContext: AudioContext | null = null;
+  private tabCapturePlaybackSource: MediaStreamAudioSourceNode | null = null;
+  private tabCaptureChunks: Blob[] = [];
+  private tabCaptureBytes = 0;
+  private tabCaptureStartedAt = 0;
+  private tabCaptureTimer: number | null = null;
+  private tabCaptureStopFallbackTimer: number | null = null;
+  private tabCaptureShouldGenerate = false;
+  private tabCaptureLimitExceeded = false;
+  private tabCaptureFailureMessage: string | null = null;
 
   constructor() {
     void this.initialize();
@@ -70,12 +91,15 @@ class SubtitleGeneratorController {
     this.targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement | null;
     this.generateButton = document.getElementById('generateSubtitles') as HTMLButtonElement | null;
     this.cancelButton = document.getElementById('cancelGeneration') as HTMLButtonElement | null;
+    this.tabCaptureButton = document.getElementById('toggleTabCapture') as HTMLButtonElement | null;
+    this.cancelTabCaptureButton = document.getElementById('cancelTabCapture') as HTMLButtonElement | null;
     this.progress = document.getElementById('generationProgress') as HTMLProgressElement | null;
     this.progressText = document.getElementById('progressText');
     this.status = document.getElementById('generationStatus');
     this.resultSection = document.getElementById('resultSection');
     this.resultSummary = document.getElementById('resultSummary');
     this.cueList = document.getElementById('cueList');
+    this.sourceTabId = this.readSourceTabId();
 
     this.populateControls();
     this.bindEvents();
@@ -134,10 +158,16 @@ class SubtitleGeneratorController {
     this.translateCaptions?.addEventListener('change', () => this.updateTranslationControls());
     this.generateButton?.addEventListener('click', () => void this.startGeneration());
     this.cancelButton?.addEventListener('click', () => this.cancelGeneration());
+    this.tabCaptureButton?.addEventListener('click', () => {
+      if (this.tabCapturePhase === 'recording') this.stopTabCapture(true);
+      else void this.startTabCapture();
+    });
+    this.cancelTabCaptureButton?.addEventListener('click', () => this.stopTabCapture(false));
     document.getElementById('exportSrt')?.addEventListener('click', () => this.exportCaptions('srt'));
     document.getElementById('exportVtt')?.addEventListener('click', () => this.exportCaptions('vtt'));
     document.getElementById('clearResult')?.addEventListener('click', () => this.clearResult());
     document.getElementById('openSettings')?.addEventListener('click', () => chrome.runtime.openOptionsPage());
+    window.addEventListener('pagehide', () => this.releaseTabCaptureForPageClose(), { once: true });
   }
 
   private async loadProviderConfigurations(): Promise<void> {
@@ -213,13 +243,14 @@ class SubtitleGeneratorController {
 
   private handleFileSelection(): void {
     this.selectedFile = this.fileInput?.files?.[0] || null;
+    this.selectedFileIsTabCapture = false;
     this.clearResult();
     this.setProgress(0);
     const name = document.getElementById('fileName');
     const details = document.getElementById('fileDetails');
     if (!this.selectedFile) {
       if (name) name.textContent = 'No media selected';
-      if (details) details.textContent = 'Audio or video, up to 25 MB';
+      if (details) details.textContent = 'Local audio/video or current tab, up to 25 MB';
       this.showStatus('Ready');
       this.updateGenerateAvailability();
       return;
@@ -235,7 +266,9 @@ class SubtitleGeneratorController {
   }
 
   private updateTranslationControls(): void {
-    const enabled = Boolean(this.translateCaptions?.checked) && !this.isWorking;
+    const enabled = Boolean(this.translateCaptions?.checked)
+      && !this.isWorking
+      && this.tabCapturePhase === 'idle';
     if (this.translationProvider) this.translationProvider.disabled = !enabled;
     if (this.targetLanguage) this.targetLanguage.disabled = !enabled;
     this.updateGenerateAvailability();
@@ -258,21 +291,339 @@ class SubtitleGeneratorController {
   }
 
   private updateGenerateAvailability(): void {
-    if (!this.generateButton) return;
     const fileReady = Boolean(this.selectedFile && !this.validateFile(this.selectedFile));
     const transcriptionReady = Boolean(this.transcriptionProvider?.value);
     const translationReady = !this.translateCaptions?.checked || Boolean(this.translationProvider?.value);
-    this.generateButton.disabled = this.isWorking || !fileReady || !transcriptionReady || !translationReady;
+    const captureIdle = this.tabCapturePhase === 'idle';
+    if (this.generateButton) {
+      this.generateButton.disabled = this.isWorking
+        || !captureIdle
+        || !fileReady
+        || !transcriptionReady
+        || !translationReady;
+    }
+    this.updateTabCaptureControls();
   }
 
-  private async startGeneration(): Promise<void> {
-    if (this.isWorking || !this.selectedFile || !this.transcriptionProvider?.value) return;
-    const fileError = this.validateFile(this.selectedFile);
-    if (fileError) {
-      this.showStatus(fileError, true);
+  private readSourceTabId(): number | null {
+    const value = Number(new URL(window.location.href).searchParams.get('sourceTabId'));
+    return Number.isInteger(value) && value > 0 ? value : null;
+  }
+
+  private async startTabCapture(): Promise<void> {
+    if (this.isWorking || this.tabCapturePhase !== 'idle') return;
+    if (!this.sourceTabId) {
+      this.showStatus('Open this generator from the popup on a regular media page.', true);
+      return;
+    }
+    if (!this.transcriptionProvider?.value) {
+      this.showStatus('Configure OpenAI or Groq in Settings.', true);
+      return;
+    }
+    if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      this.showStatus('This Chrome version cannot record tab audio.', true);
       return;
     }
 
+    const captureRunId = ++this.tabCaptureRunId;
+    this.releaseCapturedFile();
+    this.tabCapturePhase = 'starting';
+    this.tabCaptureChunks = [];
+    this.tabCaptureBytes = 0;
+    this.tabCaptureShouldGenerate = false;
+    this.tabCaptureLimitExceeded = false;
+    this.tabCaptureFailureMessage = null;
+    this.clearResult();
+    this.setProgress(0);
+    this.showStatus('Opening tab audio');
+    this.updateTranslationControls();
+
+    try {
+      const audioContext = new AudioContext();
+      this.tabCaptureAudioContext = audioContext;
+      let audioContextResumeError: unknown;
+      const audioContextResume = audioContext.resume().catch(error => {
+        audioContextResumeError = error;
+      });
+      const response = await this.sendMessage({
+        action: 'getTabAudioCaptureStreamId',
+        data: { targetTabId: this.sourceTabId }
+      });
+      if (!response?.success || typeof response.data?.streamId !== 'string') {
+        throw new Error(response?.error || 'Could not open the current tab audio stream.');
+      }
+      if (captureRunId !== this.tabCaptureRunId || this.tabCapturePhase !== 'starting') return;
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          mandatory: {
+            chromeMediaSource: 'tab',
+            chromeMediaSourceId: response.data.streamId
+          }
+        } as unknown as MediaTrackConstraints,
+        video: false
+      });
+      if (captureRunId !== this.tabCaptureRunId || this.tabCapturePhase !== 'starting') {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+
+      this.tabCaptureStream = stream;
+      const playbackSource = audioContext.createMediaStreamSource(stream);
+      this.tabCapturePlaybackSource = playbackSource;
+      playbackSource.connect(audioContext.destination);
+      await audioContextResume;
+      if (audioContextResumeError) {
+        throw new Error('Chrome could not preserve source-tab audio playback.');
+      }
+      if (captureRunId !== this.tabCaptureRunId || this.tabCapturePhase !== 'starting') return;
+
+      const mimeType = this.chooseTabCaptureMimeType();
+      const recorder = new MediaRecorder(stream, {
+        ...(mimeType ? { mimeType } : {}),
+        audioBitsPerSecond: 128000
+      });
+      this.tabCaptureRecorder = recorder;
+      this.tabCaptureStartedAt = Date.now();
+      recorder.ondataavailable = event => this.handleTabCaptureData(event, captureRunId);
+      recorder.onerror = event => {
+        if (captureRunId !== this.tabCaptureRunId) return;
+        const message = (event as Event & { error?: { message?: string } }).error?.message;
+        this.tabCaptureShouldGenerate = false;
+        this.tabCaptureFailureMessage = message || 'Tab audio recording failed.';
+        this.tabCapturePhase = 'stopping';
+        this.showStatus(this.tabCaptureFailureMessage, true);
+        this.updateTranslationControls();
+        if (recorder.state !== 'inactive') {
+          try {
+            recorder.stop();
+          } catch {
+            // The stop fallback below still releases tracks and buffered data.
+          }
+        }
+        this.scheduleTabCaptureFinish(captureRunId);
+      };
+      recorder.onstop = () => void this.finishTabCapture(captureRunId);
+      recorder.start(1000);
+      this.tabCapturePhase = 'recording';
+      this.tabCaptureTimer = window.setInterval(() => this.updateTabCaptureStatus(), 500);
+      this.updateTabCaptureStatus();
+      this.updateTranslationControls();
+    } catch (error) {
+      if (captureRunId !== this.tabCaptureRunId) return;
+      this.releaseTabCaptureResources();
+      this.tabCapturePhase = 'idle';
+      this.showStatus(error instanceof Error ? error.message : 'Could not capture tab audio.', true);
+      this.updateTranslationControls();
+    }
+  }
+
+  private stopTabCapture(generate: boolean): void {
+    if (this.tabCapturePhase === 'idle' || this.tabCapturePhase === 'stopping') return;
+    if (this.tabCapturePhase === 'starting') {
+      this.tabCaptureRunId++;
+      this.tabCapturePhase = 'idle';
+      this.tabCaptureShouldGenerate = false;
+      this.releaseTabCaptureResources();
+      this.showStatus('Tab capture canceled');
+      this.setProgress(0);
+      this.updateTranslationControls();
+      return;
+    }
+
+    this.tabCaptureShouldGenerate = generate;
+    this.tabCapturePhase = 'stopping';
+    this.showStatus(generate ? 'Stopping capture' : 'Canceling capture');
+    this.updateTranslationControls();
+    const recorder = this.tabCaptureRecorder;
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.stop();
+      this.scheduleTabCaptureFinish(this.tabCaptureRunId);
+    } else {
+      void this.finishTabCapture(this.tabCaptureRunId);
+    }
+  }
+
+  private handleTabCaptureData(event: BlobEvent, captureRunId: number): void {
+    if (
+      captureRunId !== this.tabCaptureRunId
+      || this.tabCapturePhase === 'idle'
+      || event.data.size <= 0
+    ) return;
+    if (this.tabCaptureBytes + event.data.size > MEDIA_TRANSCRIPTION_MAX_BYTES) {
+      this.tabCaptureLimitExceeded = true;
+      this.tabCaptureShouldGenerate = false;
+      this.tabCapturePhase = 'stopping';
+      this.showStatus('Tab audio reached the 25 MB limit.', true);
+      this.updateTranslationControls();
+      if (this.tabCaptureRecorder?.state !== 'inactive') this.tabCaptureRecorder?.stop();
+      this.scheduleTabCaptureFinish(captureRunId);
+      return;
+    }
+    this.tabCaptureChunks.push(event.data);
+    this.tabCaptureBytes += event.data.size;
+    this.updateTabCaptureStatus();
+  }
+
+  private async finishTabCapture(captureRunId: number): Promise<void> {
+    if (captureRunId !== this.tabCaptureRunId || this.tabCapturePhase === 'idle') return;
+    const shouldGenerate = this.tabCaptureShouldGenerate;
+    const limitExceeded = this.tabCaptureLimitExceeded;
+    const failureMessage = this.tabCaptureFailureMessage;
+    const chunks = this.tabCaptureChunks.splice(0, this.tabCaptureChunks.length);
+    const mimeType = this.tabCaptureRecorder?.mimeType || 'audio/webm';
+    const duration = Math.max(0, (Date.now() - this.tabCaptureStartedAt) / 1000);
+    this.releaseTabCaptureResources();
+    this.tabCapturePhase = 'idle';
+    this.tabCaptureShouldGenerate = false;
+    this.tabCaptureFailureMessage = null;
+    this.updateTranslationControls();
+
+    if (failureMessage) {
+      this.setProgress(0);
+      this.showStatus(failureMessage, true);
+      return;
+    }
+    if (limitExceeded) {
+      this.setProgress(0);
+      this.showStatus('Tab audio exceeded 25 MB and was discarded.', true);
+      return;
+    }
+    if (!shouldGenerate) {
+      this.setProgress(0);
+      this.showStatus('Tab capture canceled');
+      return;
+    }
+    if (chunks.length === 0 || this.tabCaptureBytes === 0) {
+      this.setProgress(0);
+      this.showStatus('No tab audio was captured.', true);
+      return;
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    this.selectedFile = new File(chunks, `tab-audio-${timestamp}.webm`, { type: mimeType });
+    this.selectedFileIsTabCapture = true;
+    const name = document.getElementById('fileName');
+    const details = document.getElementById('fileDetails');
+    if (name) name.textContent = 'Current tab audio';
+    if (details) {
+      details.textContent = `${this.formatClock(duration)} · ${this.formatFileSize(this.selectedFile.size)}`;
+    }
+    this.showStatus('Preparing captured audio');
+    await this.startGeneration();
+  }
+
+  private updateTabCaptureStatus(): void {
+    if (this.tabCapturePhase !== 'recording') return;
+    const elapsed = Math.max(0, (Date.now() - this.tabCaptureStartedAt) / 1000);
+    this.showStatus(`Capturing current tab · ${this.formatClock(elapsed)} · ${this.formatFileSize(this.tabCaptureBytes)}`);
+    this.setProgress((this.tabCaptureBytes / MEDIA_TRANSCRIPTION_MAX_BYTES) * 65);
+  }
+
+  private scheduleTabCaptureFinish(captureRunId: number): void {
+    if (this.tabCaptureStopFallbackTimer !== null) {
+      window.clearTimeout(this.tabCaptureStopFallbackTimer);
+    }
+    this.tabCaptureStopFallbackTimer = window.setTimeout(() => {
+      this.tabCaptureStopFallbackTimer = null;
+      void this.finishTabCapture(captureRunId);
+    }, 250);
+  }
+
+  private chooseTabCaptureMimeType(): string {
+    return ['audio/webm;codecs=opus', 'audio/webm']
+      .find(mimeType => MediaRecorder.isTypeSupported(mimeType)) || '';
+  }
+
+  private updateTabCaptureControls(): void {
+    const phase = this.tabCapturePhase;
+    if (this.tabCaptureButton) {
+      const labels: Record<TabCapturePhase, string> = {
+        idle: 'Capture current tab',
+        starting: 'Starting capture',
+        recording: 'Stop and generate',
+        stopping: 'Stopping capture'
+      };
+      this.tabCaptureButton.textContent = labels[phase];
+      this.tabCaptureButton.disabled = this.isWorking
+        || !this.sourceTabId
+        || !this.transcriptionProvider?.value
+        || phase === 'starting'
+        || phase === 'stopping';
+      this.tabCaptureButton.classList.toggle('recording', phase === 'recording');
+      this.tabCaptureButton.title = this.sourceTabId
+        ? 'Capture audio from the page that opened this generator'
+        : 'Open this generator from the popup on a regular media page';
+    }
+    if (this.cancelTabCaptureButton) {
+      this.cancelTabCaptureButton.hidden = phase !== 'starting' && phase !== 'recording';
+    }
+    const fileBusy = this.isWorking || phase !== 'idle';
+    if (this.fileInput) this.fileInput.disabled = fileBusy;
+    if (this.transcriptionProvider) this.transcriptionProvider.disabled = fileBusy;
+    if (this.sourceLanguage) this.sourceLanguage.disabled = fileBusy;
+    if (this.transcriptionPrompt) this.transcriptionPrompt.disabled = fileBusy;
+    if (this.translateCaptions) this.translateCaptions.disabled = fileBusy;
+    document.querySelector('.file-picker')?.classList.toggle('disabled', fileBusy);
+  }
+
+  private releaseTabCaptureResources(): void {
+    if (this.tabCaptureTimer !== null) {
+      window.clearInterval(this.tabCaptureTimer);
+      this.tabCaptureTimer = null;
+    }
+    if (this.tabCaptureStopFallbackTimer !== null) {
+      window.clearTimeout(this.tabCaptureStopFallbackTimer);
+      this.tabCaptureStopFallbackTimer = null;
+    }
+    this.tabCaptureStream?.getTracks().forEach(track => track.stop());
+    this.tabCaptureStream = null;
+    try {
+      this.tabCapturePlaybackSource?.disconnect();
+    } catch {
+      // The media graph may already be disconnected after the source tab closes.
+    }
+    this.tabCapturePlaybackSource = null;
+    if (this.tabCaptureAudioContext) void this.tabCaptureAudioContext.close();
+    this.tabCaptureAudioContext = null;
+    if (this.tabCaptureRecorder) {
+      this.tabCaptureRecorder.ondataavailable = null;
+      this.tabCaptureRecorder.onerror = null;
+      this.tabCaptureRecorder.onstop = null;
+    }
+    this.tabCaptureRecorder = null;
+  }
+
+  private releaseTabCaptureForPageClose(): void {
+    this.tabCaptureRunId++;
+    this.tabCaptureShouldGenerate = false;
+    try {
+      if (this.tabCaptureRecorder?.state !== 'inactive') this.tabCaptureRecorder?.stop();
+    } catch {
+      // Closing the extension page also terminates its media stream.
+    }
+    this.releaseTabCaptureResources();
+    this.tabCaptureChunks = [];
+    this.tabCaptureBytes = 0;
+    this.tabCapturePhase = 'idle';
+    this.releaseCapturedFile();
+  }
+
+  private async startGeneration(): Promise<void> {
+    if (
+      this.isWorking
+      || this.tabCapturePhase !== 'idle'
+      || !this.selectedFile
+      || !this.transcriptionProvider?.value
+    ) return;
+    const fileError = this.validateFile(this.selectedFile);
+    if (fileError) {
+      this.showStatus(fileError, true);
+      this.releaseCapturedFile();
+      return;
+    }
+
+    this.resultFileBaseName = this.createResultFileBaseName(this.selectedFile.name);
     const currentRun = ++this.runId;
     this.clearResult();
     this.uploadOffset = 0;
@@ -322,6 +673,7 @@ class SubtitleGeneratorController {
         void this.sendNextChunk(port, runId);
         break;
       case 'transcribing':
+        this.releaseCapturedFile();
         this.setProgress(68);
         this.showStatus('Generating timed transcript');
         break;
@@ -484,6 +836,7 @@ class SubtitleGeneratorController {
   }
 
   private finishCanceled(): void {
+    this.releaseCapturedFile();
     this.setWorking(false);
     this.setProgress(0);
     this.showStatus('Canceled');
@@ -504,6 +857,7 @@ class SubtitleGeneratorController {
         // The port may already be closed by the background service worker.
       }
     }
+    this.releaseCapturedFile();
     this.setWorking(false);
     this.showStatus(message, true);
   }
@@ -518,15 +872,25 @@ class SubtitleGeneratorController {
   private exportCaptions(format: 'srt' | 'vtt'): void {
     if (this.cues.length === 0) return;
     const content = format === 'srt' ? this.createSrt() : this.createVtt();
-    const baseName = (this.selectedFile?.name || 'generated-subtitles')
-      .replace(/\.[^.]+$/, '')
-      .replace(/[^A-Za-z0-9._-]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'generated-subtitles';
+    const baseName = this.resultFileBaseName;
     this.downloadTextFile(
       content,
       `${baseName}.generated.${format}`,
       format === 'srt' ? 'application/x-subrip;charset=utf-8' : 'text/vtt;charset=utf-8'
     );
+  }
+
+  private createResultFileBaseName(fileName: string): string {
+    return fileName
+      .replace(/\.[^.]+$/, '')
+      .replace(/[^A-Za-z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'generated-subtitles';
+  }
+
+  private releaseCapturedFile(): void {
+    if (!this.selectedFileIsTabCapture) return;
+    this.selectedFile = null;
+    this.selectedFileIsTabCapture = false;
   }
 
   private createSrt(): string {
@@ -549,7 +913,6 @@ class SubtitleGeneratorController {
 
   private setWorking(working: boolean): void {
     this.isWorking = working;
-    if (this.fileInput) this.fileInput.disabled = working;
     if (this.transcriptionProvider) this.transcriptionProvider.disabled = working;
     if (this.sourceLanguage) this.sourceLanguage.disabled = working;
     if (this.transcriptionPrompt) this.transcriptionPrompt.disabled = working;
