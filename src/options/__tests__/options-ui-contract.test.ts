@@ -26,6 +26,7 @@ describe('options UI settings contract', () => {
         <button id="removeProviderConfig" type="button" disabled></button>
         <label id="providerClientIdField"><input id="providerClientId" type="password"></label>
         <label id="providerApiKeyField"><input id="providerApiKey" type="password"></label>
+        <label id="providerSessionTokenField"><input id="providerSessionToken" type="password"></label>
         <label id="providerEndpointField"><input id="providerEndpoint" type="url"></label>
         <label id="providerModelField"><input id="providerModel" type="text"></label>
         <label id="providerRegionField"><input id="providerRegion" type="text"></label>
@@ -601,6 +602,8 @@ describe('options UI settings contract', () => {
     expect(Array.from(translationProvider.options).some(option => option.value === 'papago' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'baidu' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'ibm' && !option.disabled)).toBe(true);
+    expect(Array.from(translationProvider.options).some(option => option.value === 'volcengine' && !option.disabled)).toBe(true);
+    expect(Array.from(translationProvider.options).some(option => option.value === 'alibaba' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'youdao' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'systran' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'chatglm')).toBe(false);
@@ -643,6 +646,15 @@ describe('options UI settings contract', () => {
             endpoint: 'https://papago.apigw.ntruss.com/nmt/v1/translation',
             model: '',
             region: ''
+          }, {
+            providerId: 'volcengine',
+            configured: true,
+            clientIdHint: 'volc...5678',
+            apiKeyHint: 'volc...4321',
+            sessionTokenHint: 'sess...9999',
+            endpoint: 'https://translate.volcengineapi.com',
+            model: '',
+            region: ''
           }]
         });
         return;
@@ -669,6 +681,7 @@ describe('options UI settings contract', () => {
     const panel = document.getElementById('providerConfigPanel') as HTMLElement;
     const clientId = document.getElementById('providerClientId') as HTMLInputElement;
     const apiKey = document.getElementById('providerApiKey') as HTMLInputElement;
+    const sessionToken = document.getElementById('providerSessionToken') as HTMLInputElement;
     expect(panel.hidden).toBe(false);
     expect(document.getElementById('providerConfigStatus')?.textContent).toContain('sk-s...5678');
     expect(apiKey.value).toBe('');
@@ -677,6 +690,7 @@ describe('options UI settings contract', () => {
     expect((document.getElementById('providerModelField') as HTMLElement).hidden).toBe(false);
     expect((document.getElementById('providerRegionField') as HTMLElement).hidden).toBe(true);
     expect((document.getElementById('providerClientIdField') as HTMLElement).hidden).toBe(true);
+    expect((document.getElementById('providerSessionTokenField') as HTMLElement).hidden).toBe(true);
     expect(document.body.textContent).not.toContain('openai-secret-value');
 
     const provider = document.getElementById('translationProvider') as HTMLSelectElement;
@@ -704,6 +718,15 @@ describe('options UI settings contract', () => {
     expect((document.getElementById('providerModelField') as HTMLElement).hidden).toBe(true);
     expect((document.getElementById('providerRegionField') as HTMLElement).hidden).toBe(true);
     expect(document.body.textContent).not.toContain('naver-client-12345678');
+
+    provider.value = 'volcengine';
+    provider.dispatchEvent(new Event('change'));
+    expect((document.getElementById('providerClientIdField') as HTMLElement).hidden).toBe(false);
+    expect((document.getElementById('providerSessionTokenField') as HTMLElement).hidden).toBe(false);
+    expect(sessionToken.type).toBe('password');
+    expect(sessionToken.value).toBe('');
+    expect(sessionToken.placeholder).toContain('sess...9999');
+    expect(document.getElementById('providerConfigStatus')?.textContent).toContain('sess...9999');
   });
 
   it('requires a saved provider configuration before activating a keyless endpoint', async () => {
@@ -822,6 +845,7 @@ describe('options UI settings contract', () => {
         config: {
           clientId: '',
           apiKey: 'sk-custom-secret-7890',
+          sessionToken: '',
           endpoint: savedSummary.endpoint,
           model: savedSummary.model,
           region: ''
@@ -848,6 +872,7 @@ describe('options UI settings contract', () => {
         config: {
           clientId: '',
           apiKey: 'deepseek-secret',
+          sessionToken: '',
           endpoint: 'https://api.deepseek.com/chat/completions',
           model: 'deepseek-chat',
           region: ''
@@ -873,6 +898,7 @@ describe('options UI settings contract', () => {
         config: {
           clientId: 'naver-client-id-7890',
           apiKey: 'naver-client-secret',
+          sessionToken: '',
           endpoint: 'https://papago.apigw.ntruss.com/nmt/v1/translation',
           model: '',
           region: ''
@@ -880,6 +906,34 @@ describe('options UI settings contract', () => {
       }
     }, expect.any(Function));
     expect((document.getElementById('providerClientId') as HTMLInputElement).value).toBe('');
+
+    provider.value = 'volcengine';
+    provider.dispatchEvent(new Event('change'));
+    (document.getElementById('providerClientId') as HTMLInputElement).value = 'volc-access-key-id';
+    (document.getElementById('providerApiKey') as HTMLInputElement).value = 'volc-access-key-secret';
+    (document.getElementById('providerSessionToken') as HTMLInputElement).value = 'volc-session-token';
+    document.getElementById('saveProviderConfig')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    expect(request).toHaveBeenCalledWith(
+      { origins: ['https://translate.volcengineapi.com/*'] },
+      expect.any(Function)
+    );
+    expect(sendMessage).toHaveBeenCalledWith({
+      action: 'updateTranslationProviderConfig',
+      data: {
+        providerId: 'volcengine',
+        config: {
+          clientId: 'volc-access-key-id',
+          apiKey: 'volc-access-key-secret',
+          sessionToken: 'volc-session-token',
+          endpoint: 'https://translate.volcengineapi.com',
+          model: '',
+          region: ''
+        }
+      }
+    }, expect.any(Function));
+    expect((document.getElementById('providerSessionToken') as HTMLInputElement).value).toBe('');
 
     provider.value = 'ibm';
     provider.dispatchEvent(new Event('change'));
@@ -909,6 +963,7 @@ describe('options UI settings contract', () => {
         config: {
           clientId: '',
           apiKey: '',
+          sessionToken: '',
           endpoint: 'http://localhost:11434/v1/chat/completions',
           model: 'qwen2.5:7b',
           region: ''

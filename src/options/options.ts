@@ -589,6 +589,7 @@ class OptionsController {
     const removeButton = document.getElementById('removeProviderConfig') as HTMLButtonElement | null;
     const clientIdInput = document.getElementById('providerClientId') as HTMLInputElement | null;
     const apiKeyInput = document.getElementById('providerApiKey') as HTMLInputElement | null;
+    const sessionTokenInput = document.getElementById('providerSessionToken') as HTMLInputElement | null;
     const endpointInput = document.getElementById('providerEndpoint') as HTMLInputElement | null;
     const modelInput = document.getElementById('providerModel') as HTMLInputElement | null;
     const regionInput = document.getElementById('providerRegion') as HTMLInputElement | null;
@@ -597,7 +598,8 @@ class OptionsController {
     if (status) {
       const credentialHints = [
         summary?.clientIdHint ? `ID ${summary.clientIdHint}` : '',
-        summary?.apiKeyHint ? `key ${summary.apiKeyHint}` : ''
+        summary?.apiKeyHint ? `key ${summary.apiKeyHint}` : '',
+        summary?.sessionTokenHint ? `token ${summary.sessionTokenHint}` : ''
       ].filter(Boolean);
       status.textContent = summary?.configured
         ? credentialHints.length > 0 ? `Configured (${credentialHints.join(', ')})` : 'Configured'
@@ -607,6 +609,7 @@ class OptionsController {
 
     this.setProviderFieldVisibility('providerClientIdField', configFields.includes('clientId'));
     this.setProviderFieldVisibility('providerApiKeyField', configFields.includes('apiKey'));
+    this.setProviderFieldVisibility('providerSessionTokenField', configFields.includes('sessionToken'));
     this.setProviderFieldVisibility('providerEndpointField', configFields.includes('endpoint'));
     this.setProviderFieldVisibility('providerModelField', configFields.includes('model'));
     this.setProviderFieldVisibility('providerRegionField', configFields.includes('region'));
@@ -622,6 +625,12 @@ class OptionsController {
       apiKeyInput.placeholder = summary?.apiKeyHint
         ? `Saved key: ${summary.apiKeyHint}`
         : 'Enter API key';
+    }
+    if (sessionTokenInput) {
+      sessionTokenInput.value = '';
+      sessionTokenInput.placeholder = summary?.sessionTokenHint
+        ? `Saved token: ${summary.sessionTokenHint}`
+        : 'Enter temporary credential token';
     }
     if (endpointInput) endpointInput.value = summary?.endpoint || provider.defaultEndpoint || '';
     if (modelInput) modelInput.value = summary?.model || provider.defaultModel || '';
@@ -675,6 +684,7 @@ class OptionsController {
     const config: TranslationProviderRuntimeConfig = {
       clientId: (document.getElementById('providerClientId') as HTMLInputElement | null)?.value.trim() || '',
       apiKey: (document.getElementById('providerApiKey') as HTMLInputElement | null)?.value.trim() || '',
+      sessionToken: (document.getElementById('providerSessionToken') as HTMLInputElement | null)?.value.trim() || '',
       endpoint: (document.getElementById('providerEndpoint') as HTMLInputElement | null)?.value.trim() || '',
       model: (document.getElementById('providerModel') as HTMLInputElement | null)?.value.trim() || '',
       region: (document.getElementById('providerRegion') as HTMLInputElement | null)?.value.trim() || ''

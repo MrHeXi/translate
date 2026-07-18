@@ -277,6 +277,8 @@ export class TranslationService {
           case 'lingvanex': return await this.callLingvanexAPI(request, provider);
           case 'papago': return await this.callPapagoAPI(request, provider);
           case 'baidu': return await this.callBaiduAPI(request, provider);
+          case 'volcengine': return await this.callVolcengineAPI(request, provider);
+          case 'alibaba': return await this.callAlibabaAPI(request, provider);
           case 'youdao': return await this.callYoudaoAPI(request, provider);
           case 'ibm': return await this.callIBMWatsonAPI(request, provider);
           case 'systran': return await this.callSystranAPI(request, provider);
@@ -925,6 +927,212 @@ export class TranslationService {
     );
   }
 
+  private async callVolcengineAPI(
+    request: TranslationRequest,
+    providerId: string
+  ): Promise<TranslationResult> {
+    const provider = getTranslationProvider(providerId)!;
+    const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
+    if (!config.clientId) {
+      throw new TranslationProviderError(`${provider.label} Access Key ID is not configured`);
+    }
+    if (request.text.length > 5000) {
+      throw new TranslationProviderError(`${provider.label} text exceeds the 5000-character limit`);
+    }
+
+    const subtle = globalThis.crypto?.subtle;
+    if (!subtle?.digest || !subtle.importKey || !subtle.sign) {
+      throw new TranslationProviderError(`${provider.label} requires Web Crypto support for request signing`);
+    }
+
+    const endpoint = new URL(config.endpoint);
+    endpoint.searchParams.set('Action', 'TranslateText');
+    endpoint.searchParams.set('Version', '2020-06-01');
+    const payload: Record<string, unknown> = {};
+    if (request.sourceLang && request.sourceLang !== 'auto') {
+      payload.SourceLanguage = this.mapVolcengineLanguage(request.sourceLang);
+    }
+    payload.TargetLanguage = this.mapVolcengineLanguage(request.targetLang);
+    payload.TextList = [request.text];
+    const body = JSON.stringify(payload);
+    const timestamp = this.formatProviderBasicTimestamp(new Date(Date.now()));
+    const region = 'cn-north-1';
+    const service = 'translate';
+
+    let payloadHash: string;
+    let authorization: string;
+    try {
+      payloadHash = await this.sha256Utf8(body, subtle);
+      const signingHeaders: Record<string, string> = {
+        host: endpoint.host,
+        'x-content-sha256': payloadHash,
+        'x-date': timestamp
+      };
+      if (config.sessionToken) {
+        signingHeaders['x-security-token'] = config.sessionToken;
+      }
+      const { canonicalHeaders, signedHeaders } = this.buildCanonicalProviderHeaders(signingHeaders);
+      const canonicalRequest = [
+        'POST',
+        this.canonicalizeProviderPath(endpoint.pathname),
+        this.canonicalizeProviderQuery(endpoint.searchParams),
+        canonicalHeaders,
+        signedHeaders,
+        payloadHash
+      ].join('\n');
+      const date = timestamp.slice(0, 8);
+      const credentialScope = `${date}/${region}/${service}/request`;
+      const stringToSign = [
+        'HMAC-SHA256',
+        timestamp,
+        credentialScope,
+        await this.sha256Utf8(canonicalRequest, subtle)
+      ].join('\n');
+      const dateKey = await this.hmacSha256(config.apiKey, date, subtle);
+      const regionKey = await this.hmacSha256(dateKey, region, subtle);
+      const serviceKey = await this.hmacSha256(regionKey, service, subtle);
+      const signingKey = await this.hmacSha256(serviceKey, 'request', subtle);
+      const signature = this.bytesToHex(await this.hmacSha256(signingKey, stringToSign, subtle));
+      authorization = [
+        `HMAC-SHA256 Credential=${config.clientId}/${credentialScope}`,
+        `SignedHeaders=${signedHeaders}`,
+        `Signature=${signature}`
+      ].join(', ');
+    } catch (error) {
+      throw new TranslationProviderError(`${provider.label} failed to sign the request with Web Crypto`);
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-Date': timestamp,
+      'X-Content-Sha256': payloadHash,
+      Authorization: authorization
+    };
+    if (config.sessionToken) headers['X-Security-Token'] = config.sessionToken;
+    const response = await fetch(endpoint.toString(), { method: 'POST', headers, body });
+    const data = await this.readProviderJson(response, provider.label);
+    const metadataError = data?.ResponseMetadata?.Error;
+    if (metadataError) {
+      const code = typeof metadataError.Code === 'string' ? metadataError.Code.trim() : '';
+      const message = typeof metadataError.Message === 'string' ? metadataError.Message.trim() : '';
+      throw new TranslationProviderError(
+        `${provider.label} request failed: ${[code, message].filter(Boolean).join(' ') || 'unknown error'}`
+      );
+    }
+    const translation = data?.TranslationList?.[0];
+    if (typeof translation?.Translation !== 'string' || !translation.Translation.trim()) {
+      throw new TranslationProviderError(`${provider.label} returned an invalid translation response`);
+    }
+    return this.createProviderTranslationResult(
+      request,
+      translation.Translation.trim(),
+      typeof translation.DetectedSourceLanguage === 'string'
+        ? translation.DetectedSourceLanguage
+        : undefined
+    );
+  }
+
+  private async callAlibabaAPI(
+    request: TranslationRequest,
+    providerId: string
+  ): Promise<TranslationResult> {
+    const provider = getTranslationProvider(providerId)!;
+    const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
+    if (!config.clientId) {
+      throw new TranslationProviderError(`${provider.label} Access Key ID is not configured`);
+    }
+    if (request.text.length > 5000) {
+      throw new TranslationProviderError(`${provider.label} text exceeds the 5000-character limit`);
+    }
+
+    const webCrypto = globalThis.crypto;
+    const subtle = webCrypto?.subtle;
+    if (!subtle?.digest || !subtle.importKey || !subtle.sign
+      || typeof webCrypto.randomUUID !== 'function') {
+      throw new TranslationProviderError(`${provider.label} requires Web Crypto support for request signing`);
+    }
+
+    const endpoint = new URL(config.endpoint);
+    const body = new URLSearchParams({
+      FormatType: 'text',
+      Scene: 'general',
+      SourceLanguage: request.sourceLang && request.sourceLang !== 'auto'
+        ? this.mapAlibabaLanguage(request.sourceLang)
+        : 'auto',
+      SourceText: request.text,
+      TargetLanguage: this.mapAlibabaLanguage(request.targetLang)
+    }).toString();
+    const timestamp = this.formatProviderIsoTimestamp(new Date(Date.now()));
+    const nonce = webCrypto.randomUUID().replace(/-/g, '');
+
+    let payloadHash: string;
+    let authorization: string;
+    try {
+      payloadHash = await this.sha256Utf8(body, subtle);
+      const signingHeaders: Record<string, string> = {
+        'content-type': 'application/x-www-form-urlencoded',
+        host: endpoint.host,
+        'x-acs-action': 'TranslateGeneral',
+        'x-acs-content-sha256': payloadHash,
+        'x-acs-date': timestamp,
+        'x-acs-signature-nonce': nonce,
+        'x-acs-version': '2018-10-12'
+      };
+      if (config.sessionToken) {
+        signingHeaders['x-acs-security-token'] = config.sessionToken;
+      }
+      const { canonicalHeaders, signedHeaders } = this.buildCanonicalProviderHeaders(signingHeaders);
+      const canonicalRequest = [
+        'POST',
+        this.canonicalizeProviderPath(endpoint.pathname),
+        this.canonicalizeProviderQuery(endpoint.searchParams),
+        canonicalHeaders,
+        signedHeaders,
+        payloadHash
+      ].join('\n');
+      const stringToSign = [
+        'ACS3-HMAC-SHA256',
+        await this.sha256Utf8(canonicalRequest, subtle)
+      ].join('\n');
+      const signature = this.bytesToHex(
+        await this.hmacSha256(config.apiKey, stringToSign, subtle)
+      );
+      authorization = `ACS3-HMAC-SHA256 Credential=${config.clientId},`
+        + `SignedHeaders=${signedHeaders},Signature=${signature}`;
+    } catch (error) {
+      throw new TranslationProviderError(`${provider.label} failed to sign the request with Web Crypto`);
+    }
+
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-Acs-Action': 'TranslateGeneral',
+      'X-Acs-Content-Sha256': payloadHash,
+      'X-Acs-Date': timestamp,
+      'X-Acs-Signature-Nonce': nonce,
+      'X-Acs-Version': '2018-10-12',
+      Authorization: authorization
+    };
+    if (config.sessionToken) headers['X-Acs-Security-Token'] = config.sessionToken;
+    const response = await fetch(endpoint.toString(), { method: 'POST', headers, body });
+    const data = await this.readProviderJson(response, provider.label);
+    if (String(data?.Code) !== '200') {
+      const code = data?.Code === undefined ? '' : String(data.Code);
+      const message = typeof data?.Message === 'string' ? data.Message.trim() : '';
+      throw new TranslationProviderError(
+        `${provider.label} request failed: ${[code, message].filter(Boolean).join(' ') || 'unknown error'}`
+      );
+    }
+    if (typeof data?.Data?.Translated !== 'string' || !data.Data.Translated.trim()) {
+      throw new TranslationProviderError(`${provider.label} returned an invalid translation response`);
+    }
+    return this.createProviderTranslationResult(
+      request,
+      data.Data.Translated.trim(),
+      typeof data.Data.DetectedLanguage === 'string' ? data.Data.DetectedLanguage : undefined
+    );
+  }
+
   private async callYoudaoAPI(
     request: TranslationRequest,
     providerId: string
@@ -1158,6 +1366,19 @@ export class TranslationService {
     return mappings[language] || language.split('-')[0]!;
   }
 
+  private mapVolcengineLanguage(language: string): string {
+    if (language === 'zh-CN') return 'zh';
+    if (language === 'zh-TW') return 'zh-Hant-tw';
+    if (language === 'fil') return 'tl';
+    return language;
+  }
+
+  private mapAlibabaLanguage(language: string): string {
+    if (language === 'zh-CN') return 'zh';
+    if (language === 'zh-TW') return 'zh-tw';
+    return language;
+  }
+
   private mapYoudaoLanguage(language: string): string {
     const mappings: Record<string, string> = {
       fil: 'tl',
@@ -1196,12 +1417,93 @@ export class TranslationService {
       : text;
   }
 
+  private formatProviderBasicTimestamp(date: Date): string {
+    return date.toISOString().replace(/[:-]|\.\d{3}/g, '');
+  }
+
+  private formatProviderIsoTimestamp(date: Date): string {
+    return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  }
+
+  private canonicalizeProviderPath(pathname: string): string {
+    if (!pathname) return '/';
+    return pathname.split('/').map(segment => {
+      try {
+        return this.encodeRfc3986(decodeURIComponent(segment));
+      } catch (error) {
+        return this.encodeRfc3986(segment);
+      }
+    }).join('/') || '/';
+  }
+
+  private canonicalizeProviderQuery(searchParams: URLSearchParams): string {
+    return Array.from(searchParams.entries())
+      .map(([key, value]) => [this.encodeRfc3986(key), this.encodeRfc3986(value)] as const)
+      .sort(([leftKey, leftValue], [rightKey, rightValue]) => {
+        if (leftKey < rightKey) return -1;
+        if (leftKey > rightKey) return 1;
+        if (leftValue < rightValue) return -1;
+        if (leftValue > rightValue) return 1;
+        return 0;
+      })
+      .map(([key, value]) => `${key}=${value}`)
+      .join('&');
+  }
+
+  private encodeRfc3986(value: string): string {
+    return encodeURIComponent(value).replace(/[!'()*]/g, character => (
+      `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+    ));
+  }
+
+  private buildCanonicalProviderHeaders(headers: Record<string, string>): {
+    canonicalHeaders: string;
+    signedHeaders: string;
+  } {
+    const entries = Object.entries(headers)
+      .map(([name, value]) => [name.toLowerCase(), value.trim().replace(/\s+/g, ' ')] as const)
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+    return {
+      canonicalHeaders: `${entries.map(([name, value]) => `${name}:${value}`).join('\n')}\n`,
+      signedHeaders: entries.map(([name]) => name).join(';')
+    };
+  }
+
   private async sha256Utf8(value: string, subtle: SubtleCrypto): Promise<string> {
     const bytes = this.encodeUtf8(value);
-    const digest = await subtle.digest('SHA-256', bytes.buffer as ArrayBuffer);
-    return Array.from(new Uint8Array(digest))
+    const digest = await subtle.digest('SHA-256', this.toArrayBuffer(bytes));
+    return this.bytesToHex(new Uint8Array(digest));
+  }
+
+  private async hmacSha256(
+    key: string | Uint8Array,
+    value: string,
+    subtle: SubtleCrypto
+  ): Promise<Uint8Array> {
+    const keyBytes = typeof key === 'string' ? this.encodeUtf8(key) : key;
+    const cryptoKey = await subtle.importKey(
+      'raw',
+      this.toArrayBuffer(keyBytes),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    const signature = await subtle.sign(
+      'HMAC',
+      cryptoKey,
+      this.toArrayBuffer(this.encodeUtf8(value))
+    );
+    return new Uint8Array(signature);
+  }
+
+  private bytesToHex(bytes: Uint8Array): string {
+    return Array.from(bytes)
       .map(byte => byte.toString(16).padStart(2, '0'))
       .join('');
+  }
+
+  private toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
   }
 
   private getProviderErrorMessage(value: unknown): string {
@@ -1325,7 +1627,14 @@ export class TranslationService {
   private getProviderRuntimeConfig(
     providerId: string,
     runtimeConfig?: TranslationProviderRuntimeConfig
-  ): { apiKey: string; clientId: string; endpoint: string; model: string; region: string } {
+  ): {
+    apiKey: string;
+    clientId: string;
+    sessionToken: string;
+    endpoint: string;
+    model: string;
+    region: string;
+  } {
     const provider = getTranslationProvider(providerId);
     if (!provider || provider.status !== 'available') {
       throw new TranslationProviderError('Unknown or unavailable translation provider');
@@ -1348,6 +1657,7 @@ export class TranslationService {
     return {
       apiKey,
       clientId: runtimeConfig?.clientId?.trim() || '',
+      sessionToken: runtimeConfig?.sessionToken?.trim() || '',
       endpoint,
       model,
       region: runtimeConfig?.region?.trim() || ''
@@ -1412,6 +1722,9 @@ export class TranslationService {
       'zh-tw': 'zh-TW',
       'zh-cht': 'zh-TW',
       'zh-hant': 'zh-TW',
+      'zh-hant-hk': 'zh-TW',
+      'zh-hant-tw': 'zh-TW',
+      'zh-hans-cn': 'zh-CN',
       jp: 'ja',
       kor: 'ko',
       fra: 'fr',

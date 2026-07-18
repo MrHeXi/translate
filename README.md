@@ -37,10 +37,10 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Skip configured page areas such as navigation, comments, ads, or `[data-no-translate]` regions during manual page translation.
 - Create exact-domain or wildcard site rules that can block page translation or override display mode, translation scope, style, and excluded selectors.
 - Choose from 100+ target language options in settings.
-- Choose from 26 implemented provider adapters: Google Translate, MyMemory, DeepL, Microsoft Translator, OpenAI-compatible, Gemini, DeepSeek, OpenRouter, Groq, Qwen, Zhipu GLM/ChatGLM, SiliconFlow, Ollama, Claude, Azure OpenAI, LibreTranslate, Yandex Cloud Translate, NiuTrans, Caiyun Translate, ModernMT, Lingvanex, Naver Papago, Baidu Translate, IBM Watson Language Translator, Youdao Translate, and SYSTRAN Translate.
+- Choose from 28 implemented provider adapters: Google Translate, MyMemory, DeepL, Microsoft Translator, OpenAI-compatible, Gemini, DeepSeek, OpenRouter, Groq, Qwen, Zhipu GLM/ChatGLM, SiliconFlow, Ollama, Claude, Azure OpenAI, LibreTranslate, Yandex Cloud Translate, NiuTrans, Caiyun Translate, ModernMT, Lingvanex, Naver Papago, Baidu Translate, Volcengine Translate, Alibaba Machine Translation, IBM Watson Language Translator, Youdao Translate, and SYSTRAN Translate.
 - With AI-capable providers, choose a domain expert, enforce a local terminology glossary, add custom translation instructions, and optionally use neighboring page or document text as reference context.
 - Keep neighboring-context sharing off by default. Context is collected only after a manual page or document translation starts and is bounded before it is sent to the selected AI provider.
-- Keep provider API keys and client/application IDs in local Chrome storage only; credentials are excluded from Chrome sync and learning-data exports.
+- Keep provider API keys, client/application IDs, and temporary session tokens in local Chrome storage only; credentials are excluded from Chrome sync and learning-data exports.
 
 ### Selection Translation
 
@@ -130,7 +130,7 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Store settings, vocabulary, review progress, and learning stats in Chrome storage.
 - Use Chrome sync where available.
 - Export and import learning data.
-- Store user-supplied translation provider API keys and client/application IDs only in `chrome.storage.local`, with masked summaries in the settings UI.
+- Store user-supplied translation provider API keys, client/application IDs, and temporary session tokens only in `chrome.storage.local`, with masked summaries in the settings UI.
 - Keep default telemetry off.
 
 ## Install for Local Testing
@@ -186,12 +186,14 @@ The generated test package is `chrome-translation-extension.zip`.
 
 ### Configure a Translation Provider
 
-1. Open the options page and choose one of the 26 implemented providers.
-2. Enter the provider API key and any provider-specific client/application ID, endpoint, model, or region setting. Papago, Baidu, and Youdao require both an ID and secret; IBM Watson requires its API key and service endpoint; SYSTRAN requires an API key. Ollama requires an endpoint and model but no API key; LibreTranslate accepts an optional key for instances that require one.
+1. Open the options page and choose one of the 28 implemented providers.
+2. Enter the provider API key and any provider-specific client/application ID, temporary session token, endpoint, model, or region setting. Papago, Baidu, and Youdao require both an ID and secret; Volcengine and Alibaba use the ID field for the Access Key ID, the API key field for the Access Key Secret, and optionally accept a short-lived STS session token. IBM Watson requires its API key and service endpoint; SYSTRAN requires an API key. Ollama requires an endpoint and model but no API key; LibreTranslate accepts an optional key for instances that require one.
 3. Save provider configuration before saving any configurable provider as the active translation engine. This is also when Chrome asks for access to that provider host.
 4. Provider endpoints must use HTTPS, except for HTTP endpoints on `localhost` or `127.0.0.1`. Chrome host match patterns grant the configured scheme and host for all paths; they do not restrict access to one URL path or port.
 
 Google Translate and MyMemory remain available without provider configuration. Credentialed providers do not silently fall back to another service when authentication or configuration fails. Provider request formats and failure behavior are covered by automated contract tests; live use still depends on a valid provider account, API plan, endpoint, model, and regional availability.
+
+For cloud providers that use account-level access keys, create dedicated least-privilege credentials and prefer short-lived STS credentials when available. Local extension storage prevents Chrome Sync and export leakage, but it is not a server-side secret manager.
 
 For AI-capable providers, the AI translation controls in settings can select a subject domain, define terminology as `source term => required translation`, and add custom instructions. Neighboring context is opt-in and applies to manually translated page batches and document blocks only. Configured AI-capable providers also power the side-panel writing actions; ordinary machine-translation providers remain translation-only.
 

@@ -221,12 +221,128 @@ describe('StorageManager', () => {
       expect(mockChromeStorage.sync.set).not.toHaveBeenCalled();
     });
 
+    it('stores temporary cloud credentials locally and masks every credential component', async () => {
+      mockChromeStorage.local.get.mockResolvedValue({});
+      mockChromeStorage.local.set.mockResolvedValue(undefined);
+
+      const summary = await storageManager.saveTranslationProviderConfig('volcengine', {
+        clientId: 'volc-access-12345678',
+        apiKey: 'volc-secret-87654321',
+        sessionToken: 'volc-session-11223344'
+      });
+
+      expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
+        translationProviderConfigs: {
+          volcengine: {
+            clientId: 'volc-access-12345678',
+            sessionToken: 'volc-session-11223344',
+            apiKey: 'volc-secret-87654321',
+            endpoint: 'https://translate.volcengineapi.com',
+            model: '',
+            region: ''
+          }
+        }
+      });
+      expect(summary).toEqual({
+        providerId: 'volcengine',
+        configured: true,
+        clientIdHint: 'volc...5678',
+        apiKeyHint: 'volc...4321',
+        sessionTokenHint: 'volc...3344',
+        endpoint: 'https://translate.volcengineapi.com',
+        model: '',
+        region: ''
+      });
+      expect(JSON.stringify(summary)).not.toContain('volc-access-12345678');
+      expect(JSON.stringify(summary)).not.toContain('volc-secret-87654321');
+      expect(JSON.stringify(summary)).not.toContain('volc-session-11223344');
+      expect(mockChromeStorage.sync.set).not.toHaveBeenCalled();
+    });
+
+    it('removes an old session token when permanent cloud credentials are submitted', async () => {
+      mockChromeStorage.local.get.mockResolvedValue({
+        translationProviderConfigs: {
+          alibaba: {
+            clientId: 'temporary-access-key',
+            apiKey: 'temporary-secret-key',
+            sessionToken: 'expired-session-token',
+            endpoint: 'https://mt.cn-hangzhou.aliyuncs.com',
+            model: '',
+            region: ''
+          }
+        }
+      });
+      mockChromeStorage.local.set.mockResolvedValue(undefined);
+
+      const summary = await storageManager.saveTranslationProviderConfig('alibaba', {
+        clientId: 'permanent-access-key',
+        apiKey: 'permanent-secret-key',
+        sessionToken: ''
+      });
+
+      expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
+        translationProviderConfigs: {
+          alibaba: {
+            clientId: 'permanent-access-key',
+            apiKey: 'permanent-secret-key',
+            endpoint: 'https://mt.cn-hangzhou.aliyuncs.com',
+            model: '',
+            region: ''
+          }
+        }
+      });
+      expect(summary).not.toHaveProperty('sessionTokenHint');
+    });
+
+    it('retains a saved session token when only the cloud endpoint changes', async () => {
+      mockChromeStorage.local.get.mockResolvedValue({
+        translationProviderConfigs: {
+          volcengine: {
+            clientId: 'temporary-access-key',
+            apiKey: 'temporary-secret-key',
+            sessionToken: 'active-session-token',
+            endpoint: 'https://translate.volcengineapi.com',
+            model: '',
+            region: ''
+          }
+        }
+      });
+      mockChromeStorage.local.set.mockResolvedValue(undefined);
+
+      const summary = await storageManager.saveTranslationProviderConfig('volcengine', {
+        clientId: '',
+        apiKey: '',
+        sessionToken: '',
+        endpoint: 'https://translate.volcengineapi.com/custom'
+      });
+
+      expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
+        translationProviderConfigs: {
+          volcengine: {
+            clientId: 'temporary-access-key',
+            apiKey: 'temporary-secret-key',
+            sessionToken: 'active-session-token',
+            endpoint: 'https://translate.volcengineapi.com/custom',
+            model: '',
+            region: ''
+          }
+        }
+      });
+      expect(summary.sessionTokenHint).toBe('acti...oken');
+    });
+
     it('requires a Client/Application ID for dual-credential providers', async () => {
       mockChromeStorage.local.get.mockResolvedValue({});
 
-      await expect(storageManager.saveTranslationProviderConfig('baidu', {
-        apiKey: 'baidu-secret'
-      })).rejects.toThrow('Baidu Translate Client/Application ID is required');
+      for (const [provider, label] of [
+        ['baidu', 'Baidu Translate'],
+        ['volcengine', 'Volcengine Translate'],
+        ['alibaba', 'Alibaba Machine Translation']
+      ] as const) {
+        await expect(storageManager.saveTranslationProviderConfig(provider, {
+          apiKey: `${provider}-secret`
+        })).rejects.toThrow(`${label} Client/Application ID is required`);
+      }
       expect(mockChromeStorage.local.set).not.toHaveBeenCalled();
     });
 

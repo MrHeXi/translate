@@ -50,6 +50,7 @@ export interface TranslationProviderConfigSummary {
   configured: boolean;
   clientIdHint: string;
   apiKeyHint: string;
+  sessionTokenHint?: string;
   endpoint: string;
   model: string;
   region: string;
@@ -170,6 +171,9 @@ export class StorageManager {
       configured: this.isTranslationProviderConfigured(providerId, config),
       clientIdHint: this.maskCredential(config.clientId || ''),
       apiKeyHint: this.maskCredential(config.apiKey || ''),
+      ...(config.sessionToken
+        ? { sessionTokenHint: this.maskCredential(config.sessionToken) }
+        : {}),
       endpoint: config.endpoint || '',
       model: config.model || '',
       region: config.region || ''
@@ -195,6 +199,10 @@ export class StorageManager {
     if (provider.requiresApiKey && !apiKey) {
       throw new Error(`${provider.label} API key is required`);
     }
+    const submittedSessionToken = config.sessionToken?.trim() || '';
+    const submittedNewCredentials = Boolean(config.clientId?.trim() || config.apiKey?.trim());
+    const sessionToken = submittedSessionToken
+      || (submittedNewCredentials ? '' : currentConfig.sessionToken?.trim() || '');
 
     const savedConfig: TranslationProviderRuntimeConfig = {
       ...currentConfig,
@@ -204,6 +212,10 @@ export class StorageManager {
       model: config.model?.trim() || currentConfig.model || provider.defaultModel || '',
       region: config.region?.trim() || currentConfig.region || ''
     };
+    if (provider.configFields?.includes('sessionToken')) {
+      if (sessionToken) savedConfig.sessionToken = sessionToken;
+      else delete savedConfig.sessionToken;
+    }
     if (provider.configFields?.includes('endpoint') && !savedConfig.endpoint) {
       throw new Error(`${provider.label} endpoint is required`);
     }
@@ -218,6 +230,7 @@ export class StorageManager {
       configured: this.isTranslationProviderConfigured(providerId, savedConfig),
       clientIdHint: this.maskCredential(clientId),
       apiKeyHint: this.maskCredential(apiKey),
+      ...(sessionToken ? { sessionTokenHint: this.maskCredential(sessionToken) } : {}),
       endpoint: savedConfig.endpoint || '',
       model: savedConfig.model || '',
       region: savedConfig.region || ''

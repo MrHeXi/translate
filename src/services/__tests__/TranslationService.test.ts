@@ -1,7 +1,7 @@
 // TranslationService 测试文件
 
 import * as fc from 'fast-check';
-import { createHash } from 'crypto';
+import { webcrypto } from 'crypto';
 import { TranslationService } from '../TranslationService';
 import {
   AVAILABLE_TRANSLATION_PROVIDERS,
@@ -16,18 +16,45 @@ describe('TranslationService', () => {
   const originalCryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
 
   const installWebCryptoMock = (salt: string): void => {
+    const toNodeBuffer = (data: BufferSource): Buffer => {
+      const bytes = data instanceof ArrayBuffer
+        ? new Uint8Array(data)
+        : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+      return Buffer.from(bytes);
+    };
+    const toTestArrayBuffer = (data: ArrayBuffer): ArrayBuffer => {
+      const copy = new Uint8Array(data.byteLength);
+      copy.set(new Uint8Array(data));
+      return copy.buffer as ArrayBuffer;
+    };
     Object.defineProperty(globalThis, 'crypto', {
       configurable: true,
       value: {
         randomUUID: jest.fn(() => salt),
         subtle: {
-          digest: jest.fn(async (_algorithm: string, data: BufferSource) => {
-            const bytes = data instanceof ArrayBuffer
-              ? new Uint8Array(data)
-              : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-            const hash = createHash('sha256').update(bytes).digest();
-            return hash.buffer.slice(hash.byteOffset, hash.byteOffset + hash.byteLength) as ArrayBuffer;
-          })
+          digest: async (algorithm: AlgorithmIdentifier, data: BufferSource) => (
+            toTestArrayBuffer(await webcrypto.subtle.digest(algorithm, toNodeBuffer(data)))
+          ),
+          importKey: (
+            _format: KeyFormat,
+            keyData: BufferSource,
+            algorithm: AlgorithmIdentifier | HmacImportParams,
+            extractable: boolean,
+            keyUsages: KeyUsage[]
+          ) => webcrypto.subtle.importKey(
+            'raw',
+            toNodeBuffer(keyData),
+            algorithm as HmacImportParams,
+            extractable,
+            keyUsages
+          ),
+          sign: async (
+            algorithm: AlgorithmIdentifier,
+            key: CryptoKey,
+            data: BufferSource
+          ) => toTestArrayBuffer(
+            await webcrypto.subtle.sign(algorithm, key, toNodeBuffer(data))
+          )
         }
       }
     });
@@ -94,11 +121,13 @@ describe('TranslationService', () => {
         'lingvanex',
         'papago',
         'baidu',
+        'volcengine',
+        'alibaba',
         'youdao',
         'ibm',
         'systran'
       ]);
-      expect(AVAILABLE_TRANSLATION_PROVIDERS).toHaveLength(26);
+      expect(AVAILABLE_TRANSLATION_PROVIDERS).toHaveLength(28);
       expect(AVAILABLE_TRANSLATION_PROVIDERS.every(provider => Boolean(provider.adapter))).toBe(true);
       expect(new Set(AVAILABLE_TRANSLATION_PROVIDERS.map(provider => provider.adapter))).toEqual(new Set([
         'google',
@@ -117,6 +146,8 @@ describe('TranslationService', () => {
         'lingvanex',
         'papago',
         'baidu',
+        'volcengine',
+        'alibaba',
         'youdao',
         'ibm',
         'systran'
@@ -579,6 +610,254 @@ describe('TranslationService', () => {
         sourceLang: 'zh-CN',
         targetLang: 'ja'
       }));
+    });
+
+    it('calls Volcengine with a deterministic HMAC-SHA256 signature and temporary credentials', async () => {
+      installWebCryptoMock('unused-volcengine-uuid');
+      jest.spyOn(Date, 'now').mockReturnValue(1700000000123);
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({
+          TranslationList: [{
+            Translation: 'Volcengine result',
+            DetectedSourceLanguage: 'en'
+          }],
+          ResponseMetadata: { Error: null }
+        })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: 'Hello volcano',
+        sourceLang: 'en',
+        targetLang: 'zh-CN',
+        provider: 'volcengine',
+        providerConfig: {
+          clientId: 'volc-access-key',
+          apiKey: 'volc-secret-key',
+          sessionToken: 'volc-session-token'
+        }
+      });
+
+      const [urlValue, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const url = new URL(urlValue);
+      expect(`${url.origin}${url.pathname}`).toBe('https://translate.volcengineapi.com/');
+      expect(Object.fromEntries(url.searchParams)).toEqual({
+        Action: 'TranslateText',
+        Version: '2020-06-01'
+      });
+      expect(init.method).toBe('POST');
+      expect(init.body).toBe(
+        '{"SourceLanguage":"en","TargetLanguage":"zh","TextList":["Hello volcano"]}'
+      );
+      expect(init.headers).toEqual({
+        'Content-Type': 'application/json',
+        'X-Date': '20231114T221320Z',
+        'X-Content-Sha256': 'be8db0ee47293da042f6cfc60e3ea4d1a587203de216b1625f302ff882a3cbc2',
+        Authorization: 'HMAC-SHA256 Credential=volc-access-key/20231114/cn-north-1/translate/request, '
+          + 'SignedHeaders=host;x-content-sha256;x-date;x-security-token, '
+          + 'Signature=e4cf53a58ec961acbe28539a27fec51363859004443346574c606a5ef4709994',
+        'X-Security-Token': 'volc-session-token'
+      });
+      expect(urlValue).not.toContain('volc-secret-key');
+      expect(String(init.body)).not.toContain('volc-secret-key');
+      expect(String(init.body)).not.toContain('volc-session-token');
+      expect(result).toEqual(expect.objectContaining({
+        translatedText: 'Volcengine result',
+        sourceLang: 'en',
+        targetLang: 'zh-CN'
+      }));
+    });
+
+    it('calls Alibaba ACS3 with a deterministic form hash, signature, and STS token', async () => {
+      installWebCryptoMock('123e4567-e89b-12d3-a456-426614174000');
+      jest.spyOn(Date, 'now').mockReturnValue(1700000000123);
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({
+          Code: 200,
+          Message: 'success',
+          Data: {
+            Translated: 'Alibaba result',
+            DetectedLanguage: 'zh'
+          }
+        })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: '你好 Alibaba & cloud',
+        sourceLang: 'zh-CN',
+        targetLang: 'en',
+        provider: 'alibaba',
+        providerConfig: {
+          clientId: 'alibaba-access-key',
+          apiKey: 'alibaba-secret-key',
+          sessionToken: 'alibaba-session-token'
+        }
+      });
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('https://mt.cn-hangzhou.aliyuncs.com/');
+      expect(init.method).toBe('POST');
+      expect(init.body).toBe(
+        'FormatType=text&Scene=general&SourceLanguage=zh&'
+        + 'SourceText=%E4%BD%A0%E5%A5%BD+Alibaba+%26+cloud&TargetLanguage=en'
+      );
+      expect(init.headers).toEqual({
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Acs-Action': 'TranslateGeneral',
+        'X-Acs-Content-Sha256': '2b1a4d619a439685387c2e27fd603c6fe18498b856e7de4c151bf92a7a4b32d6',
+        'X-Acs-Date': '2023-11-14T22:13:20Z',
+        'X-Acs-Signature-Nonce': '123e4567e89b12d3a456426614174000',
+        'X-Acs-Version': '2018-10-12',
+        Authorization: 'ACS3-HMAC-SHA256 Credential=alibaba-access-key,'
+          + 'SignedHeaders=content-type;host;x-acs-action;x-acs-content-sha256;x-acs-date;'
+          + 'x-acs-security-token;x-acs-signature-nonce;x-acs-version,'
+          + 'Signature=8b53657c0379d0b45b232c0acfc58aebb5dc4eeb3a0244b1ed2976eb0e76fbe7',
+        'X-Acs-Security-Token': 'alibaba-session-token'
+      });
+      expect(url).not.toContain('alibaba-secret-key');
+      expect(String(init.body)).not.toContain('alibaba-secret-key');
+      expect(String(init.body)).not.toContain('alibaba-session-token');
+      expect(result).toEqual(expect.objectContaining({
+        translatedText: 'Alibaba result',
+        sourceLang: 'zh-CN',
+        targetLang: 'en'
+      }));
+    });
+
+    it('maps Traditional Chinese and auto-detect for Volcengine and Alibaba', async () => {
+      installWebCryptoMock('123e4567-e89b-12d3-a456-426614174000');
+      const fetchMock = jest.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            TranslationList: [{ Translation: '火山繁体', DetectedSourceLanguage: 'zh-Hant-tw' }],
+            ResponseMetadata: { Error: null }
+          })
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            Code: 200,
+            Data: { Translated: '阿里繁体', DetectedLanguage: 'zh-tw' }
+          })
+        });
+      (global as any).fetch = fetchMock;
+
+      const volcResult = await translationService.translate({
+        text: 'Volcengine auto source',
+        targetLang: 'zh-TW',
+        provider: 'volcengine',
+        providerConfig: { clientId: 'volc-ak', apiKey: 'volc-sk' }
+      });
+      const aliResult = await translationService.translate({
+        text: 'Alibaba auto source',
+        targetLang: 'zh-TW',
+        provider: 'alibaba',
+        providerConfig: { clientId: 'ali-ak', apiKey: 'ali-sk' }
+      });
+
+      const [, volcInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(JSON.parse(String(volcInit.body))).toEqual({
+        TargetLanguage: 'zh-Hant-tw',
+        TextList: ['Volcengine auto source']
+      });
+      const [, aliInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+      expect(Object.fromEntries(new URLSearchParams(String(aliInit.body)))).toEqual({
+        FormatType: 'text',
+        Scene: 'general',
+        SourceLanguage: 'auto',
+        SourceText: 'Alibaba auto source',
+        TargetLanguage: 'zh-tw'
+      });
+      expect(volcResult.sourceLang).toBe('zh-TW');
+      expect(aliResult.sourceLang).toBe('zh-TW');
+    });
+
+    it('requires an Access Key ID for Volcengine and Alibaba before signing', async () => {
+      installWebCryptoMock('123e4567-e89b-12d3-a456-426614174000');
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const fetchMock = jest.fn();
+      (global as any).fetch = fetchMock;
+
+      await expect(translationService.translate({
+        text: 'Missing Volcengine access key ID',
+        targetLang: 'en',
+        provider: 'volcengine',
+        providerConfig: { apiKey: 'volc-secret' }
+      })).rejects.toThrow('Volcengine Translate Access Key ID is not configured');
+      await expect(translationService.translate({
+        text: 'Missing Alibaba access key ID',
+        targetLang: 'en',
+        provider: 'alibaba',
+        providerConfig: { apiKey: 'alibaba-secret' }
+      })).rejects.toThrow('Alibaba Machine Translation Access Key ID is not configured');
+      expect(fetchMock).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it('surfaces Volcengine and Alibaba business errors without public-provider fallback', async () => {
+      installWebCryptoMock('123e4567-e89b-12d3-a456-426614174000');
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const fetchMock = jest.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            ResponseMetadata: { Error: { Code: '-415', Message: 'Unsupported language pair' } }
+          })
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ Code: 400, Message: 'Invalid source language' })
+        });
+      (global as any).fetch = fetchMock;
+
+      await expect(translationService.translate({
+        text: 'Volcengine private text',
+        targetLang: 'fr',
+        provider: 'volcengine',
+        providerConfig: { clientId: 'volc-ak', apiKey: 'volc-sk' }
+      })).rejects.toThrow('Volcengine Translate request failed: -415 Unsupported language pair');
+      await expect(translationService.translate({
+        text: 'Alibaba private text',
+        targetLang: 'fr',
+        provider: 'alibaba',
+        providerConfig: { clientId: 'ali-ak', apiKey: 'ali-sk' }
+      })).rejects.toThrow('Alibaba Machine Translation request failed: 400 Invalid source language');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    });
+
+    it('rejects oversized cloud input and missing signing support before sending text', async () => {
+      installWebCryptoMock('123e4567-e89b-12d3-a456-426614174000');
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const fetchMock = jest.fn();
+      (global as any).fetch = fetchMock;
+
+      for (const provider of ['volcengine', 'alibaba'] as const) {
+        await expect(translationService.translate({
+          text: 'x'.repeat(5001),
+          targetLang: 'en',
+          provider,
+          providerConfig: { clientId: `${provider}-ak`, apiKey: `${provider}-sk` }
+        })).rejects.toThrow('text exceeds the 5000-character limit');
+      }
+      Object.defineProperty(globalThis, 'crypto', { configurable: true, value: {} });
+      await expect(translationService.translate({
+        text: 'Requires cloud signing',
+        targetLang: 'en',
+        provider: 'volcengine',
+        providerConfig: { clientId: 'volc-ak', apiKey: 'volc-sk' }
+      })).rejects.toThrow('Volcengine Translate requires Web Crypto support for request signing');
+      expect(fetchMock).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
     });
 
     it('calls Youdao v3 with a deterministic UTF-8 SHA-256 signature and no app secret in the form', async () => {
@@ -1181,6 +1460,8 @@ describe('TranslationService', () => {
       const newProviders = [
         ['papago', { apiKey: 'naver-secret', clientId: 'naver-client-id' }],
         ['baidu', { apiKey: 'baidu-secret', clientId: 'baidu-app-id' }],
+        ['volcengine', { apiKey: 'volc-secret', clientId: 'volc-access-key' }],
+        ['alibaba', { apiKey: 'ali-secret', clientId: 'ali-access-key' }],
         ['youdao', { apiKey: 'youdao-secret', clientId: 'youdao-app-key' }],
         ['ibm', { apiKey: 'ibm-secret' }],
         ['systran', { apiKey: 'systran-secret' }]

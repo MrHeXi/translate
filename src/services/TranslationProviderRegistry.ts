@@ -1,5 +1,11 @@
 export type TranslationProviderStatus = 'available' | 'planned';
-export type TranslationProviderConfigField = 'clientId' | 'apiKey' | 'endpoint' | 'model' | 'region';
+export type TranslationProviderConfigField =
+  | 'clientId'
+  | 'apiKey'
+  | 'sessionToken'
+  | 'endpoint'
+  | 'model'
+  | 'region';
 export type TranslationProviderAdapter =
   | 'google'
   | 'mymemory'
@@ -17,6 +23,8 @@ export type TranslationProviderAdapter =
   | 'lingvanex'
   | 'papago'
   | 'baidu'
+  | 'volcengine'
+  | 'alibaba'
   | 'youdao'
   | 'systran'
   | 'ibm';
@@ -24,6 +32,7 @@ export type TranslationProviderAdapter =
 export interface TranslationProviderRuntimeConfig {
   clientId?: string;
   apiKey?: string;
+  sessionToken?: string;
   endpoint?: string;
   model?: string;
   region?: string;
@@ -210,8 +219,41 @@ export const TRANSLATION_PROVIDERS: TranslationProviderDefinition[] = [
     ]
   },
   { id: 'tencent', label: 'Tencent Cloud TMT', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
-  { id: 'volcengine', label: 'Volcengine Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
-  { id: 'alibaba', label: 'Alibaba Machine Translation', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
+  {
+    id: 'volcengine', label: 'Volcengine Translate', status: 'available', adapter: 'volcengine',
+    requiresApiKey: true, supportsAutoDetect: true,
+    configFields: ['clientId', 'apiKey', 'sessionToken', 'endpoint'],
+    defaultEndpoint: 'https://translate.volcengineapi.com',
+    supportedTargetLanguages: [
+      'af', 'sq', 'am', 'ar', 'hy', 'ay', 'az', 'bn', 'bs', 'bg', 'ca',
+      'zh-CN', 'zh-TW', 'hr', 'cs', 'da', 'nl', 'en', 'eo', 'et', 'ee', 'fi',
+      'fr', 'gl', 'ka', 'de', 'el', 'gu', 'ht', 'ha', 'he', 'hi', 'hu', 'ig',
+      'id', 'it', 'ja', 'kn', 'km', 'ko', 'lo', 'lv', 'ln', 'lt', 'mk', 'ms',
+      'ml', 'mr', 'mn', 'my', 'no', 'ny', 'om', 'fa', 'pl', 'pt', 'pa', 'qu',
+      'ro', 'ru', 'sm', 'sr', 'st', 'sn', 'sk', 'sl', 'so', 'es', 'sw', 'sv',
+      'tl', 'ta', 'tt', 'te', 'th', 'ti', 'tr', 'tk', 'ts', 'uk', 'ur', 'vi',
+      'cy', 'xh', 'yo', 'zu', 'rw', 'nso'
+    ]
+  },
+  {
+    id: 'alibaba', label: 'Alibaba Machine Translation', status: 'available', adapter: 'alibaba',
+    requiresApiKey: true, supportsAutoDetect: true,
+    configFields: ['clientId', 'apiKey', 'sessionToken', 'endpoint'],
+    defaultEndpoint: 'https://mt.cn-hangzhou.aliyuncs.com',
+    supportedTargetLanguages: [
+      'af', 'sq', 'am', 'ar', 'hy', 'as', 'ay', 'az', 'bm', 'eu', 'be', 'bn',
+      'bho', 'bs', 'bg', 'ca', 'ceb', 'zh-CN', 'zh-TW', 'co', 'cs', 'da', 'dv',
+      'nl', 'en', 'eo', 'et', 'ee', 'fil', 'fi', 'fr', 'fy', 'gl', 'ka', 'de',
+      'el', 'gn', 'gu', 'ht', 'ha', 'haw', 'he', 'hi', 'hmn', 'hu', 'is', 'ig',
+      'ilo', 'id', 'ga', 'it', 'ja', 'jv', 'kn', 'kk', 'km', 'rw', 'ko', 'ku',
+      'ky', 'lo', 'la', 'lv', 'ln', 'lt', 'lg', 'lb', 'mk', 'mai', 'mg', 'ms',
+      'ml', 'mt', 'mi', 'mr', 'mn', 'my', 'ne', 'no', 'ny', 'or', 'om', 'ps',
+      'fa', 'pl', 'pt', 'pa', 'qu', 'ro', 'ru', 'sm', 'sa', 'nso', 'sr', 'st',
+      'sn', 'sd', 'si', 'sk', 'sl', 'so', 'es', 'su', 'sw', 'sv', 'tl', 'tg',
+      'ta', 'tt', 'te', 'th', 'ti', 'ts', 'tr', 'tk', 'uk', 'ur', 'ug', 'uz',
+      'vi', 'cy', 'xh', 'yi', 'yo', 'zu'
+    ]
+  },
   {
     id: 'youdao', label: 'Youdao Translate', status: 'available', adapter: 'youdao',
     requiresApiKey: true, supportsAutoDetect: true,
