@@ -3,6 +3,8 @@
 import {
   getProviderTargetLanguages,
   getTranslationProvider,
+  isTranslationProviderRegionValid,
+  resolveTranslationProviderEndpoint,
   TRANSLATION_LANGUAGES,
   TRANSLATION_PROVIDERS,
   TranslationProviderRuntimeConfig
@@ -634,7 +636,7 @@ class OptionsController {
     }
     if (endpointInput) endpointInput.value = summary?.endpoint || provider.defaultEndpoint || '';
     if (modelInput) modelInput.value = summary?.model || provider.defaultModel || '';
-    if (regionInput) regionInput.value = summary?.region || '';
+    if (regionInput) regionInput.value = summary?.region || provider.defaultRegion || '';
     this.showProviderConfigMessage('');
   }
 
@@ -685,7 +687,9 @@ class OptionsController {
       clientId: (document.getElementById('providerClientId') as HTMLInputElement | null)?.value.trim() || '',
       apiKey: (document.getElementById('providerApiKey') as HTMLInputElement | null)?.value.trim() || '',
       sessionToken: (document.getElementById('providerSessionToken') as HTMLInputElement | null)?.value.trim() || '',
-      endpoint: (document.getElementById('providerEndpoint') as HTMLInputElement | null)?.value.trim() || '',
+      endpoint: provider.configFields.includes('endpoint')
+        ? (document.getElementById('providerEndpoint') as HTMLInputElement | null)?.value.trim() || ''
+        : '',
       model: (document.getElementById('providerModel') as HTMLInputElement | null)?.value.trim() || '',
       region: (document.getElementById('providerRegion') as HTMLInputElement | null)?.value.trim() || ''
     };
@@ -698,9 +702,13 @@ class OptionsController {
       this.showProviderConfigMessage(`${provider.label} API key is required`, true);
       return;
     }
+    if (!isTranslationProviderRegionValid(providerId, config.region || provider.defaultRegion || '')) {
+      this.showProviderConfigMessage(`${provider.label} region is invalid`, true);
+      return;
+    }
 
-    const endpoint = config.endpoint || provider.defaultEndpoint || '';
-    if (provider.configFields.includes('endpoint')) {
+    const endpoint = resolveTranslationProviderEndpoint(providerId, config);
+    if (provider.configFields.includes('endpoint') || provider.regionEndpointTemplate) {
       if (!endpoint) {
         this.showProviderConfigMessage(`${provider.label} endpoint is required`, true);
         return;
@@ -711,6 +719,7 @@ class OptionsController {
         return;
       }
     }
+    config.endpoint = endpoint;
 
     try {
       const response = await this.sendMessage({

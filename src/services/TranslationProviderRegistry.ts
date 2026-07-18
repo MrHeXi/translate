@@ -25,6 +25,7 @@ export type TranslationProviderAdapter =
   | 'baidu'
   | 'volcengine'
   | 'alibaba'
+  | 'aws'
   | 'youdao'
   | 'systran'
   | 'ibm';
@@ -50,6 +51,9 @@ export interface TranslationProviderDefinition {
   configFields?: TranslationProviderConfigField[];
   defaultEndpoint?: string;
   defaultModel?: string;
+  defaultRegion?: string;
+  regionEndpointTemplate?: string;
+  regionPattern?: string;
 }
 
 export interface TranslationLanguageDefinition {
@@ -271,7 +275,24 @@ export const TRANSLATION_PROVIDERS: TranslationProviderDefinition[] = [
       'uk', 'ur', 'uz', 'vi', 'cy', 'xh', 'yi', 'yo', 'zu'
     ]
   },
-  { id: 'aws', label: 'Amazon Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
+  {
+    id: 'aws', label: 'Amazon Translate', status: 'available', adapter: 'aws',
+    requiresApiKey: true, supportsAutoDetect: true,
+    configFields: ['clientId', 'apiKey', 'sessionToken', 'region'],
+    defaultEndpoint: 'https://translate.us-east-1.amazonaws.com',
+    defaultRegion: 'us-east-1',
+    regionEndpointTemplate: 'https://translate.{region}.amazonaws.com',
+    regionPattern: '^[a-z0-9]+(?:-[a-z0-9]+)+-\\d+$',
+    supportedTargetLanguages: [
+      'af', 'sq', 'am', 'ar', 'hy', 'az', 'bn', 'bs', 'bg', 'ca', 'zh-CN',
+      'zh-TW', 'hr', 'cs', 'da', 'nl', 'en', 'et', 'fa', 'fil', 'tl', 'fi',
+      'fr', 'ka', 'de', 'el', 'gu', 'ht', 'ha', 'he', 'hi', 'hu', 'is', 'id',
+      'ga', 'it', 'ja', 'kn', 'kk', 'ko', 'lv', 'lt', 'mk', 'ms', 'ml', 'mt',
+      'mr', 'mn', 'no', 'ps', 'pl', 'pt', 'pa', 'ro', 'ru', 'sr', 'si', 'sk',
+      'sl', 'so', 'es', 'sw', 'sv', 'ta', 'te', 'th', 'tr', 'uk', 'ur', 'uz',
+      'vi', 'cy'
+    ]
+  },
   {
     id: 'ibm', label: 'IBM Watson Language Translator', status: 'available', adapter: 'ibm',
     requiresApiKey: true, supportsAutoDetect: true,
@@ -438,6 +459,29 @@ export const getTranslationProvider = (providerId: string | undefined): Translat
 
 export const isAvailableTranslationProvider = (providerId: string | undefined): boolean =>
   AVAILABLE_TRANSLATION_PROVIDERS.some(provider => provider.id === providerId);
+
+export const resolveTranslationProviderEndpoint = (
+  providerId: string | undefined,
+  config?: TranslationProviderRuntimeConfig
+): string => {
+  const provider = getTranslationProvider(providerId);
+  const configuredEndpoint = config?.endpoint?.trim();
+  if (configuredEndpoint) return configuredEndpoint;
+
+  const region = config?.region?.trim() || provider?.defaultRegion || '';
+  if (provider?.regionEndpointTemplate && region) {
+    return provider.regionEndpointTemplate.replace('{region}', region);
+  }
+  return provider?.defaultEndpoint || '';
+};
+
+export const isTranslationProviderRegionValid = (
+  providerId: string | undefined,
+  region: string
+): boolean => {
+  const pattern = getTranslationProvider(providerId)?.regionPattern;
+  return !pattern || new RegExp(pattern).test(region.trim());
+};
 
 export const providerSupportsTargetLanguage = (
   providerId: string | undefined,

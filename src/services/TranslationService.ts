@@ -3,7 +3,9 @@
 import {
   getTranslationProvider,
   isAvailableTranslationProvider,
+  isTranslationProviderRegionValid,
   providerSupportsTargetLanguage,
+  resolveTranslationProviderEndpoint,
   TRANSLATION_LANGUAGES,
   TranslationProviderRuntimeConfig
 } from './TranslationProviderRegistry';
@@ -279,6 +281,7 @@ export class TranslationService {
           case 'baidu': return await this.callBaiduAPI(request, provider);
           case 'volcengine': return await this.callVolcengineAPI(request, provider);
           case 'alibaba': return await this.callAlibabaAPI(request, provider);
+          case 'aws': return await this.callAmazonTranslateAPI(request, provider);
           case 'youdao': return await this.callYoudaoAPI(request, provider);
           case 'ibm': return await this.callIBMWatsonAPI(request, provider);
           case 'systran': return await this.callSystranAPI(request, provider);
@@ -1133,6 +1136,104 @@ export class TranslationService {
     );
   }
 
+  private async callAmazonTranslateAPI(
+    request: TranslationRequest,
+    providerId: string
+  ): Promise<TranslationResult> {
+    const provider = getTranslationProvider(providerId)!;
+    const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
+    if (!config.clientId) {
+      throw new TranslationProviderError(`${provider.label} Access Key ID is not configured`);
+    }
+    if (!isTranslationProviderRegionValid(providerId, config.region)) {
+      throw new TranslationProviderError(`${provider.label} region is invalid`);
+    }
+    if (this.encodeUtf8(request.text).byteLength > 10000) {
+      throw new TranslationProviderError(`${provider.label} text exceeds the 10000-byte limit`);
+    }
+
+    const subtle = globalThis.crypto?.subtle;
+    if (!subtle?.digest || !subtle.importKey || !subtle.sign) {
+      throw new TranslationProviderError(`${provider.label} requires Web Crypto support for request signing`);
+    }
+
+    const endpoint = new URL(config.endpoint);
+    const body = JSON.stringify({
+      SourceLanguageCode: request.sourceLang && request.sourceLang !== 'auto'
+        ? this.mapAmazonTranslateLanguage(request.sourceLang)
+        : 'auto',
+      TargetLanguageCode: this.mapAmazonTranslateLanguage(request.targetLang),
+      Text: request.text
+    });
+    const timestamp = this.formatProviderBasicTimestamp(new Date(Date.now()));
+    const service = 'translate';
+    const target = 'AWSShineFrontendService_20170701.TranslateText';
+
+    let payloadHash: string;
+    let authorization: string;
+    try {
+      payloadHash = await this.sha256Utf8(body, subtle);
+      const signingHeaders: Record<string, string> = {
+        'content-type': 'application/x-amz-json-1.1',
+        host: endpoint.host,
+        'x-amz-content-sha256': payloadHash,
+        'x-amz-date': timestamp,
+        'x-amz-target': target
+      };
+      if (config.sessionToken) {
+        signingHeaders['x-amz-security-token'] = config.sessionToken;
+      }
+      const { canonicalHeaders, signedHeaders } = this.buildCanonicalProviderHeaders(signingHeaders);
+      const canonicalRequest = [
+        'POST',
+        this.canonicalizeProviderPath(endpoint.pathname),
+        this.canonicalizeProviderQuery(endpoint.searchParams),
+        canonicalHeaders,
+        signedHeaders,
+        payloadHash
+      ].join('\n');
+      const date = timestamp.slice(0, 8);
+      const credentialScope = `${date}/${config.region}/${service}/aws4_request`;
+      const stringToSign = [
+        'AWS4-HMAC-SHA256',
+        timestamp,
+        credentialScope,
+        await this.sha256Utf8(canonicalRequest, subtle)
+      ].join('\n');
+      const dateKey = await this.hmacSha256(`AWS4${config.apiKey}`, date, subtle);
+      const regionKey = await this.hmacSha256(dateKey, config.region, subtle);
+      const serviceKey = await this.hmacSha256(regionKey, service, subtle);
+      const signingKey = await this.hmacSha256(serviceKey, 'aws4_request', subtle);
+      const signature = this.bytesToHex(await this.hmacSha256(signingKey, stringToSign, subtle));
+      authorization = [
+        `AWS4-HMAC-SHA256 Credential=${config.clientId}/${credentialScope}`,
+        `SignedHeaders=${signedHeaders}`,
+        `Signature=${signature}`
+      ].join(', ');
+    } catch (error) {
+      throw new TranslationProviderError(`${provider.label} failed to sign the request with Web Crypto`);
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/x-amz-json-1.1',
+      'X-Amz-Content-Sha256': payloadHash,
+      'X-Amz-Date': timestamp,
+      'X-Amz-Target': target,
+      Authorization: authorization
+    };
+    if (config.sessionToken) headers['X-Amz-Security-Token'] = config.sessionToken;
+    const response = await fetch(endpoint.toString(), { method: 'POST', headers, body });
+    const data = await this.readProviderJson(response, provider.label);
+    if (typeof data?.TranslatedText !== 'string' || !data.TranslatedText.trim()) {
+      throw new TranslationProviderError(`${provider.label} returned an invalid translation response`);
+    }
+    return this.createProviderTranslationResult(
+      request,
+      data.TranslatedText.trim(),
+      typeof data.SourceLanguageCode === 'string' ? data.SourceLanguageCode : undefined
+    );
+  }
+
   private async callYoudaoAPI(
     request: TranslationRequest,
     providerId: string
@@ -1376,6 +1477,12 @@ export class TranslationService {
   private mapAlibabaLanguage(language: string): string {
     if (language === 'zh-CN') return 'zh';
     if (language === 'zh-TW') return 'zh-tw';
+    return language;
+  }
+
+  private mapAmazonTranslateLanguage(language: string): string {
+    if (language === 'zh-CN') return 'zh';
+    if (language === 'fil') return 'tl';
     return language;
   }
 
@@ -1644,7 +1751,9 @@ export class TranslationService {
       throw new TranslationProviderError(`${provider.label} API key is not configured`);
     }
 
-    const endpointValue = runtimeConfig?.endpoint?.trim() || provider.defaultEndpoint || '';
+    const region = runtimeConfig?.region?.trim() || provider.defaultRegion || '';
+    const endpointValue = runtimeConfig?.endpoint?.trim()
+      || resolveTranslationProviderEndpoint(providerId, { region });
     if (!endpointValue) {
       throw new TranslationProviderError(`${provider.label} endpoint is not configured`);
     }
@@ -1660,7 +1769,7 @@ export class TranslationService {
       sessionToken: runtimeConfig?.sessionToken?.trim() || '',
       endpoint,
       model,
-      region: runtimeConfig?.region?.trim() || ''
+      region
     };
   }
 

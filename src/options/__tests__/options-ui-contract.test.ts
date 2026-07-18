@@ -604,6 +604,7 @@ describe('options UI settings contract', () => {
     expect(Array.from(translationProvider.options).some(option => option.value === 'ibm' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'volcengine' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'alibaba' && !option.disabled)).toBe(true);
+    expect(Array.from(translationProvider.options).some(option => option.value === 'aws' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'youdao' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'systran' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'chatglm')).toBe(false);
@@ -727,6 +728,14 @@ describe('options UI settings contract', () => {
     expect(sessionToken.value).toBe('');
     expect(sessionToken.placeholder).toContain('sess...9999');
     expect(document.getElementById('providerConfigStatus')?.textContent).toContain('sess...9999');
+
+    provider.value = 'aws';
+    provider.dispatchEvent(new Event('change'));
+    expect((document.getElementById('providerClientIdField') as HTMLElement).hidden).toBe(false);
+    expect((document.getElementById('providerSessionTokenField') as HTMLElement).hidden).toBe(false);
+    expect((document.getElementById('providerEndpointField') as HTMLElement).hidden).toBe(true);
+    expect((document.getElementById('providerRegionField') as HTMLElement).hidden).toBe(false);
+    expect((document.getElementById('providerRegion') as HTMLInputElement).value).toBe('us-east-1');
   });
 
   it('requires a saved provider configuration before activating a keyless endpoint', async () => {
@@ -934,6 +943,43 @@ describe('options UI settings contract', () => {
       }
     }, expect.any(Function));
     expect((document.getElementById('providerSessionToken') as HTMLInputElement).value).toBe('');
+
+    provider.value = 'aws';
+    provider.dispatchEvent(new Event('change'));
+    (document.getElementById('providerClientId') as HTMLInputElement).value = 'aws-access-key-id';
+    (document.getElementById('providerApiKey') as HTMLInputElement).value = 'aws-access-key-secret';
+    (document.getElementById('providerSessionToken') as HTMLInputElement).value = 'aws-session-token';
+    (document.getElementById('providerRegion') as HTMLInputElement).value = 'ap-southeast-1';
+    document.getElementById('saveProviderConfig')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    expect(request).toHaveBeenCalledWith(
+      { origins: ['https://translate.ap-southeast-1.amazonaws.com/*'] },
+      expect.any(Function)
+    );
+    expect(sendMessage).toHaveBeenCalledWith({
+      action: 'updateTranslationProviderConfig',
+      data: {
+        providerId: 'aws',
+        config: {
+          clientId: 'aws-access-key-id',
+          apiKey: 'aws-access-key-secret',
+          sessionToken: 'aws-session-token',
+          endpoint: 'https://translate.ap-southeast-1.amazonaws.com',
+          model: '',
+          region: 'ap-southeast-1'
+        }
+      }
+    }, expect.any(Function));
+    expect((document.getElementById('providerSessionToken') as HTMLInputElement).value).toBe('');
+
+    const permissionRequestCount = request.mock.calls.length;
+    (document.getElementById('providerRegion') as HTMLInputElement).value = 'invalid.region';
+    document.getElementById('saveProviderConfig')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+    expect(request).toHaveBeenCalledTimes(permissionRequestCount);
+    expect(document.getElementById('providerConfigMessage')?.textContent)
+      .toBe('Amazon Translate region is invalid');
 
     provider.value = 'ibm';
     provider.dispatchEvent(new Event('change'));

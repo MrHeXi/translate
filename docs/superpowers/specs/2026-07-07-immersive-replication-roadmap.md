@@ -2,19 +2,33 @@
 
 Goal: replicate the Immersive Translate feature family while preserving the current LexiBridge functions: manual page translation, selected-text translation, vocabulary collection, exam dictionaries, review, import/export, and Chrome storage.
 
+## Audited Parity Baseline
+
+- Baseline release: Immersive Translate `v1.31.5`, published on 2026-07-17.
+- The official Immersive Translate repository is used for release and issue evidence; the product implementation is closed source, so parity is measured from official documentation, published configuration, and observable behavior rather than copied source code.
+- Official feature references audited for this roadmap cover webpage, input, PDF, EPUB, subtitle, video, image, manga, prompt, sensitive-data, and installation workflows.
+- Intentional parity exception: LexiBridge never translates a page automatically on load, even though Immersive Translate supports automatic and per-site automatic translation. A popup, floating button, shortcut, or another explicit user command must start every translation, OCR, transcription, or capture workflow.
+- Completion means functional and behavioral parity with documented workflows, not merely a similarly named control. Each batch requires tests, cancellation/restore checks, production packaging, and an independently reviewed diff.
+
 ## Source Feature Families
 
 The target feature families are:
 
 - Web page bilingual translation.
 - Selected-text translation.
+- Selected-text translation with optional text-to-speech.
 - Hover paragraph translation.
-- Input box translation.
+- Input box translation with language prefixes and mobile gestures.
 - PDF and document translation with layout awareness.
+- MOBI, EPUB, DOCX, PDF, HTML, subtitle, and batch document workflows with local history.
+- BabelDOC and Zotero-oriented academic-document workflows.
 - Video subtitle translation for common streaming/video pages.
+- YouTube Live and Shorts subtitle workflows, AI subtitle generation, and site-specific video adapters.
 - Meeting subtitle translation.
-- Image, manga, and OCR translation.
+- Image, manga, and OCR translation with panel/bubble structure, source removal, and typography reconstruction.
 - Multiple translation engines and broad language-pair coverage.
+- Installable AI experts, full prompt/YAML templates, and sensitive-data masking.
+- Chrome, Firefox, Safari, iOS, Android, userscript, and Zotero distribution paths.
 - Reading-first controls that do not interrupt the page flow.
 
 ## Current Coverage
@@ -34,7 +48,7 @@ Current batch:
 - Input box translation using a deliberate shortcut.
 - User-invoked Chrome side-panel text translation with popup and `Alt+S` entry points.
 - Side-panel AI polish, rewrite, compose, reply, and summary actions with language, tone, length, optional instruction, and iterative-use controls.
-- 28 implemented provider adapters spanning public machine translation, hosted AI, self-hosted AI, and local Ollama endpoints.
+- 29 implemented provider adapters spanning public machine translation, hosted AI, self-hosted AI, and local Ollama endpoints.
 - AI-capable provider context-aware translation with opt-in neighboring text, domain experts, terminology mappings, and custom instructions.
 - Local-only API credential storage with masked UI summaries and exact-origin permission requests for custom endpoints.
 - 100+ target language choices with provider-specific filtering where a provider publishes a narrower target set.
@@ -91,7 +105,7 @@ Current batch:
 
 ### Batch C: Translation Engine Expansion
 
-- Done: add 28 implemented provider adapters: Google, MyMemory, DeepL, Microsoft, OpenAI-compatible, Gemini, DeepSeek, OpenRouter, Groq, Qwen, Zhipu GLM/ChatGLM, SiliconFlow, Ollama, Claude, Azure OpenAI, LibreTranslate, Yandex, NiuTrans, Caiyun, ModernMT, Lingvanex, Papago, Baidu, Volcengine, Alibaba, IBM Watson, Youdao, and SYSTRAN.
+- Done: add 29 implemented provider adapters: Google, MyMemory, DeepL, Microsoft, OpenAI-compatible, Gemini, DeepSeek, OpenRouter, Groq, Qwen, Zhipu GLM/ChatGLM, SiliconFlow, Ollama, Claude, Azure OpenAI, LibreTranslate, Yandex, NiuTrans, Caiyun, ModernMT, Lingvanex, Papago, Baidu, Volcengine, Alibaba, Amazon, IBM Watson, Youdao, and SYSTRAN.
 - Done: keep ChatGLM under the existing Zhipu GLM adapter instead of duplicating the same provider, and track the current supported GLM default model.
 - Done: keep Google and MyMemory available without credentials and preserve fallback between those two public services.
 - Done: integrate OpenAI-compatible Chat Completions, Gemini, Claude Messages, Azure OpenAI, LibreTranslate, Yandex Cloud, NiuTrans, Caiyun, ModernMT, and Lingvanex request/response contracts.
@@ -101,7 +115,8 @@ Current batch:
 - Done: add nine domain-specific AI translation experts for AI-capable providers.
 - Done: add normalized terminology mappings and bounded custom translation instructions.
 - Done: add opt-in neighboring page/document context, isolate source/context as untrusted request data, and include AI preferences in cache identity.
-- Remaining: reassess Tencent Cloud TMT text translation because the current official product SDK no longer exposes the legacy `TextTranslate` action; implement Amazon Translate and evaluate a supported Reverso integration; add dynamic language discovery for self-hosted LibreTranslate and SYSTRAN instances plus broader source-target pair guidance; complete real-account smoke tests for credentialed services.
+- Done: integrate Amazon Translate with region-derived official endpoints, AWS Signature Version 4, optional STS credentials, its published target-language set, and the 10,000-byte synchronous text limit.
+- Remaining: reassess Tencent Cloud TMT text translation because the current official product SDK no longer exposes the legacy `TextTranslate` action; evaluate a supported Reverso integration; add dynamic language discovery for self-hosted LibreTranslate and SYSTRAN instances plus broader source-target pair guidance; complete real-account smoke tests for credentialed services.
 
 ### Batch D: PDF and Document Translation
 
@@ -125,7 +140,11 @@ Current batch:
 - Done: fall back to a bundled Tesseract worker when browser `TextDetector` is unavailable or returns no text.
 - Done: expose a persisted OCR language choice and per-page bundled OCR progress.
 - Done: export translated PDF pages locally as a flattened visual PDF.
-- Remaining: editable PDF text reflow, structural MathML/LaTeX reconstruction, form/annotation preservation, scan preprocessing, mixed-language detection, and advanced multi-column/table layout fitting beyond conservative two-column detection.
+- Confirmed P1: mixed scanned pages currently skip OCR whenever a page contains any text-layer block; sparse text-layer content must still permit OCR and OCR/text results must be deduplicated.
+- Confirmed P1: editing loaded PDF source text currently drops block layout and formula metadata, which also prevents translated PDF export; edits must preserve source block identity and geometry.
+- Confirmed P1: standalone formula blocks can currently enter neighboring AI context even though they are excluded from direct translation requests; formula content must be excluded from all provider payloads.
+- Confirmed risk: nonempty but unusable browser OCR can suppress the bundled Tesseract fallback, and flattened export can overlap or silently omit wrapped lines.
+- Remaining: real PDF fixture and PDF.js round-trip tests, editable block-level PDF text reflow, structural MathML/LaTeX reconstruction, form/annotation preservation, scan preprocessing, mixed-language detection, and advanced multi-column/table layout fitting beyond conservative two-column detection.
 
 ### Batch E: Video Subtitle Translation
 
@@ -153,7 +172,10 @@ Current batch:
 - Done: skip hidden, offscreen, tiny, nested SVG, and extension-owned graphics during visible-image batches.
 - Done: keep all OCR-triggering actions explicit.
 - Done: terminate the local image OCR session immediately when Image text mode stops.
-- Remaining: automatic manga panel and speech-bubble segmentation, source-text removal, image inpainting, and in-place typography reconstruction.
+- Confirmed P1: production content initialization currently installs both MessageManager and legacy content-script listeners, so a single image-mode command can execute twice; converge on one message dispatch path before adding reconstruction.
+- Confirmed risk: image translation cache identity currently ignores target language and provider, so translated text can be reused across incompatible settings.
+- Remaining: retain source-pixel polygons and OCR confidence; infer panels, bubbles, and reading order; group lines before translation; remove source text with masks and inpainting; fit translated typography in place; and provide Apply, Undo, Download PNG, and overlay fallback controls.
+- Stop must abort OCR, translation, reconstruction, and visible-image queues immediately and restore the untouched source image.
 
 ### Batch G: Meeting Subtitle Translation
 
@@ -178,9 +200,36 @@ Current batch:
 - Done: restrict writing actions to configured AI-capable providers and support output language, tone, length, bounded custom instructions, and iterative result reuse.
 - Remaining: cross-browser side-panel equivalents and additional specialized text-processing templates.
 
+### Batch I: Document Formats, Batch Workflows, and History
+
+- Add MOBI import and ASS/SSA subtitle import/export while preserving structure and timing/style metadata.
+- Add explicit multi-file batch translation with bounded concurrency, per-file status, cancellation, retry, and deterministic exports.
+- Add local translation history with source metadata, provider/language identity, reopen/export/delete controls, configurable retention, and no default cloud synchronization.
+- Add BabelDOC-compatible PDF workflow guidance and a Zotero-oriented handoff without claiming unsupported third-party integration.
+
+### Batch J: Video and Site Adapter Parity
+
+- Add versioned, testable site adapters for YouTube standard videos, Live, Shorts, and other documented video sites without relying only on generic DOM selectors.
+- Add explicit AI subtitle generation for videos without subtitles, with provider capability checks, progress, cancellation, editable timing, and export.
+- Keep every subtitle-generation and media-capture path user-triggered; visiting or playing a video never starts capture, OCR, transcription, or translation.
+
+### Batch K: AI Experts, Prompt Templates, and Privacy
+
+- Add installable AI expert definitions with schema validation, source attribution, versioning, enable/disable controls, and safe removal.
+- Add full prompt templates with structured YAML import/export, bounded variables, preview, validation, and rollback to defaults.
+- Add opt-in sensitive-data masking before provider requests, local placeholder restoration, leak-focused tests, and a visible warning when restoration is ambiguous.
+- Treat webpage, document, subtitle, OCR, and neighboring-context content as untrusted data that cannot override system instructions.
+
+### Batch L: Cross-Platform Distribution
+
+- Add Firefox packaging and compatibility checks first, followed by Safari, userscript, Zotero, iOS, and Android feasibility gates.
+- Track platform-specific permission, side-panel, content-script, storage, keyboard, and capture differences instead of claiming one Chrome bundle works everywhere.
+- Produce installable artifacts and platform-specific smoke-test evidence before any platform is listed as supported.
+
 ## Non-Negotiable Product Rules
 
 - Do not auto-translate a page on load.
+- Do not copy Immersive Translate's automatic or per-site automatic translation behavior; this is an intentional user-required parity exception.
 - Do not capture tab audio on page load, from Video subtitles, or from Live captions.
 - Keep the required tab-audio API unused until Capture current tab; keep recordings local until Stop and generate and discard them on cancel, page close, failure, or limit overflow.
 - Do not weaken existing learning functions.

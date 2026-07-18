@@ -3,6 +3,8 @@
 import {
   getTranslationProvider,
   isAvailableTranslationProvider,
+  isTranslationProviderRegionValid,
+  resolveTranslationProviderEndpoint,
   TranslationProviderRuntimeConfig
 } from './TranslationProviderRegistry';
 import type {
@@ -204,13 +206,21 @@ export class StorageManager {
     const sessionToken = submittedSessionToken
       || (submittedNewCredentials ? '' : currentConfig.sessionToken?.trim() || '');
 
+    const region = config.region?.trim() || currentConfig.region || provider.defaultRegion || '';
+    if (!isTranslationProviderRegionValid(providerId, region)) {
+      throw new Error(`${provider.label} region is invalid`);
+    }
+    const endpoint = config.endpoint?.trim()
+      || (provider.regionEndpointTemplate
+        ? resolveTranslationProviderEndpoint(providerId, { region })
+        : currentConfig.endpoint || provider.defaultEndpoint || '');
     const savedConfig: TranslationProviderRuntimeConfig = {
       ...currentConfig,
       ...(provider.configFields?.includes('clientId') ? { clientId } : {}),
       apiKey,
-      endpoint: config.endpoint?.trim() || currentConfig.endpoint || provider.defaultEndpoint || '',
+      endpoint,
       model: config.model?.trim() || currentConfig.model || provider.defaultModel || '',
-      region: config.region?.trim() || currentConfig.region || ''
+      region
     };
     if (provider.configFields?.includes('sessionToken')) {
       if (sessionToken) savedConfig.sessionToken = sessionToken;

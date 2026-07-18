@@ -124,10 +124,11 @@ describe('TranslationService', () => {
         'volcengine',
         'alibaba',
         'youdao',
+        'aws',
         'ibm',
         'systran'
       ]);
-      expect(AVAILABLE_TRANSLATION_PROVIDERS).toHaveLength(28);
+      expect(AVAILABLE_TRANSLATION_PROVIDERS).toHaveLength(29);
       expect(AVAILABLE_TRANSLATION_PROVIDERS.every(provider => Boolean(provider.adapter))).toBe(true);
       expect(new Set(AVAILABLE_TRANSLATION_PROVIDERS.map(provider => provider.adapter))).toEqual(new Set([
         'google',
@@ -148,6 +149,7 @@ describe('TranslationService', () => {
         'baidu',
         'volcengine',
         'alibaba',
+        'aws',
         'youdao',
         'ibm',
         'systran'
@@ -728,6 +730,116 @@ describe('TranslationService', () => {
       }));
     });
 
+    it('calls Amazon Translate with the official AWS4 signing vector and temporary credentials', async () => {
+      installWebCryptoMock('unused-aws-uuid');
+      jest.spyOn(Date, 'now').mockReturnValue(1700000000123);
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({
+          SourceLanguageCode: 'en',
+          TargetLanguageCode: 'zh',
+          TranslatedText: 'Amazon result'
+        })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: 'Hello AWS',
+        sourceLang: 'en',
+        targetLang: 'zh-CN',
+        provider: 'aws',
+        providerConfig: {
+          clientId: 'AKIDEXAMPLE',
+          apiKey: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY',
+          sessionToken: 'AQoDYXdzEJr...example',
+          region: 'us-east-1'
+        }
+      });
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('https://translate.us-east-1.amazonaws.com/');
+      expect(init.method).toBe('POST');
+      expect(init.body).toBe(
+        '{"SourceLanguageCode":"en","TargetLanguageCode":"zh","Text":"Hello AWS"}'
+      );
+      expect(init.headers).toEqual({
+        'Content-Type': 'application/x-amz-json-1.1',
+        'X-Amz-Content-Sha256': '0955ec6221806c28e093838d4acae7dd5193b4394b37d37a532ac2b76aa7d2e1',
+        'X-Amz-Date': '20231114T221320Z',
+        'X-Amz-Target': 'AWSShineFrontendService_20170701.TranslateText',
+        Authorization: 'AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20231114/us-east-1/translate/aws4_request, '
+          + 'SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date;'
+          + 'x-amz-security-token;x-amz-target, '
+          + 'Signature=69acf9bfd43aef6d3f24284784c813c15deef7fc1a86e42593dfcf19acb868fc',
+        'X-Amz-Security-Token': 'AQoDYXdzEJr...example'
+      });
+      expect(url).not.toContain('AKIDEXAMPLE');
+      expect(url).not.toContain('wJalrXUtnFEMI');
+      expect(String(init.body)).not.toContain('AKIDEXAMPLE');
+      expect(String(init.body)).not.toContain('AQoDYXdzEJr');
+      expect(result).toEqual(expect.objectContaining({
+        translatedText: 'Amazon result',
+        sourceLang: 'en',
+        targetLang: 'zh-CN'
+      }));
+    });
+
+    it('maps Amazon languages and enforces its byte and region constraints before fetch', async () => {
+      installWebCryptoMock('unused-aws-uuid');
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({
+          SourceLanguageCode: 'zh-TW',
+          TargetLanguageCode: 'tl',
+          TranslatedText: 'Amazon Filipino result'
+        })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: 'Amazon auto source',
+        targetLang: 'fil',
+        provider: 'aws',
+        providerConfig: {
+          clientId: 'aws-access-key',
+          apiKey: 'aws-secret-key',
+          region: 'ap-southeast-1'
+        }
+      });
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('https://translate.ap-southeast-1.amazonaws.com/');
+      expect(JSON.parse(String(init.body))).toEqual({
+        SourceLanguageCode: 'auto',
+        TargetLanguageCode: 'tl',
+        Text: 'Amazon auto source'
+      });
+      expect(result.sourceLang).toBe('zh-TW');
+
+      await expect(translationService.translate({
+        text: 'Invalid region',
+        targetLang: 'en',
+        provider: 'aws',
+        providerConfig: {
+          clientId: 'aws-access-key',
+          apiKey: 'aws-secret-key',
+          region: 'invalid.region'
+        }
+      })).rejects.toThrow('Amazon Translate region is invalid');
+      await expect(translationService.translate({
+        text: '你'.repeat(3334),
+        targetLang: 'en',
+        provider: 'aws',
+        providerConfig: {
+          clientId: 'aws-access-key',
+          apiKey: 'aws-secret-key',
+          region: 'us-east-1'
+        }
+      })).rejects.toThrow('Amazon Translate text exceeds the 10000-byte limit');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      warnSpy.mockRestore();
+    });
+
     it('maps Traditional Chinese and auto-detect for Volcengine and Alibaba', async () => {
       installWebCryptoMock('123e4567-e89b-12d3-a456-426614174000');
       const fetchMock = jest.fn()
@@ -777,7 +889,7 @@ describe('TranslationService', () => {
       expect(aliResult.sourceLang).toBe('zh-TW');
     });
 
-    it('requires an Access Key ID for Volcengine and Alibaba before signing', async () => {
+    it('requires an Access Key ID for Volcengine, Alibaba, and Amazon before signing', async () => {
       installWebCryptoMock('123e4567-e89b-12d3-a456-426614174000');
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
       const fetchMock = jest.fn();
@@ -795,6 +907,12 @@ describe('TranslationService', () => {
         provider: 'alibaba',
         providerConfig: { apiKey: 'alibaba-secret' }
       })).rejects.toThrow('Alibaba Machine Translation Access Key ID is not configured');
+      await expect(translationService.translate({
+        text: 'Missing Amazon access key ID',
+        targetLang: 'en',
+        provider: 'aws',
+        providerConfig: { apiKey: 'aws-secret', region: 'us-east-1' }
+      })).rejects.toThrow('Amazon Translate Access Key ID is not configured');
       expect(fetchMock).not.toHaveBeenCalled();
       warnSpy.mockRestore();
     });
@@ -1462,6 +1580,7 @@ describe('TranslationService', () => {
         ['baidu', { apiKey: 'baidu-secret', clientId: 'baidu-app-id' }],
         ['volcengine', { apiKey: 'volc-secret', clientId: 'volc-access-key' }],
         ['alibaba', { apiKey: 'ali-secret', clientId: 'ali-access-key' }],
+        ['aws', { apiKey: 'aws-secret', clientId: 'aws-access-key', region: 'us-east-1' }],
         ['youdao', { apiKey: 'youdao-secret', clientId: 'youdao-app-key' }],
         ['ibm', { apiKey: 'ibm-secret' }],
         ['systran', { apiKey: 'systran-secret' }]

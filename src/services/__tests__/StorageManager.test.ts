@@ -259,6 +259,46 @@ describe('StorageManager', () => {
       expect(mockChromeStorage.sync.set).not.toHaveBeenCalled();
     });
 
+    it('derives the Amazon endpoint from its saved region', async () => {
+      mockChromeStorage.local.get.mockResolvedValue({});
+      mockChromeStorage.local.set.mockResolvedValue(undefined);
+
+      const summary = await storageManager.saveTranslationProviderConfig('aws', {
+        clientId: 'aws-access-12345678',
+        apiKey: 'aws-secret-87654321',
+        sessionToken: 'aws-session-11223344',
+        region: 'ap-southeast-1'
+      });
+
+      expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
+        translationProviderConfigs: {
+          aws: {
+            clientId: 'aws-access-12345678',
+            apiKey: 'aws-secret-87654321',
+            sessionToken: 'aws-session-11223344',
+            endpoint: 'https://translate.ap-southeast-1.amazonaws.com',
+            model: '',
+            region: 'ap-southeast-1'
+          }
+        }
+      });
+      expect(summary).toEqual(expect.objectContaining({
+        providerId: 'aws',
+        configured: true,
+        endpoint: 'https://translate.ap-southeast-1.amazonaws.com',
+        region: 'ap-southeast-1',
+        sessionTokenHint: 'aws-...3344'
+      }));
+
+      mockChromeStorage.local.set.mockClear();
+      await expect(storageManager.saveTranslationProviderConfig('aws', {
+        clientId: 'aws-access-key',
+        apiKey: 'aws-secret-key',
+        region: 'invalid.region'
+      })).rejects.toThrow('Amazon Translate region is invalid');
+      expect(mockChromeStorage.local.set).not.toHaveBeenCalled();
+    });
+
     it('removes an old session token when permanent cloud credentials are submitted', async () => {
       mockChromeStorage.local.get.mockResolvedValue({
         translationProviderConfigs: {
@@ -337,7 +377,8 @@ describe('StorageManager', () => {
       for (const [provider, label] of [
         ['baidu', 'Baidu Translate'],
         ['volcengine', 'Volcengine Translate'],
-        ['alibaba', 'Alibaba Machine Translation']
+        ['alibaba', 'Alibaba Machine Translation'],
+        ['aws', 'Amazon Translate']
       ] as const) {
         await expect(storageManager.saveTranslationProviderConfig(provider, {
           apiKey: `${provider}-secret`

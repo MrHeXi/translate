@@ -43,7 +43,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 
 - [ ] Link `PRIVACY.md` or hosted equivalent.
 - [ ] Disclose Chrome storage and Chrome sync use.
-- [ ] Disclose all 28 implemented provider adapters and distinguish pre-granted hosts from provider hosts requested when configuration is saved.
+- [ ] Disclose all 29 implemented provider adapters and distinguish pre-granted hosts from provider hosts requested when configuration is saved.
 - [ ] Disclose that provider API keys, client/application IDs, and temporary session tokens stay in local Chrome storage and are excluded from Chrome sync and learning-data exports.
 - [ ] Confirm AI neighboring context is off by default, is sent only for manual page/document translation when enabled, and is bounded before provider requests.
 - [ ] Confirm AI-capable provider requests include the selected domain, normalized glossary, and custom instructions while keeping source/context in a separate untrusted-data message.
