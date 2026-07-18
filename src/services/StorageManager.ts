@@ -48,6 +48,7 @@ export interface UserSettings {
 export interface TranslationProviderConfigSummary {
   providerId: string;
   configured: boolean;
+  clientIdHint: string;
   apiKeyHint: string;
   endpoint: string;
   model: string;
@@ -167,7 +168,8 @@ export class StorageManager {
     return Object.entries(configs).map(([providerId, config]) => ({
       providerId,
       configured: this.isTranslationProviderConfigured(providerId, config),
-      apiKeyHint: this.maskApiKey(config.apiKey || ''),
+      clientIdHint: this.maskCredential(config.clientId || ''),
+      apiKeyHint: this.maskCredential(config.apiKey || ''),
       endpoint: config.endpoint || '',
       model: config.model || '',
       region: config.region || ''
@@ -185,12 +187,18 @@ export class StorageManager {
     const provider = getTranslationProvider(providerId)!;
     const configs = await this.loadTranslationProviderConfigs();
     const currentConfig = configs[providerId] || {};
+    const clientId = config.clientId?.trim() || currentConfig.clientId?.trim() || '';
+    if (provider.configFields?.includes('clientId') && !clientId) {
+      throw new Error(`${provider.label} Client/Application ID is required`);
+    }
     const apiKey = config.apiKey?.trim() || currentConfig.apiKey?.trim() || '';
     if (provider.requiresApiKey && !apiKey) {
       throw new Error(`${provider.label} API key is required`);
     }
 
     const savedConfig: TranslationProviderRuntimeConfig = {
+      ...currentConfig,
+      ...(provider.configFields?.includes('clientId') ? { clientId } : {}),
       apiKey,
       endpoint: config.endpoint?.trim() || currentConfig.endpoint || provider.defaultEndpoint || '',
       model: config.model?.trim() || currentConfig.model || provider.defaultModel || '',
@@ -208,7 +216,8 @@ export class StorageManager {
     return {
       providerId,
       configured: this.isTranslationProviderConfigured(providerId, savedConfig),
-      apiKeyHint: this.maskApiKey(apiKey),
+      clientIdHint: this.maskCredential(clientId),
+      apiKeyHint: this.maskCredential(apiKey),
       endpoint: savedConfig.endpoint || '',
       model: savedConfig.model || '',
       region: savedConfig.region || ''
@@ -221,6 +230,7 @@ export class StorageManager {
   ): boolean {
     const provider = getTranslationProvider(providerId);
     if (!provider || provider.status !== 'available') return false;
+    if (provider.configFields?.includes('clientId') && !config.clientId?.trim()) return false;
     if (provider.requiresApiKey && !config.apiKey?.trim()) return false;
     if (provider.configFields?.includes('endpoint') && !config.endpoint?.trim() && !provider.defaultEndpoint) {
       return false;
@@ -352,10 +362,10 @@ export class StorageManager {
     return configs && typeof configs === 'object' ? { ...configs } : {};
   }
 
-  private maskApiKey(apiKey: string): string {
-    if (!apiKey) return '';
-    if (apiKey.length <= 8) return '*'.repeat(Math.max(4, apiKey.length));
-    return `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`;
+  private maskCredential(value: string): string {
+    if (!value) return '';
+    if (value.length <= 8) return '*'.repeat(Math.max(4, value.length));
+    return `${value.slice(0, 4)}...${value.slice(-4)}`;
   }
 
   async clearAllData(): Promise<void> {

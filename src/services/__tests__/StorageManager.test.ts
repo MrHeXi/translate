@@ -166,6 +166,7 @@ describe('StorageManager', () => {
       expect(summary).toEqual({
         providerId: 'openai',
         configured: true,
+        clientIdHint: '',
         apiKeyHint: 'sk-s...5678',
         endpoint: 'https://gateway.example.com/v1/chat/completions',
         model: 'translation-model',
@@ -186,6 +187,113 @@ describe('StorageManager', () => {
       expect(JSON.stringify(summary)).not.toContain('tiny');
     });
 
+    it('stores dual provider credentials locally and exposes only masked hints', async () => {
+      mockChromeStorage.local.get.mockResolvedValue({});
+      mockChromeStorage.local.set.mockResolvedValue(undefined);
+
+      const summary = await storageManager.saveTranslationProviderConfig('papago', {
+        clientId: 'naver-client-12345678',
+        apiKey: 'naver-secret-87654321'
+      });
+
+      expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
+        translationProviderConfigs: {
+          papago: {
+            clientId: 'naver-client-12345678',
+            apiKey: 'naver-secret-87654321',
+            endpoint: 'https://papago.apigw.ntruss.com/nmt/v1/translation',
+            model: '',
+            region: ''
+          }
+        }
+      });
+      expect(summary).toEqual({
+        providerId: 'papago',
+        configured: true,
+        clientIdHint: 'nave...5678',
+        apiKeyHint: 'nave...4321',
+        endpoint: 'https://papago.apigw.ntruss.com/nmt/v1/translation',
+        model: '',
+        region: ''
+      });
+      expect(JSON.stringify(summary)).not.toContain('naver-client-12345678');
+      expect(JSON.stringify(summary)).not.toContain('naver-secret-87654321');
+      expect(mockChromeStorage.sync.set).not.toHaveBeenCalled();
+    });
+
+    it('requires a Client/Application ID for dual-credential providers', async () => {
+      mockChromeStorage.local.get.mockResolvedValue({});
+
+      await expect(storageManager.saveTranslationProviderConfig('baidu', {
+        apiKey: 'baidu-secret'
+      })).rejects.toThrow('Baidu Translate Client/Application ID is required');
+      expect(mockChromeStorage.local.set).not.toHaveBeenCalled();
+    });
+
+    it('retains saved credentials when an update submits blank credential values', async () => {
+      mockChromeStorage.local.get.mockResolvedValue({
+        translationProviderConfigs: {
+          baidu: {
+            clientId: 'baidu-client-12345678',
+            apiKey: 'baidu-secret-87654321',
+            endpoint: 'https://fanyi-api.baidu.com/api/trans/vip/translate',
+            model: '',
+            region: ''
+          }
+        }
+      });
+      mockChromeStorage.local.set.mockResolvedValue(undefined);
+
+      const summary = await storageManager.saveTranslationProviderConfig('baidu', {
+        clientId: ' ',
+        apiKey: '',
+        endpoint: 'https://translate.example.com/api'
+      });
+
+      expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
+        translationProviderConfigs: {
+          baidu: {
+            clientId: 'baidu-client-12345678',
+            apiKey: 'baidu-secret-87654321',
+            endpoint: 'https://translate.example.com/api',
+            model: '',
+            region: ''
+          }
+        }
+      });
+      expect(summary).toEqual(expect.objectContaining({
+        configured: true,
+        clientIdHint: 'baid...5678',
+        apiKeyHint: 'baid...4321'
+      }));
+    });
+
+    it('removes a dual-credential provider without changing other saved configurations', async () => {
+      const openaiConfig = {
+        apiKey: 'openai-secret',
+        endpoint: 'https://api.openai.com/v1/chat/completions',
+        model: 'gpt-4o-mini',
+        region: ''
+      };
+      mockChromeStorage.local.get.mockResolvedValue({
+        translationProviderConfigs: {
+          papago: {
+            clientId: 'naver-client',
+            apiKey: 'naver-secret',
+            endpoint: 'https://papago.apigw.ntruss.com/nmt/v1/translation'
+          },
+          openai: openaiConfig
+        }
+      });
+      mockChromeStorage.local.set.mockResolvedValue(undefined);
+
+      await storageManager.removeTranslationProviderConfig('papago');
+
+      expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
+        translationProviderConfigs: { openai: openaiConfig }
+      });
+    });
+
     it('treats a configured local Ollama endpoint and model as ready without an API key', async () => {
       mockChromeStorage.local.get.mockResolvedValue({});
       mockChromeStorage.local.set.mockResolvedValue(undefined);
@@ -195,6 +303,7 @@ describe('StorageManager', () => {
       expect(summary).toEqual({
         providerId: 'ollama',
         configured: true,
+        clientIdHint: '',
         apiKeyHint: '',
         endpoint: 'http://localhost:11434/v1/chat/completions',
         model: 'qwen2.5:7b',
@@ -218,6 +327,15 @@ describe('StorageManager', () => {
         configured: true,
         apiKeyHint: 'azur...cret'
       }));
+    });
+
+    it('requires the account-specific IBM Watson service endpoint', async () => {
+      mockChromeStorage.local.get.mockResolvedValue({});
+
+      await expect(storageManager.saveTranslationProviderConfig('ibm', {
+        apiKey: 'ibm-secret'
+      })).rejects.toThrow('IBM Watson Language Translator endpoint is required');
+      expect(mockChromeStorage.local.set).not.toHaveBeenCalled();
     });
 
     it('keeps provider credentials out of exported learning data', async () => {

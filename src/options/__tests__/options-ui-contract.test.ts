@@ -24,6 +24,7 @@ describe('options UI settings contract', () => {
         <h4 id="providerConfigTitle"></h4>
         <p id="providerConfigStatus"></p>
         <button id="removeProviderConfig" type="button" disabled></button>
+        <label id="providerClientIdField"><input id="providerClientId" type="password"></label>
         <label id="providerApiKeyField"><input id="providerApiKey" type="password"></label>
         <label id="providerEndpointField"><input id="providerEndpoint" type="url"></label>
         <label id="providerModelField"><input id="providerModel" type="text"></label>
@@ -597,6 +598,9 @@ describe('options UI settings contract', () => {
     expect(Array.from(translationProvider.options).some(option => option.value === 'microsoft' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'openai' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'gemini' && !option.disabled)).toBe(true);
+    expect(Array.from(translationProvider.options).some(option => option.value === 'papago' && !option.disabled)).toBe(true);
+    expect(Array.from(translationProvider.options).some(option => option.value === 'baidu' && !option.disabled)).toBe(true);
+    expect(Array.from(translationProvider.options).some(option => option.value === 'ibm' && !option.disabled)).toBe(true);
     expect(translationProvider.value).toBe('deepl');
     expect(displayMode.value).toBe('translation-only');
     expect(aiTranslationDomain.disabled).toBe(true);
@@ -611,7 +615,7 @@ describe('options UI settings contract', () => {
     expect(aiTranslationDomain.disabled).toBe(true);
   });
 
-  it('shows only a masked key summary and the fields required by the selected provider', async () => {
+  it('shows only masked credential summaries and the fields required by the selected provider', async () => {
     const sendMessage = jest.fn((message, callback) => {
       if (message.action === 'getSettings') {
         callback({ success: true, data: createSettings({ translationProvider: 'openai' }) });
@@ -623,9 +627,18 @@ describe('options UI settings contract', () => {
           data: [{
             providerId: 'openai',
             configured: true,
+            clientIdHint: '',
             apiKeyHint: 'sk-s...5678',
             endpoint: 'https://gateway.example.com/v1/chat/completions',
             model: 'translation-model',
+            region: ''
+          }, {
+            providerId: 'papago',
+            configured: true,
+            clientIdHint: 'nave...5678',
+            apiKeyHint: 'nave...4321',
+            endpoint: 'https://papago.apigw.ntruss.com/nmt/v1/translation',
+            model: '',
             region: ''
           }]
         });
@@ -651,6 +664,7 @@ describe('options UI settings contract', () => {
     await flushPromises();
 
     const panel = document.getElementById('providerConfigPanel') as HTMLElement;
+    const clientId = document.getElementById('providerClientId') as HTMLInputElement;
     const apiKey = document.getElementById('providerApiKey') as HTMLInputElement;
     expect(panel.hidden).toBe(false);
     expect(document.getElementById('providerConfigStatus')?.textContent).toContain('sk-s...5678');
@@ -659,6 +673,7 @@ describe('options UI settings contract', () => {
     expect((document.getElementById('providerEndpointField') as HTMLElement).hidden).toBe(false);
     expect((document.getElementById('providerModelField') as HTMLElement).hidden).toBe(false);
     expect((document.getElementById('providerRegionField') as HTMLElement).hidden).toBe(true);
+    expect((document.getElementById('providerClientIdField') as HTMLElement).hidden).toBe(true);
     expect(document.body.textContent).not.toContain('openai-secret-value');
 
     const provider = document.getElementById('translationProvider') as HTMLSelectElement;
@@ -673,6 +688,19 @@ describe('options UI settings contract', () => {
     expect((document.getElementById('providerEndpointField') as HTMLElement).hidden).toBe(true);
     expect((document.getElementById('providerModelField') as HTMLElement).hidden).toBe(false);
     expect((document.getElementById('providerRegionField') as HTMLElement).hidden).toBe(true);
+
+    provider.value = 'papago';
+    provider.dispatchEvent(new Event('change'));
+    expect((document.getElementById('providerClientIdField') as HTMLElement).hidden).toBe(false);
+    expect(clientId.type).toBe('password');
+    expect(clientId.value).toBe('');
+    expect(clientId.placeholder).toContain('nave...5678');
+    expect(document.getElementById('providerConfigStatus')?.textContent).toContain('nave...5678');
+    expect(document.getElementById('providerConfigStatus')?.textContent).toContain('nave...4321');
+    expect((document.getElementById('providerEndpointField') as HTMLElement).hidden).toBe(false);
+    expect((document.getElementById('providerModelField') as HTMLElement).hidden).toBe(true);
+    expect((document.getElementById('providerRegionField') as HTMLElement).hidden).toBe(true);
+    expect(document.body.textContent).not.toContain('naver-client-12345678');
   });
 
   it('requires a saved provider configuration before activating a keyless endpoint', async () => {
@@ -720,6 +748,7 @@ describe('options UI settings contract', () => {
     const savedSummary = {
       providerId: 'openai',
       configured: true,
+      clientIdHint: '',
       apiKeyHint: 'sk-c...7890',
       endpoint: 'https://gateway.example.com/v1/chat/completions',
       model: 'translation-model',
@@ -748,6 +777,7 @@ describe('options UI settings contract', () => {
           data: {
             ...savedSummary,
             providerId: message.data.providerId,
+            clientIdHint: message.data.config.clientId ? 'nave...7890' : '',
             apiKeyHint: message.data.config.apiKey ? savedSummary.apiKeyHint : '',
             endpoint: message.data.config.endpoint,
             model: message.data.config.model,
@@ -787,6 +817,7 @@ describe('options UI settings contract', () => {
       data: {
         providerId: 'openai',
         config: {
+          clientId: '',
           apiKey: 'sk-custom-secret-7890',
           endpoint: savedSummary.endpoint,
           model: savedSummary.model,
@@ -812,6 +843,7 @@ describe('options UI settings contract', () => {
       data: {
         providerId: 'deepseek',
         config: {
+          clientId: '',
           apiKey: 'deepseek-secret',
           endpoint: 'https://api.deepseek.com/chat/completions',
           model: 'deepseek-chat',
@@ -819,6 +851,44 @@ describe('options UI settings contract', () => {
         }
       }
     }, expect.any(Function));
+
+    provider.value = 'papago';
+    provider.dispatchEvent(new Event('change'));
+    (document.getElementById('providerClientId') as HTMLInputElement).value = 'naver-client-id-7890';
+    (document.getElementById('providerApiKey') as HTMLInputElement).value = 'naver-client-secret';
+    document.getElementById('saveProviderConfig')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    expect(request).toHaveBeenCalledWith(
+      { origins: ['https://papago.apigw.ntruss.com/*'] },
+      expect.any(Function)
+    );
+    expect(sendMessage).toHaveBeenCalledWith({
+      action: 'updateTranslationProviderConfig',
+      data: {
+        providerId: 'papago',
+        config: {
+          clientId: 'naver-client-id-7890',
+          apiKey: 'naver-client-secret',
+          endpoint: 'https://papago.apigw.ntruss.com/nmt/v1/translation',
+          model: '',
+          region: ''
+        }
+      }
+    }, expect.any(Function));
+    expect((document.getElementById('providerClientId') as HTMLInputElement).value).toBe('');
+
+    provider.value = 'ibm';
+    provider.dispatchEvent(new Event('change'));
+    (document.getElementById('providerApiKey') as HTMLInputElement).value = 'ibm-secret';
+    document.getElementById('saveProviderConfig')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    expect(document.getElementById('providerConfigMessage')?.textContent)
+      .toBe('IBM Watson Language Translator endpoint is required');
+    expect(sendMessage.mock.calls.some(([message]) => (
+      message.action === 'updateTranslationProviderConfig' && message.data.providerId === 'ibm'
+    ))).toBe(false);
 
     provider.value = 'ollama';
     provider.dispatchEvent(new Event('change'));
@@ -834,6 +904,7 @@ describe('options UI settings contract', () => {
       data: {
         providerId: 'ollama',
         config: {
+          clientId: '',
           apiKey: '',
           endpoint: 'http://localhost:11434/v1/chat/completions',
           model: 'qwen2.5:7b',
@@ -860,6 +931,7 @@ describe('options UI settings contract', () => {
           data: [{
             providerId: 'deepl',
             configured: true,
+            clientIdHint: '',
             apiKeyHint: 'deep...7890',
             endpoint: 'https://api-free.deepl.com/v2/translate',
             model: '',

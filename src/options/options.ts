@@ -587,6 +587,7 @@ class OptionsController {
     const title = document.getElementById('providerConfigTitle');
     const status = document.getElementById('providerConfigStatus');
     const removeButton = document.getElementById('removeProviderConfig') as HTMLButtonElement | null;
+    const clientIdInput = document.getElementById('providerClientId') as HTMLInputElement | null;
     const apiKeyInput = document.getElementById('providerApiKey') as HTMLInputElement | null;
     const endpointInput = document.getElementById('providerEndpoint') as HTMLInputElement | null;
     const modelInput = document.getElementById('providerModel') as HTMLInputElement | null;
@@ -594,20 +595,31 @@ class OptionsController {
 
     if (title) title.textContent = `${provider.label} configuration`;
     if (status) {
+      const credentialHints = [
+        summary?.clientIdHint ? `ID ${summary.clientIdHint}` : '',
+        summary?.apiKeyHint ? `key ${summary.apiKeyHint}` : ''
+      ].filter(Boolean);
       status.textContent = summary?.configured
-        ? summary.apiKeyHint ? `Configured (${summary.apiKeyHint})` : 'Configured'
+        ? credentialHints.length > 0 ? `Configured (${credentialHints.join(', ')})` : 'Configured'
         : 'Not configured';
     }
     if (removeButton) removeButton.disabled = !summary?.configured;
 
+    this.setProviderFieldVisibility('providerClientIdField', configFields.includes('clientId'));
     this.setProviderFieldVisibility('providerApiKeyField', configFields.includes('apiKey'));
     this.setProviderFieldVisibility('providerEndpointField', configFields.includes('endpoint'));
     this.setProviderFieldVisibility('providerModelField', configFields.includes('model'));
     this.setProviderFieldVisibility('providerRegionField', configFields.includes('region'));
 
+    if (clientIdInput) {
+      clientIdInput.value = '';
+      clientIdInput.placeholder = summary?.clientIdHint
+        ? `Saved ID: ${summary.clientIdHint}`
+        : 'Enter Client/Application ID';
+    }
     if (apiKeyInput) {
       apiKeyInput.value = '';
-      apiKeyInput.placeholder = summary?.configured
+      apiKeyInput.placeholder = summary?.apiKeyHint
         ? `Saved key: ${summary.apiKeyHint}`
         : 'Enter API key';
     }
@@ -661,19 +673,28 @@ class OptionsController {
 
     const existingSummary = this.providerConfigSummaries.get(providerId);
     const config: TranslationProviderRuntimeConfig = {
+      clientId: (document.getElementById('providerClientId') as HTMLInputElement | null)?.value.trim() || '',
       apiKey: (document.getElementById('providerApiKey') as HTMLInputElement | null)?.value.trim() || '',
       endpoint: (document.getElementById('providerEndpoint') as HTMLInputElement | null)?.value.trim() || '',
       model: (document.getElementById('providerModel') as HTMLInputElement | null)?.value.trim() || '',
       region: (document.getElementById('providerRegion') as HTMLInputElement | null)?.value.trim() || ''
     };
 
-    if (provider.requiresApiKey && !config.apiKey && !existingSummary?.configured) {
+    if (provider.configFields.includes('clientId') && !config.clientId && !existingSummary?.clientIdHint) {
+      this.showProviderConfigMessage(`${provider.label} Client/Application ID is required`, true);
+      return;
+    }
+    if (provider.requiresApiKey && !config.apiKey && !existingSummary?.apiKeyHint) {
       this.showProviderConfigMessage(`${provider.label} API key is required`, true);
       return;
     }
 
     const endpoint = config.endpoint || provider.defaultEndpoint || '';
     if (provider.configFields.includes('endpoint')) {
+      if (!endpoint) {
+        this.showProviderConfigMessage(`${provider.label} endpoint is required`, true);
+        return;
+      }
       const permissionGranted = await this.ensureProviderEndpointPermission(endpoint);
       if (!permissionGranted) {
         this.showProviderConfigMessage('Host access was not granted for this endpoint', true);

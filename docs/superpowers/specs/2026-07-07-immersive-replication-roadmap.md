@@ -34,7 +34,7 @@ Current batch:
 - Input box translation using a deliberate shortcut.
 - User-invoked Chrome side-panel text translation with popup and `Alt+S` entry points.
 - Side-panel AI polish, rewrite, compose, reply, and summary actions with language, tone, length, optional instruction, and iterative-use controls.
-- 21 implemented provider adapters spanning public machine translation, hosted AI, self-hosted AI, and local Ollama endpoints.
+- 24 implemented provider adapters spanning public machine translation, hosted AI, self-hosted AI, and local Ollama endpoints.
 - AI-capable provider context-aware translation with opt-in neighboring text, domain experts, terminology mappings, and custom instructions.
 - Local-only API credential storage with masked UI summaries and exact-origin permission requests for custom endpoints.
 - 100+ target language choices with provider-specific filtering where a provider publishes a narrower target set.
@@ -91,7 +91,7 @@ Current batch:
 
 ### Batch C: Translation Engine Expansion
 
-- Done: add 21 implemented provider adapters: Google, MyMemory, DeepL, Microsoft, OpenAI-compatible, Gemini, DeepSeek, OpenRouter, Groq, Qwen, Zhipu, SiliconFlow, Ollama, Claude, Azure OpenAI, LibreTranslate, Yandex, NiuTrans, Caiyun, ModernMT, and Lingvanex.
+- Done: add 24 implemented provider adapters: Google, MyMemory, DeepL, Microsoft, OpenAI-compatible, Gemini, DeepSeek, OpenRouter, Groq, Qwen, Zhipu, SiliconFlow, Ollama, Claude, Azure OpenAI, LibreTranslate, Yandex, NiuTrans, Caiyun, ModernMT, Lingvanex, Papago, Baidu, and IBM Watson.
 - Done: keep Google and MyMemory available without credentials and preserve fallback between those two public services.
 - Done: integrate OpenAI-compatible Chat Completions, Gemini, Claude Messages, Azure OpenAI, LibreTranslate, Yandex Cloud, NiuTrans, Caiyun, ModernMT, and Lingvanex request/response contracts.
 - Done: keep API keys in local storage, return only masked summaries to settings, and exclude keys from Chrome sync and learning-data export.
@@ -100,7 +100,7 @@ Current batch:
 - Done: add nine domain-specific AI translation experts for AI-capable providers.
 - Done: add normalized terminology mappings and bounded custom translation instructions.
 - Done: add opt-in neighboring page/document context, isolate source/context as untrusted request data, and include AI preferences in cache identity.
-- Remaining: implement Papago, Baidu, Tencent Cloud TMT, Volcengine, Alibaba, Youdao, Amazon Translate, IBM Watson, Reverso, SYSTRAN, and ChatGLM; add dynamic language discovery for self-hosted LibreTranslate instances and broader source-target pair guidance; complete real-account smoke tests for credentialed services.
+- Remaining: implement Tencent Cloud TMT, Volcengine, Alibaba, Youdao, Amazon Translate, Reverso, SYSTRAN, and ChatGLM; add dynamic language discovery for self-hosted LibreTranslate instances and broader source-target pair guidance; complete real-account smoke tests for credentialed services.
 
 ### Batch D: PDF and Document Translation
 

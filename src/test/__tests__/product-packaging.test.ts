@@ -127,12 +127,12 @@ describe('product packaging contract', () => {
     expect(readme).toContain('separate translation overlays for detected OCR text blocks');
     expect(readme).toContain('without recording audio');
     expect(readme).toContain('100+ target language options');
-    expect(readme).toContain('21 implemented provider adapters');
+    expect(readme).toContain('24 implemented provider adapters');
     expect(readme).toContain('Ollama requires an endpoint and model but no API key');
     expect(readme).toContain('Provider request formats and failure behavior are covered by automated contract tests');
     expect(readme).toContain('choose a domain expert');
     expect(readme).toContain('Neighboring context is opt-in');
-    expect(readme).toContain('API keys in local Chrome storage only');
+    expect(readme).toContain('API keys and client/application IDs in local Chrome storage only');
     expect(readme).toContain('CET4, CET6, GRE, IELTS, TOEFL');
     expect(readme).toContain('background or automatic browser-tab audio capture');
     expect(readme).toContain('meeting bot that records or joins calls');
@@ -241,11 +241,11 @@ describe('product packaging contract', () => {
     expect(listing).toContain('separate OCR block overlays');
     expect(listing).toContain('does not record audio, join calls, or transcribe speech');
     expect(listing).toContain('100+ target language choices');
-    expect(listing).toContain('21 implemented provider adapters');
+    expect(listing).toContain('24 implemented provider adapters');
     expect(listing).toContain('AI-capable providers');
     expect(listing).toContain('nine domain experts');
     expect(listing).toContain('Neighboring context is off by default');
-    expect(listing).toContain('Provider API keys stay in local Chrome storage');
+    expect(listing).toContain('Provider API keys and client/application IDs stay in local Chrome storage');
     expect(listing).toContain('Vocabulary notebook');
     expect(listing).toContain('CET4');
     expect(listing).toContain('CET6');
@@ -273,7 +273,7 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('49 test suites and 344 tests');
+    expect(releaseNotes).toContain('49 test suites and 355 tests');
     expect(releaseNotes).toContain('17,716,817');
     expect(releaseNotes).toContain('53B013B0000EBA0C576E0DBC1D2D1CB87F2B9DD188FC103212701723DE8079EE');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
@@ -370,8 +370,9 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('separate OCR text-block overlays');
     expect(roadmap).toContain('Translate visible images');
     expect(roadmap).toContain('Multiple translation engines');
-    expect(roadmap).toContain('21 implemented provider adapters');
-    expect(roadmap).toContain('Papago, Baidu, Tencent Cloud TMT');
+    expect(roadmap).toContain('24 implemented provider adapters');
+    expect(roadmap).toContain('Papago, Baidu, and IBM Watson');
+    expect(roadmap).toContain('Remaining: implement Tencent Cloud TMT');
     expect(roadmap).toContain('nine domain-specific AI translation experts');
     expect(roadmap).toContain('include AI preferences in cache identity');
     expect(roadmap).toContain('Do not auto-translate a page on load');

@@ -1,5 +1,5 @@
 export type TranslationProviderStatus = 'available' | 'planned';
-export type TranslationProviderConfigField = 'apiKey' | 'endpoint' | 'model' | 'region';
+export type TranslationProviderConfigField = 'clientId' | 'apiKey' | 'endpoint' | 'model' | 'region';
 export type TranslationProviderAdapter =
   | 'google'
   | 'mymemory'
@@ -14,9 +14,13 @@ export type TranslationProviderAdapter =
   | 'niutrans'
   | 'caiyun'
   | 'modernmt'
-  | 'lingvanex';
+  | 'lingvanex'
+  | 'papago'
+  | 'baidu'
+  | 'ibm';
 
 export interface TranslationProviderRuntimeConfig {
+  clientId?: string;
   apiKey?: string;
   endpoint?: string;
   model?: string;
@@ -184,14 +188,41 @@ export const TRANSLATION_PROVIDERS: TranslationProviderDefinition[] = [
     requiresApiKey: true, supportsAutoDetect: true, configFields: ['apiKey', 'endpoint'],
     defaultEndpoint: 'https://api-b2b.backenster.com/b1/api/v3/translate'
   },
-  { id: 'papago', label: 'Naver Papago', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
-  { id: 'baidu', label: 'Baidu Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
+  {
+    id: 'papago', label: 'Naver Papago', status: 'available', adapter: 'papago',
+    requiresApiKey: true, supportsAutoDetect: true,
+    configFields: ['clientId', 'apiKey', 'endpoint'],
+    defaultEndpoint: 'https://papago.apigw.ntruss.com/nmt/v1/translation',
+    supportedTargetLanguages: [
+      'ko', 'en', 'ja', 'zh-CN', 'zh-TW', 'es', 'fr', 'vi', 'th', 'id', 'de', 'ru', 'it'
+    ]
+  },
+  {
+    id: 'baidu', label: 'Baidu Translate', status: 'available', adapter: 'baidu',
+    requiresApiKey: true, supportsAutoDetect: true,
+    configFields: ['clientId', 'apiKey', 'endpoint'],
+    defaultEndpoint: 'https://fanyi-api.baidu.com/api/trans/vip/translate',
+    supportedTargetLanguages: [
+      'zh-CN', 'zh-TW', 'en', 'ja', 'ko', 'fr', 'es', 'th', 'ar', 'ru', 'pt', 'de',
+      'it', 'el', 'nl', 'pl', 'bg', 'et', 'da', 'fi', 'cs', 'ro', 'sl', 'sv', 'hu', 'vi'
+    ]
+  },
   { id: 'tencent', label: 'Tencent Cloud TMT', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
   { id: 'volcengine', label: 'Volcengine Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
   { id: 'alibaba', label: 'Alibaba Machine Translation', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
   { id: 'youdao', label: 'Youdao Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
   { id: 'aws', label: 'Amazon Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
-  { id: 'ibm', label: 'IBM Watson Language Translator', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
+  {
+    id: 'ibm', label: 'IBM Watson Language Translator', status: 'available', adapter: 'ibm',
+    requiresApiKey: true, supportsAutoDetect: true,
+    configFields: ['apiKey', 'endpoint'],
+    supportedTargetLanguages: [
+      'ar', 'bn', 'bs', 'bg', 'ca', 'zh-CN', 'zh-TW', 'hr', 'cs', 'da', 'nl', 'en',
+      'et', 'fi', 'fr', 'de', 'el', 'gu', 'he', 'hi', 'hu', 'ga', 'it', 'ja', 'ko',
+      'lv', 'lt', 'ms', 'ml', 'mt', 'ne', 'no', 'fa', 'pl', 'pt', 'ro', 'ru', 'sr',
+      'si', 'sk', 'sl', 'es', 'sv', 'ta', 'te', 'th', 'tr', 'uk', 'ur', 'vi', 'cy'
+    ]
+  },
   { id: 'reverso', label: 'Reverso Context', status: 'planned', requiresApiKey: false, supportsAutoDetect: true },
   { id: 'systran', label: 'SYSTRAN Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
   { id: 'chatglm', label: 'ChatGLM', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },

@@ -1,3 +1,5 @@
+export {};
+
 const createDeferred = <T = void>() => {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;

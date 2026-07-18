@@ -275,6 +275,9 @@ export class TranslationService {
           case 'caiyun': return await this.callCaiyunAPI(request, provider);
           case 'modernmt': return await this.callModernMTAPI(request, provider);
           case 'lingvanex': return await this.callLingvanexAPI(request, provider);
+          case 'papago': return await this.callPapagoAPI(request, provider);
+          case 'baidu': return await this.callBaiduAPI(request, provider);
+          case 'ibm': return await this.callIBMWatsonAPI(request, provider);
         }
       } catch (error) {
         lastError = error;
@@ -835,6 +838,127 @@ export class TranslationService {
     return this.createProviderTranslationResult(request, translatedText.trim());
   }
 
+  private async callPapagoAPI(
+    request: TranslationRequest,
+    providerId: string
+  ): Promise<TranslationResult> {
+    const provider = getTranslationProvider(providerId)!;
+    const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
+    if (!config.clientId) {
+      throw new TranslationProviderError(`${provider.label} client ID is not configured`);
+    }
+
+    const body = new URLSearchParams({
+      source: request.sourceLang && request.sourceLang !== 'auto'
+        ? this.mapPapagoLanguage(request.sourceLang)
+        : 'auto',
+      target: this.mapPapagoLanguage(request.targetLang),
+      text: request.text
+    });
+    const response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: {
+        'X-NCP-APIGW-API-KEY-ID': config.clientId,
+        'X-NCP-APIGW-API-KEY': config.apiKey,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: body.toString()
+    });
+    const data = await this.readProviderJson(response, provider.label);
+    const result = data?.message?.result;
+    if (typeof result?.translatedText !== 'string' || !result.translatedText.trim()) {
+      throw new TranslationProviderError(`${provider.label} returned an invalid translation response`);
+    }
+    return this.createProviderTranslationResult(
+      request,
+      result.translatedText.trim(),
+      typeof result.srcLangType === 'string' ? result.srcLangType : undefined
+    );
+  }
+
+  private async callBaiduAPI(
+    request: TranslationRequest,
+    providerId: string
+  ): Promise<TranslationResult> {
+    const provider = getTranslationProvider(providerId)!;
+    const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
+    if (!config.clientId) {
+      throw new TranslationProviderError(`${provider.label} client ID is not configured`);
+    }
+
+    const salt = Date.now().toString();
+    const sign = this.md5Utf8(`${config.clientId}${request.text}${salt}${config.apiKey}`);
+    const body = new URLSearchParams({
+      q: request.text,
+      from: request.sourceLang && request.sourceLang !== 'auto'
+        ? this.mapBaiduLanguage(request.sourceLang)
+        : 'auto',
+      to: this.mapBaiduLanguage(request.targetLang),
+      appid: config.clientId,
+      salt,
+      sign
+    });
+    const response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    });
+    const data = await this.readProviderJson(response, provider.label);
+    if (data?.error_code !== undefined || data?.error_msg !== undefined) {
+      const details = [data.error_code, data.error_msg]
+        .filter(value => value !== undefined && value !== null && String(value).trim())
+        .join(' ');
+      throw new TranslationProviderError(`${provider.label} request failed${details ? `: ${details}` : ''}`);
+    }
+
+    if (!Array.isArray(data?.trans_result) || data.trans_result.length === 0
+      || data.trans_result.some((item: any) => typeof item?.dst !== 'string' || !item.dst.trim())) {
+      throw new TranslationProviderError(`${provider.label} returned an invalid translation response`);
+    }
+    const translatedText = data.trans_result.map((item: any) => item.dst).join('\n').trim();
+    return this.createProviderTranslationResult(
+      request,
+      translatedText,
+      typeof data.from === 'string' ? data.from : undefined
+    );
+  }
+
+  private async callIBMWatsonAPI(
+    request: TranslationRequest,
+    providerId: string
+  ): Promise<TranslationResult> {
+    const provider = getTranslationProvider(providerId)!;
+    const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
+    const endpoint = new URL(config.endpoint);
+    endpoint.searchParams.set('version', '2018-05-01');
+    const body: Record<string, unknown> = {
+      text: [request.text],
+      target: this.mapIBMLanguage(request.targetLang)
+    };
+    if (request.sourceLang && request.sourceLang !== 'auto') {
+      body.source = this.mapIBMLanguage(request.sourceLang);
+    }
+
+    const response = await fetch(endpoint.toString(), {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${this.encodeBasicCredentials('apikey', config.apiKey)}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+    const data = await this.readProviderJson(response, provider.label);
+    const translatedText = data?.translations?.[0]?.translation;
+    if (typeof translatedText !== 'string' || !translatedText.trim()) {
+      throw new TranslationProviderError(`${provider.label} returned an invalid translation response`);
+    }
+    return this.createProviderTranslationResult(
+      request,
+      translatedText.trim(),
+      typeof data.detected_language === 'string' ? data.detected_language : undefined
+    );
+  }
+
   private extractOpenAIMessageText(content: unknown): string {
     return typeof content === 'string'
       ? content.trim()
@@ -882,10 +1006,161 @@ export class TranslationService {
     return language.split('-')[0]!;
   }
 
+  private mapPapagoLanguage(language: string): string {
+    if (language === 'zh-CN' || language === 'zh-TW') return language;
+    return language.split('-')[0]!;
+  }
+
+  private mapBaiduLanguage(language: string): string {
+    const mappings: Record<string, string> = {
+      'zh-CN': 'zh',
+      'zh-TW': 'cht',
+      ja: 'jp',
+      ko: 'kor',
+      fr: 'fra',
+      es: 'spa',
+      ar: 'ara',
+      bg: 'bul',
+      et: 'est',
+      da: 'dan',
+      fi: 'fin',
+      ro: 'rom',
+      sl: 'slo',
+      sv: 'swe',
+      vi: 'vie'
+    };
+    return mappings[language] || language.split('-')[0]!;
+  }
+
+  private mapIBMLanguage(language: string): string {
+    if (language === 'zh-CN') return 'zh';
+    if (language === 'zh-TW') return 'zh-TW';
+    if (language === 'no') return 'nb';
+    return language.split('-')[0]!;
+  }
+
+  private encodeBasicCredentials(username: string, password: string): string {
+    const bytes = this.encodeUtf8(`${username}:${password}`);
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
+  }
+
+  private md5Utf8(value: string): string {
+    const bytes = this.encodeUtf8(value);
+    const paddedLength = Math.ceil((bytes.length + 9) / 64) * 64;
+    const padded = new Uint8Array(paddedLength);
+    padded.set(bytes);
+    padded[bytes.length] = 0x80;
+
+    const view = new DataView(padded.buffer);
+    view.setUint32(paddedLength - 8, (bytes.length * 8) >>> 0, true);
+    view.setUint32(paddedLength - 4, Math.floor(bytes.length / 0x20000000) >>> 0, true);
+
+    const shifts = [
+      7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+      5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+      4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+      6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21
+    ];
+    const constants = Array.from(
+      { length: 64 },
+      (_, index) => Math.floor(Math.abs(Math.sin(index + 1)) * 0x100000000) >>> 0
+    );
+
+    let a0 = 0x67452301;
+    let b0 = 0xefcdab89;
+    let c0 = 0x98badcfe;
+    let d0 = 0x10325476;
+
+    for (let offset = 0; offset < paddedLength; offset += 64) {
+      let a = a0;
+      let b = b0;
+      let c = c0;
+      let d = d0;
+
+      for (let index = 0; index < 64; index++) {
+        let f: number;
+        let wordIndex: number;
+        if (index < 16) {
+          f = (b & c) | (~b & d);
+          wordIndex = index;
+        } else if (index < 32) {
+          f = (d & b) | (~d & c);
+          wordIndex = (5 * index + 1) % 16;
+        } else if (index < 48) {
+          f = b ^ c ^ d;
+          wordIndex = (3 * index + 5) % 16;
+        } else {
+          f = c ^ (b | ~d);
+          wordIndex = (7 * index) % 16;
+        }
+
+        const sum = (a + (f >>> 0) + constants[index]! + view.getUint32(offset + wordIndex * 4, true)) >>> 0;
+        const rotated = ((sum << shifts[index]!) | (sum >>> (32 - shifts[index]!))) >>> 0;
+        a = d;
+        d = c;
+        c = b;
+        b = (b + rotated) >>> 0;
+      }
+
+      a0 = (a0 + a) >>> 0;
+      b0 = (b0 + b) >>> 0;
+      c0 = (c0 + c) >>> 0;
+      d0 = (d0 + d) >>> 0;
+    }
+
+    let digest = '';
+    for (const word of [a0, b0, c0, d0]) {
+      for (let shift = 0; shift < 32; shift += 8) {
+        digest += ((word >>> shift) & 0xff).toString(16).padStart(2, '0');
+      }
+    }
+    return digest;
+  }
+
+  private encodeUtf8(value: string): Uint8Array {
+    const bytes: number[] = [];
+    for (let index = 0; index < value.length; index++) {
+      let codePoint = value.charCodeAt(index);
+      if (codePoint >= 0xd800 && codePoint <= 0xdbff) {
+        const next = value.charCodeAt(index + 1);
+        if (next >= 0xdc00 && next <= 0xdfff) {
+          codePoint = 0x10000 + ((codePoint - 0xd800) << 10) + (next - 0xdc00);
+          index++;
+        } else {
+          codePoint = 0xfffd;
+        }
+      } else if (codePoint >= 0xdc00 && codePoint <= 0xdfff) {
+        codePoint = 0xfffd;
+      }
+
+      if (codePoint <= 0x7f) {
+        bytes.push(codePoint);
+      } else if (codePoint <= 0x7ff) {
+        bytes.push(0xc0 | (codePoint >>> 6), 0x80 | (codePoint & 0x3f));
+      } else if (codePoint <= 0xffff) {
+        bytes.push(
+          0xe0 | (codePoint >>> 12),
+          0x80 | ((codePoint >>> 6) & 0x3f),
+          0x80 | (codePoint & 0x3f)
+        );
+      } else {
+        bytes.push(
+          0xf0 | (codePoint >>> 18),
+          0x80 | ((codePoint >>> 12) & 0x3f),
+          0x80 | ((codePoint >>> 6) & 0x3f),
+          0x80 | (codePoint & 0x3f)
+        );
+      }
+    }
+    return Uint8Array.from(bytes);
+  }
+
   private getProviderRuntimeConfig(
     providerId: string,
     runtimeConfig?: TranslationProviderRuntimeConfig
-  ): { apiKey: string; endpoint: string; model: string; region: string } {
+  ): { apiKey: string; clientId: string; endpoint: string; model: string; region: string } {
     const provider = getTranslationProvider(providerId);
     if (!provider || provider.status !== 'available') {
       throw new TranslationProviderError('Unknown or unavailable translation provider');
@@ -907,6 +1182,7 @@ export class TranslationService {
 
     return {
       apiKey,
+      clientId: runtimeConfig?.clientId?.trim() || '',
       endpoint,
       model,
       region: runtimeConfig?.region?.trim() || ''
@@ -962,9 +1238,29 @@ export class TranslationService {
 
   private normalizeProviderLanguage(language: string): string {
     const normalized = language.toLowerCase();
-    if (normalized === 'zh' || normalized === 'zh-hans') return 'zh-CN';
-    if (normalized === 'zh-hant') return 'zh-TW';
-    return normalized;
+    const mappings: Record<string, string> = {
+      zh: 'zh-CN',
+      'zh-cn': 'zh-CN',
+      'zh-hans': 'zh-CN',
+      cht: 'zh-TW',
+      'zh-tw': 'zh-TW',
+      'zh-hant': 'zh-TW',
+      jp: 'ja',
+      kor: 'ko',
+      fra: 'fr',
+      spa: 'es',
+      ara: 'ar',
+      bul: 'bg',
+      est: 'et',
+      dan: 'da',
+      fin: 'fi',
+      rom: 'ro',
+      slo: 'sl',
+      swe: 'sv',
+      vie: 'vi',
+      nb: 'no'
+    };
+    return mappings[normalized] || normalized;
   }
 
   private getLanguageLabel(languageCode: string): string {

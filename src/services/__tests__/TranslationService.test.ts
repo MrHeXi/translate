@@ -18,6 +18,7 @@ describe('TranslationService', () => {
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
     if (originalFetch) {
       global.fetch = originalFetch;
     } else {
@@ -65,9 +66,12 @@ describe('TranslationService', () => {
         'niutrans',
         'caiyun',
         'modernmt',
-        'lingvanex'
+        'lingvanex',
+        'papago',
+        'baidu',
+        'ibm'
       ]);
-      expect(AVAILABLE_TRANSLATION_PROVIDERS).toHaveLength(21);
+      expect(AVAILABLE_TRANSLATION_PROVIDERS).toHaveLength(24);
       expect(AVAILABLE_TRANSLATION_PROVIDERS.every(provider => Boolean(provider.adapter))).toBe(true);
       expect(TRANSLATION_LANGUAGES.length).toBeGreaterThanOrEqual(100);
       expect(TRANSLATION_LANGUAGES.some(language => language.code === 'zh-CN')).toBe(true);
@@ -447,6 +451,227 @@ describe('TranslationService', () => {
       expect(result.translatedText).toBe('Lingvanex result');
     });
 
+    it('calls Papago with Naver credentials and its form-encoded language contract', async () => {
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({
+          message: {
+            result: {
+              srcLangType: 'en',
+              tarLangType: 'zh-TW',
+              translatedText: 'Papago result'
+            }
+          }
+        })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: 'Hello Papago',
+        targetLang: 'zh-TW',
+        provider: 'papago',
+        providerConfig: { clientId: 'naver-client-id', apiKey: 'naver-client-secret' }
+      });
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('https://papago.apigw.ntruss.com/nmt/v1/translation');
+      expect(init.method).toBe('POST');
+      expect(init.headers).toEqual({
+        'X-NCP-APIGW-API-KEY-ID': 'naver-client-id',
+        'X-NCP-APIGW-API-KEY': 'naver-client-secret',
+        'Content-Type': 'application/x-www-form-urlencoded'
+      });
+      expect(Object.fromEntries(new URLSearchParams(String(init.body)))).toEqual({
+        source: 'auto',
+        target: 'zh-TW',
+        text: 'Hello Papago'
+      });
+      expect(result).toEqual(expect.objectContaining({
+        translatedText: 'Papago result',
+        sourceLang: 'en',
+        targetLang: 'zh-TW'
+      }));
+    });
+
+    it('calls Baidu VIP Translate with mapped languages and a UTF-8 MD5 signature', async () => {
+      jest.spyOn(Date, 'now').mockReturnValue(1700000000000);
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({
+          from: 'zh',
+          to: 'jp',
+          trans_result: [{ src: '你好，世界', dst: 'こんにちは、世界' }]
+        })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: '你好，世界',
+        sourceLang: 'zh-CN',
+        targetLang: 'ja',
+        provider: 'baidu',
+        providerConfig: { clientId: 'baidu-app-id', apiKey: 'baidu-secret' }
+      });
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('https://fanyi-api.baidu.com/api/trans/vip/translate');
+      expect(init.method).toBe('POST');
+      expect(init.headers).toEqual({ 'Content-Type': 'application/x-www-form-urlencoded' });
+      expect(Object.fromEntries(new URLSearchParams(String(init.body)))).toEqual({
+        q: '你好，世界',
+        from: 'zh',
+        to: 'jp',
+        appid: 'baidu-app-id',
+        salt: '1700000000000',
+        sign: 'dd7ddd6445bf32fcfea8c53bd82d6f08'
+      });
+      expect(result).toEqual(expect.objectContaining({
+        translatedText: 'こんにちは、世界',
+        sourceLang: 'zh-CN',
+        targetLang: 'ja'
+      }));
+    });
+
+    it('calls IBM Watson with Basic authentication, API version, and JSON text input', async () => {
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({
+          translations: [{ translation: 'IBM result' }],
+          detected_language: 'en',
+          word_count: 2,
+          character_count: 9
+        })
+      }));
+      (global as any).fetch = fetchMock;
+      const endpoint = 'https://api.us-south.language-translator.watson.cloud.ibm.com/instances/test-instance/v3/translate';
+
+      const result = await translationService.translate({
+        text: 'Hello IBM',
+        sourceLang: 'en',
+        targetLang: 'zh-CN',
+        provider: 'ibm',
+        providerConfig: { apiKey: 'ibm-secret', endpoint }
+      });
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe(`${endpoint}?version=2018-05-01`);
+      expect(init.method).toBe('POST');
+      expect(init.headers).toEqual({
+        Authorization: 'Basic YXBpa2V5OmlibS1zZWNyZXQ=',
+        'Content-Type': 'application/json'
+      });
+      expect(JSON.parse(String(init.body))).toEqual({
+        text: ['Hello IBM'],
+        target: 'zh',
+        source: 'en'
+      });
+      expect(result).toEqual(expect.objectContaining({
+        translatedText: 'IBM result',
+        sourceLang: 'en',
+        targetLang: 'zh-CN'
+      }));
+    });
+
+    it('rejects invalid Papago, Baidu, and IBM translation payloads', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const cases = [
+        {
+          provider: 'papago',
+          providerConfig: { clientId: 'naver-client-id', apiKey: 'naver-client-secret' },
+          payload: { message: { result: { translatedText: '' } } },
+          expected: 'Naver Papago returned an invalid translation response'
+        },
+        {
+          provider: 'baidu',
+          providerConfig: { clientId: 'baidu-app-id', apiKey: 'baidu-secret' },
+          payload: { trans_result: [] },
+          expected: 'Baidu Translate returned an invalid translation response'
+        },
+        {
+          provider: 'ibm',
+          providerConfig: {
+            apiKey: 'ibm-secret',
+            endpoint: 'https://watson.example.com/v3/translate'
+          },
+          payload: { translations: [] },
+          expected: 'IBM Watson Language Translator returned an invalid translation response'
+        }
+      ];
+      const fetchMock = jest.fn();
+      (global as any).fetch = fetchMock;
+
+      for (const testCase of cases) {
+        fetchMock.mockResolvedValueOnce({
+          ok: true,
+          json: async () => testCase.payload
+        });
+        await expect(translationService.translate({
+          text: `Invalid ${testCase.provider}`,
+          targetLang: 'en',
+          provider: testCase.provider,
+          providerConfig: testCase.providerConfig
+        })).rejects.toThrow(testCase.expected);
+      }
+
+      expect(fetchMock).toHaveBeenCalledTimes(cases.length);
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    });
+
+    it('surfaces Baidu API errors through the provider error path', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const fetchMock = jest.fn(async () => ({
+        ok: true,
+        json: async () => ({ error_code: '54001', error_msg: 'Invalid Sign' })
+      }));
+      (global as any).fetch = fetchMock;
+
+      await expect(translationService.translate({
+        text: 'Private text',
+        targetLang: 'en',
+        provider: 'baidu',
+        providerConfig: { clientId: 'baidu-app-id', apiKey: 'bad-secret' }
+      })).rejects.toThrow('Baidu Translate request failed: 54001 Invalid Sign');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    });
+
+    it('does not fall back when Papago, Baidu, or IBM returns an HTTP error', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const fetchMock = jest.fn(async () => ({
+        ok: false,
+        status: 429,
+        json: async () => ({})
+      }));
+      (global as any).fetch = fetchMock;
+      const cases = [
+        ['papago', { clientId: 'naver-client-id', apiKey: 'naver-client-secret' }, 'Naver Papago'],
+        ['baidu', { clientId: 'baidu-app-id', apiKey: 'baidu-secret' }, 'Baidu Translate'],
+        [
+          'ibm',
+          { apiKey: 'ibm-secret', endpoint: 'https://watson.example.com/v3/translate' },
+          'IBM Watson Language Translator'
+        ]
+      ] as const;
+
+      for (const [provider, providerConfig, label] of cases) {
+        await expect(translationService.translate({
+          text: `Private ${provider}`,
+          targetLang: 'en',
+          provider,
+          providerConfig
+        })).rejects.toThrow(`${label} request failed with HTTP 429`);
+      }
+
+      expect(fetchMock).toHaveBeenCalledTimes(cases.length);
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    });
+
     it('rejects target languages outside a provider capability before sending text', async () => {
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
       const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -620,6 +845,28 @@ describe('TranslationService', () => {
       })).rejects.toThrow('DeepL request failed with HTTP 401');
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
+      await expect(translationService.translate({
+        text: 'Private Papago text',
+        targetLang: 'en',
+        provider: 'papago',
+        providerConfig: { apiKey: 'naver-client-secret' }
+      })).rejects.toThrow('Naver Papago client ID is not configured');
+
+      await expect(translationService.translate({
+        text: 'Private Baidu text',
+        targetLang: 'en',
+        provider: 'baidu',
+        providerConfig: { apiKey: 'baidu-secret' }
+      })).rejects.toThrow('Baidu Translate client ID is not configured');
+
+      await expect(translationService.translate({
+        text: 'Private IBM text',
+        targetLang: 'en',
+        provider: 'ibm',
+        providerConfig: { apiKey: 'ibm-secret' }
+      })).rejects.toThrow('IBM Watson Language Translator endpoint is not configured');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
       warnSpy.mockRestore();
       errorSpy.mockRestore();
     });
@@ -649,6 +896,23 @@ describe('TranslationService', () => {
           endpoint: 'https://user:password@gateway.example.com/v1/chat/completions'
         }
       })).rejects.toThrow('endpoint must not contain URL credentials');
+
+      const newProviders = [
+        ['papago', { apiKey: 'naver-secret', clientId: 'naver-client-id' }],
+        ['baidu', { apiKey: 'baidu-secret', clientId: 'baidu-app-id' }],
+        ['ibm', { apiKey: 'ibm-secret' }]
+      ] as const;
+      for (const [provider, credentials] of newProviders) {
+        await expect(translationService.translate({
+          text: `Private ${provider} text`,
+          targetLang: 'en',
+          provider,
+          providerConfig: {
+            ...credentials,
+            endpoint: 'http://translator.example.com/v3/translate'
+          }
+        })).rejects.toThrow('endpoint must be HTTPS or a localhost HTTP URL');
+      }
 
       expect(fetchMock).not.toHaveBeenCalled();
       warnSpy.mockRestore();
