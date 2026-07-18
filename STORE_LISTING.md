@@ -40,7 +40,7 @@ Core features:
 - Live caption translation for caption text already visible in the page, including common meeting speaker labels, incremental-caption coalescing, timestamped in-memory cues, and local TXT/SRT/VTT/JSON transcript export.
 - Manual image text translation using browser OCR or bundled offline OCR, plus SVG and accessibility text fallbacks, with click/drag selection, a user-triggered visible-image batch, and separate OCR block overlays when coordinates are available.
 - 100+ target language choices in settings.
-- 24 implemented provider adapters: Google Translate, MyMemory, DeepL, Microsoft Translator, OpenAI-compatible, Gemini, DeepSeek, OpenRouter, Groq, Qwen, Zhipu GLM, SiliconFlow, Ollama, Claude, Azure OpenAI, LibreTranslate, Yandex Cloud Translate, NiuTrans, Caiyun Translate, ModernMT, Lingvanex, Naver Papago, Baidu Translate, and IBM Watson Language Translator.
+- 26 implemented provider adapters: Google Translate, MyMemory, DeepL, Microsoft Translator, OpenAI-compatible, Gemini, DeepSeek, OpenRouter, Groq, Qwen, Zhipu GLM/ChatGLM, SiliconFlow, Ollama, Claude, Azure OpenAI, LibreTranslate, Yandex Cloud Translate, NiuTrans, Caiyun Translate, ModernMT, Lingvanex, Naver Papago, Baidu Translate, IBM Watson Language Translator, Youdao Translate, and SYSTRAN Translate.
 - AI translation controls for AI-capable providers: opt-in neighboring context, nine domain experts, terminology mappings, and custom instructions.
 - Vocabulary notebook for saved words, translations, examples, mastery level, and review schedule.
 - Built-in CET4, CET6, GRE, IELTS, and TOEFL dictionaries.

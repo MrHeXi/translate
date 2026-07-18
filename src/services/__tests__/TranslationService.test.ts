@@ -1,6 +1,7 @@
 // TranslationService 测试文件
 
 import * as fc from 'fast-check';
+import { createHash } from 'crypto';
 import { TranslationService } from '../TranslationService';
 import {
   AVAILABLE_TRANSLATION_PROVIDERS,
@@ -12,6 +13,25 @@ import {
 describe('TranslationService', () => {
   let translationService: TranslationService;
   const originalFetch = global.fetch;
+  const originalCryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+
+  const installWebCryptoMock = (salt: string): void => {
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: {
+        randomUUID: jest.fn(() => salt),
+        subtle: {
+          digest: jest.fn(async (_algorithm: string, data: BufferSource) => {
+            const bytes = data instanceof ArrayBuffer
+              ? new Uint8Array(data)
+              : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+            const hash = createHash('sha256').update(bytes).digest();
+            return hash.buffer.slice(hash.byteOffset, hash.byteOffset + hash.byteLength) as ArrayBuffer;
+          })
+        }
+      }
+    });
+  };
 
   beforeEach(() => {
     translationService = new TranslationService();
@@ -23,6 +43,11 @@ describe('TranslationService', () => {
       global.fetch = originalFetch;
     } else {
       delete (global as any).fetch;
+    }
+    if (originalCryptoDescriptor) {
+      Object.defineProperty(globalThis, 'crypto', originalCryptoDescriptor);
+    } else {
+      delete (globalThis as any).crypto;
     }
   });
 
@@ -69,10 +94,34 @@ describe('TranslationService', () => {
         'lingvanex',
         'papago',
         'baidu',
-        'ibm'
+        'youdao',
+        'ibm',
+        'systran'
       ]);
-      expect(AVAILABLE_TRANSLATION_PROVIDERS).toHaveLength(24);
+      expect(AVAILABLE_TRANSLATION_PROVIDERS).toHaveLength(26);
       expect(AVAILABLE_TRANSLATION_PROVIDERS.every(provider => Boolean(provider.adapter))).toBe(true);
+      expect(new Set(AVAILABLE_TRANSLATION_PROVIDERS.map(provider => provider.adapter))).toEqual(new Set([
+        'google',
+        'mymemory',
+        'deepl',
+        'microsoft',
+        'openai-compatible',
+        'azure-openai',
+        'gemini',
+        'anthropic',
+        'libretranslate',
+        'yandex',
+        'niutrans',
+        'caiyun',
+        'modernmt',
+        'lingvanex',
+        'papago',
+        'baidu',
+        'youdao',
+        'ibm',
+        'systran'
+      ]));
+      expect(TRANSLATION_PROVIDERS.some(provider => provider.id === 'chatglm')).toBe(false);
       expect(TRANSLATION_LANGUAGES.length).toBeGreaterThanOrEqual(100);
       expect(TRANSLATION_LANGUAGES.some(language => language.code === 'zh-CN')).toBe(true);
       expect(TRANSLATION_LANGUAGES.some(language => language.code === 'en')).toBe(true);
@@ -240,7 +289,7 @@ describe('TranslationService', () => {
         ['openrouter', 'https://openrouter.ai/api/v1/chat/completions', 'openai/gpt-4o-mini', true],
         ['groq', 'https://api.groq.com/openai/v1/chat/completions', 'llama-3.1-8b-instant', true],
         ['qwen', 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', 'qwen-mt-turbo', true],
-        ['zhipu', 'https://open.bigmodel.cn/api/paas/v4/chat/completions', 'glm-4-flash', true],
+        ['zhipu', 'https://open.bigmodel.cn/api/paas/v4/chat/completions', 'glm-4.7-flash', true],
         ['siliconflow', 'https://api.siliconflow.cn/v1/chat/completions', 'Qwen/Qwen2.5-7B-Instruct', true],
         ['ollama', 'http://localhost:11434/v1/chat/completions', 'qwen2.5:7b', false]
       ] as const;
@@ -532,6 +581,130 @@ describe('TranslationService', () => {
       }));
     });
 
+    it('calls Youdao v3 with a deterministic UTF-8 SHA-256 signature and no app secret in the form', async () => {
+      const salt = '123e4567-e89b-12d3-a456-426614174000';
+      const appSecret = '有道-secret-密钥';
+      const text = '你好😀This is a UTF-8 signing vector with 漢字 and emoji 🚀 at the end';
+      installWebCryptoMock(salt);
+      jest.spyOn(Date, 'now').mockReturnValue(1700000000123);
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({
+          errorCode: '0',
+          translation: ['Youdao result'],
+          l: 'zh-CHS2zh-CHT'
+        })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text,
+        sourceLang: 'zh-CN',
+        targetLang: 'zh-TW',
+        provider: 'youdao',
+        providerConfig: { clientId: 'youdao-app-key', apiKey: appSecret }
+      });
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = Object.fromEntries(new URLSearchParams(String(init.body)));
+      expect(url).toBe('https://openapi.youdao.com/api');
+      expect(init.method).toBe('POST');
+      expect(init.headers).toEqual({ 'Content-Type': 'application/x-www-form-urlencoded' });
+      expect(body).toEqual({
+        q: text,
+        from: 'zh-CHS',
+        to: 'zh-CHT',
+        appKey: 'youdao-app-key',
+        salt,
+        sign: '6cfd24440bd33c1980dcd139f313ff3f3e1463ae135c823df1396ff1f25039cd',
+        signType: 'v3',
+        curtime: '1700000000'
+      });
+      expect(Object.values(body)).not.toContain(appSecret);
+      expect(String(init.body)).not.toContain(encodeURIComponent(appSecret));
+      expect(result).toEqual(expect.objectContaining({
+        translatedText: 'Youdao result',
+        sourceLang: 'zh-CN',
+        targetLang: 'zh-TW'
+      }));
+    });
+
+    it('maps Youdao-specific Filipino, Hmong, Javanese, and Serbian language codes', async () => {
+      installWebCryptoMock('123e4567-e89b-12d3-a456-426614174000');
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({ errorCode: 0, translation: ['Mapped result'], l: 'en2fr' })
+      }));
+      (global as any).fetch = fetchMock;
+      const cases = [
+        ['fil', 'tl'],
+        ['hmn', 'mww'],
+        ['jv', 'jw'],
+        ['sr', 'sr-Cyrl']
+      ] as const;
+
+      for (const [targetLang, expectedCode] of cases) {
+        await translationService.translate({
+          text: `Translate to ${targetLang}`,
+          sourceLang: 'en',
+          targetLang,
+          provider: 'youdao',
+          providerConfig: { clientId: 'youdao-app-key', apiKey: 'youdao-secret' }
+        });
+        const [, init] = fetchMock.mock.calls[fetchMock.mock.calls.length - 1] as [string, RequestInit];
+        const body = new URLSearchParams(String(init.body));
+        expect(body.get('to')).toBe(expectedCode);
+      }
+
+      expect(fetchMock).toHaveBeenCalledTimes(cases.length);
+    });
+
+    it('surfaces Youdao business errors without falling back', async () => {
+      installWebCryptoMock('123e4567-e89b-12d3-a456-426614174000');
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const fetchMock = jest.fn(async () => ({
+        ok: true,
+        json: async () => ({ errorCode: '202', translation: ['ignored'] })
+      }));
+      (global as any).fetch = fetchMock;
+
+      await expect(translationService.translate({
+        text: 'Private Youdao text',
+        targetLang: 'en',
+        provider: 'youdao',
+        providerConfig: { clientId: 'youdao-app-key', apiKey: 'bad-secret' }
+      })).rejects.toThrow('Youdao Translate request failed: 202');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    });
+
+    it('rejects oversized Youdao input and missing Web Crypto before sending text', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const fetchMock = jest.fn();
+      (global as any).fetch = fetchMock;
+
+      await expect(translationService.translate({
+        text: 'x'.repeat(5001),
+        targetLang: 'en',
+        provider: 'youdao',
+        providerConfig: { clientId: 'youdao-app-key', apiKey: 'youdao-secret' }
+      })).rejects.toThrow('Youdao Translate text exceeds the 5000-character limit');
+
+      Object.defineProperty(globalThis, 'crypto', { configurable: true, value: {} });
+      await expect(translationService.translate({
+        text: 'Requires signing',
+        targetLang: 'en',
+        provider: 'youdao',
+        providerConfig: { clientId: 'youdao-app-key', apiKey: 'youdao-secret' }
+      })).rejects.toThrow('Youdao Translate requires Web Crypto support for request signing');
+      expect(fetchMock).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    });
+
     it('calls IBM Watson with Basic authentication, API version, and JSON text input', async () => {
       const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
         ok: true,
@@ -570,6 +743,114 @@ describe('TranslationService', () => {
         sourceLang: 'en',
         targetLang: 'zh-CN'
       }));
+    });
+
+    it('calls SYSTRAN with query input, header authentication, and language detection info', async () => {
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({
+          outputs: [{
+            output: 'SYSTRAN result',
+            info: { lid: { language: 'en', confidence: 87 } }
+          }]
+        })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: 'Hello SYSTRAN',
+        sourceLang: 'en',
+        targetLang: 'zh-CN',
+        provider: 'systran',
+        providerConfig: { apiKey: 'systran-secret' }
+      });
+
+      const [urlValue, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const url = new URL(urlValue);
+      expect(`${url.origin}${url.pathname}`).toBe('https://api-translate.systran.net/translation/text/translate');
+      expect(Object.fromEntries(url.searchParams)).toEqual({
+        input: 'Hello SYSTRAN',
+        source: 'en',
+        target: 'zh',
+        withInfo: 'true'
+      });
+      expect(urlValue).not.toContain('systran-secret');
+      expect(init.method).toBe('POST');
+      expect(init.headers).toEqual({ Authorization: 'Key systran-secret' });
+      expect(init.body).toBeUndefined();
+      expect(result).toEqual(expect.objectContaining({
+        translatedText: 'SYSTRAN result',
+        sourceLang: 'en',
+        targetLang: 'zh-CN',
+        confidence: 0.87
+      }));
+    });
+
+    it.each([
+      [-5, 0],
+      [125, 1]
+    ])('clamps SYSTRAN LID confidence %s to %s', async (rawConfidence, expectedConfidence) => {
+      const fetchMock = jest.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          outputs: [{
+            output: 'Clamped confidence result',
+            info: { lid: { language: 'en', confidence: rawConfidence } }
+          }]
+        })
+      }));
+      (global as any).fetch = fetchMock;
+
+      const result = await translationService.translate({
+        text: `Confidence ${rawConfidence}`,
+        targetLang: 'fr',
+        provider: 'systran',
+        providerConfig: { apiKey: 'systran-secret' }
+      });
+
+      expect(result.confidence).toBe(expectedConfidence);
+    });
+
+    it('surfaces SYSTRAN top-level and output errors without falling back', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const fetchMock = jest.fn();
+      (global as any).fetch = fetchMock;
+      const cases = [
+        [{ message: 'Invalid target language' }, 'Invalid target language'],
+        [{ outputs: [{ error: { message: 'No translation profile' } }] }, 'No translation profile']
+      ] as const;
+
+      for (const [payload, expectedMessage] of cases) {
+        fetchMock.mockResolvedValueOnce({ ok: true, json: async () => payload });
+        await expect(translationService.translate({
+          text: `SYSTRAN error ${expectedMessage}`,
+          targetLang: 'fr',
+          provider: 'systran',
+          providerConfig: { apiKey: 'systran-secret' }
+        })).rejects.toThrow(`SYSTRAN Translate request failed: ${expectedMessage}`);
+      }
+
+      expect(fetchMock).toHaveBeenCalledTimes(cases.length);
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    });
+
+    it('rejects SYSTRAN Traditional Chinese without a translation profile', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const fetchMock = jest.fn();
+      (global as any).fetch = fetchMock;
+
+      await expect(translationService.translate({
+        text: 'Traditional Chinese target',
+        targetLang: 'zh-TW',
+        provider: 'systran',
+        providerConfig: { apiKey: 'systran-secret' }
+      })).rejects.toThrow('SYSTRAN Translate cannot guarantee Traditional Chinese without a translation profile');
+      expect(fetchMock).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
     });
 
     it('rejects invalid Papago, Baidu, and IBM translation payloads', async () => {
@@ -900,7 +1181,9 @@ describe('TranslationService', () => {
       const newProviders = [
         ['papago', { apiKey: 'naver-secret', clientId: 'naver-client-id' }],
         ['baidu', { apiKey: 'baidu-secret', clientId: 'baidu-app-id' }],
-        ['ibm', { apiKey: 'ibm-secret' }]
+        ['youdao', { apiKey: 'youdao-secret', clientId: 'youdao-app-key' }],
+        ['ibm', { apiKey: 'ibm-secret' }],
+        ['systran', { apiKey: 'systran-secret' }]
       ] as const;
       for (const [provider, credentials] of newProviders) {
         await expect(translationService.translate({

@@ -56,7 +56,7 @@ describe('translation side panel', () => {
 
     const provider = document.getElementById('translationProvider') as HTMLSelectElement;
     const target = document.getElementById('targetLanguage') as HTMLSelectElement;
-    expect(provider.options).toHaveLength(24);
+    expect(provider.options).toHaveLength(26);
     expect(provider.value).toBe('openai');
     expect(target.value).toBe('fr');
     expect(Array.from(provider.options).find(option => option.value === 'openai')?.disabled).toBe(false);

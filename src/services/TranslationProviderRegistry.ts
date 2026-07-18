@@ -17,6 +17,8 @@ export type TranslationProviderAdapter =
   | 'lingvanex'
   | 'papago'
   | 'baidu'
+  | 'youdao'
+  | 'systran'
   | 'ibm';
 
 export interface TranslationProviderRuntimeConfig {
@@ -132,7 +134,7 @@ export const TRANSLATION_PROVIDERS: TranslationProviderDefinition[] = [
     id: 'zhipu', label: 'Zhipu GLM', status: 'available', adapter: 'openai-compatible',
     supportsAiPreferences: true, requiresApiKey: true, supportsAutoDetect: true,
     configFields: ['apiKey', 'endpoint', 'model'],
-    defaultEndpoint: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', defaultModel: 'glm-4-flash'
+    defaultEndpoint: 'https://open.bigmodel.cn/api/paas/v4/chat/completions', defaultModel: 'glm-4.7-flash'
   },
   {
     id: 'siliconflow', label: 'SiliconFlow', status: 'available', adapter: 'openai-compatible',
@@ -210,7 +212,23 @@ export const TRANSLATION_PROVIDERS: TranslationProviderDefinition[] = [
   { id: 'tencent', label: 'Tencent Cloud TMT', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
   { id: 'volcengine', label: 'Volcengine Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
   { id: 'alibaba', label: 'Alibaba Machine Translation', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
-  { id: 'youdao', label: 'Youdao Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
+  {
+    id: 'youdao', label: 'Youdao Translate', status: 'available', adapter: 'youdao',
+    requiresApiKey: true, supportsAutoDetect: true,
+    configFields: ['clientId', 'apiKey', 'endpoint'],
+    defaultEndpoint: 'https://openapi.youdao.com/api',
+    supportedTargetLanguages: [
+      'af', 'sq', 'am', 'ar', 'hy', 'az', 'eu', 'be', 'bn', 'bs', 'bg', 'ca',
+      'ceb', 'zh-CN', 'zh-TW', 'co', 'hr', 'cs', 'da', 'nl', 'en', 'eo', 'et', 'fil',
+      'fi', 'fr', 'fy', 'gl', 'ka', 'de', 'el', 'gu', 'ht', 'ha', 'haw', 'he',
+      'hi', 'hmn', 'hu', 'is', 'ig', 'id', 'ga', 'it', 'ja', 'jv', 'kn', 'kk',
+      'km', 'ko', 'ku', 'ky', 'lo', 'la', 'lv', 'lt', 'lb', 'mk', 'mg', 'ms',
+      'ml', 'mt', 'mi', 'mr', 'mn', 'my', 'ne', 'no', 'ny', 'ps', 'fa', 'pl',
+      'pt', 'pa', 'ro', 'ru', 'sm', 'gd', 'sr', 'st', 'sn', 'sd', 'si', 'sk',
+      'sl', 'so', 'es', 'su', 'sw', 'sv', 'tl', 'tg', 'ta', 'te', 'th', 'tr',
+      'uk', 'ur', 'uz', 'vi', 'cy', 'xh', 'yi', 'yo', 'zu'
+    ]
+  },
   { id: 'aws', label: 'Amazon Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
   {
     id: 'ibm', label: 'IBM Watson Language Translator', status: 'available', adapter: 'ibm',
@@ -224,8 +242,12 @@ export const TRANSLATION_PROVIDERS: TranslationProviderDefinition[] = [
     ]
   },
   { id: 'reverso', label: 'Reverso Context', status: 'planned', requiresApiKey: false, supportsAutoDetect: true },
-  { id: 'systran', label: 'SYSTRAN Translate', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
-  { id: 'chatglm', label: 'ChatGLM', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
+  {
+    id: 'systran', label: 'SYSTRAN Translate', status: 'available', adapter: 'systran',
+    requiresApiKey: true, supportsAutoDetect: true,
+    configFields: ['apiKey', 'endpoint'],
+    defaultEndpoint: 'https://api-translate.systran.net/translation/text/translate'
+  },
 ];
 
 export const TRANSLATION_LANGUAGES: TranslationLanguageDefinition[] = [

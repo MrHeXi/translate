@@ -277,7 +277,9 @@ export class TranslationService {
           case 'lingvanex': return await this.callLingvanexAPI(request, provider);
           case 'papago': return await this.callPapagoAPI(request, provider);
           case 'baidu': return await this.callBaiduAPI(request, provider);
+          case 'youdao': return await this.callYoudaoAPI(request, provider);
           case 'ibm': return await this.callIBMWatsonAPI(request, provider);
+          case 'systran': return await this.callSystranAPI(request, provider);
         }
       } catch (error) {
         lastError = error;
@@ -923,6 +925,73 @@ export class TranslationService {
     );
   }
 
+  private async callYoudaoAPI(
+    request: TranslationRequest,
+    providerId: string
+  ): Promise<TranslationResult> {
+    const provider = getTranslationProvider(providerId)!;
+    const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
+    if (!config.clientId) {
+      throw new TranslationProviderError(`${provider.label} app key is not configured`);
+    }
+    if (request.text.length > 5000) {
+      throw new TranslationProviderError(`${provider.label} text exceeds the 5000-character limit`);
+    }
+
+    const webCrypto = globalThis.crypto;
+    if (!webCrypto?.subtle || typeof webCrypto.subtle.digest !== 'function'
+      || typeof webCrypto.randomUUID !== 'function') {
+      throw new TranslationProviderError(`${provider.label} requires Web Crypto support for request signing`);
+    }
+
+    const salt = webCrypto.randomUUID();
+    const curtime = Math.floor(Date.now() / 1000).toString();
+    const signInput = this.getYoudaoSignInput(request.text);
+    let sign: string;
+    try {
+      sign = await this.sha256Utf8(
+        `${config.clientId}${signInput}${salt}${curtime}${config.apiKey}`,
+        webCrypto.subtle
+      );
+    } catch (error) {
+      throw new TranslationProviderError(`${provider.label} failed to sign the request with Web Crypto`);
+    }
+
+    const body = new URLSearchParams({
+      q: request.text,
+      from: request.sourceLang && request.sourceLang !== 'auto'
+        ? this.mapYoudaoLanguage(request.sourceLang)
+        : 'auto',
+      to: this.mapYoudaoLanguage(request.targetLang),
+      appKey: config.clientId,
+      salt,
+      sign,
+      signType: 'v3',
+      curtime
+    });
+    const response = await fetch(config.endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    });
+    const data = await this.readProviderJson(response, provider.label);
+    if (String(data?.errorCode) !== '0') {
+      const errorCode = data?.errorCode === undefined ? 'unknown error' : String(data.errorCode);
+      throw new TranslationProviderError(`${provider.label} request failed: ${errorCode}`);
+    }
+    if (!Array.isArray(data?.translation) || data.translation.length === 0
+      || data.translation.some((item: unknown) => typeof item !== 'string' || !item.trim())) {
+      throw new TranslationProviderError(`${provider.label} returned an invalid translation response`);
+    }
+
+    const detectedLanguage = typeof data.l === 'string' ? data.l.split('2')[0] : undefined;
+    return this.createProviderTranslationResult(
+      request,
+      data.translation.join('\n').trim(),
+      detectedLanguage
+    );
+  }
+
   private async callIBMWatsonAPI(
     request: TranslationRequest,
     providerId: string
@@ -956,6 +1025,63 @@ export class TranslationService {
       request,
       translatedText.trim(),
       typeof data.detected_language === 'string' ? data.detected_language : undefined
+    );
+  }
+
+  private async callSystranAPI(
+    request: TranslationRequest,
+    providerId: string
+  ): Promise<TranslationResult> {
+    const provider = getTranslationProvider(providerId)!;
+    const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
+    if (request.targetLang === 'zh-TW') {
+      throw new TranslationProviderError(
+        `${provider.label} cannot guarantee Traditional Chinese without a translation profile`
+      );
+    }
+
+    const endpoint = new URL(config.endpoint);
+    endpoint.searchParams.set('input', request.text);
+    endpoint.searchParams.set(
+      'source',
+      request.sourceLang && request.sourceLang !== 'auto'
+        ? this.mapSystranLanguage(request.sourceLang)
+        : 'auto'
+    );
+    endpoint.searchParams.set('target', this.mapSystranLanguage(request.targetLang));
+    endpoint.searchParams.set('withInfo', 'true');
+    const response = await fetch(endpoint.toString(), {
+      method: 'POST',
+      headers: { Authorization: `Key ${config.apiKey}` }
+    });
+    const data = await this.readProviderJson(response, provider.label);
+    const topLevelMessage = this.getProviderErrorMessage(data?.message);
+    if (topLevelMessage) {
+      throw new TranslationProviderError(`${provider.label} request failed: ${topLevelMessage}`);
+    }
+
+    const output = data?.outputs?.[0];
+    const outputError = this.getProviderErrorMessage(output?.error);
+    if (outputError) {
+      throw new TranslationProviderError(`${provider.label} request failed: ${outputError}`);
+    }
+    if (typeof output?.output !== 'string' || !output.output.trim()) {
+      throw new TranslationProviderError(`${provider.label} returned an invalid translation response`);
+    }
+
+    const rawConfidence = output?.info?.lid?.confidence;
+    let confidence = 0.9;
+    if (typeof rawConfidence === 'number' && Number.isFinite(rawConfidence)) {
+      const normalizedConfidence = rawConfidence > 1 && rawConfidence <= 100
+        ? rawConfidence / 100
+        : rawConfidence;
+      confidence = Math.min(1, Math.max(0, normalizedConfidence));
+    }
+    return this.createProviderTranslationResult(
+      request,
+      output.output.trim(),
+      typeof output?.info?.lid?.language === 'string' ? output.info.lid.language : undefined,
+      confidence
     );
   }
 
@@ -1032,6 +1158,24 @@ export class TranslationService {
     return mappings[language] || language.split('-')[0]!;
   }
 
+  private mapYoudaoLanguage(language: string): string {
+    const mappings: Record<string, string> = {
+      fil: 'tl',
+      hmn: 'mww',
+      jv: 'jw',
+      sr: 'sr-Cyrl'
+    };
+    if (language === 'zh-CN') return 'zh-CHS';
+    if (language === 'zh-TW') return 'zh-CHT';
+    return mappings[language] || language.split('-')[0]!;
+  }
+
+  private mapSystranLanguage(language: string): string {
+    if (language === 'zh-CN' || language === 'zh-TW') return 'zh';
+    if (language === 'no') return 'nb';
+    return language.split('-')[0]!;
+  }
+
   private mapIBMLanguage(language: string): string {
     if (language === 'zh-CN') return 'zh';
     if (language === 'zh-TW') return 'zh-TW';
@@ -1044,6 +1188,27 @@ export class TranslationService {
     let binary = '';
     for (const byte of bytes) binary += String.fromCharCode(byte);
     return btoa(binary);
+  }
+
+  private getYoudaoSignInput(text: string): string {
+    return text.length > 20
+      ? `${text.substring(0, 10)}${text.length}${text.substring(text.length - 10)}`
+      : text;
+  }
+
+  private async sha256Utf8(value: string, subtle: SubtleCrypto): Promise<string> {
+    const bytes = this.encodeUtf8(value);
+    const digest = await subtle.digest('SHA-256', bytes.buffer as ArrayBuffer);
+    return Array.from(new Uint8Array(digest))
+      .map(byte => byte.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  private getProviderErrorMessage(value: unknown): string {
+    if (typeof value === 'string') return value.trim();
+    if (!value || typeof value !== 'object') return '';
+    const message = (value as { message?: unknown }).message;
+    return typeof message === 'string' ? message.trim() : '';
   }
 
   private md5Utf8(value: string): string {
@@ -1241,9 +1406,11 @@ export class TranslationService {
     const mappings: Record<string, string> = {
       zh: 'zh-CN',
       'zh-cn': 'zh-CN',
+      'zh-chs': 'zh-CN',
       'zh-hans': 'zh-CN',
       cht: 'zh-TW',
       'zh-tw': 'zh-TW',
+      'zh-cht': 'zh-TW',
       'zh-hant': 'zh-TW',
       jp: 'ja',
       kor: 'ko',

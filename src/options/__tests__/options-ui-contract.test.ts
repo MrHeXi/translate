@@ -601,6 +601,9 @@ describe('options UI settings contract', () => {
     expect(Array.from(translationProvider.options).some(option => option.value === 'papago' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'baidu' && !option.disabled)).toBe(true);
     expect(Array.from(translationProvider.options).some(option => option.value === 'ibm' && !option.disabled)).toBe(true);
+    expect(Array.from(translationProvider.options).some(option => option.value === 'youdao' && !option.disabled)).toBe(true);
+    expect(Array.from(translationProvider.options).some(option => option.value === 'systran' && !option.disabled)).toBe(true);
+    expect(Array.from(translationProvider.options).some(option => option.value === 'chatglm')).toBe(false);
     expect(translationProvider.value).toBe('deepl');
     expect(displayMode.value).toBe('translation-only');
     expect(aiTranslationDomain.disabled).toBe(true);
