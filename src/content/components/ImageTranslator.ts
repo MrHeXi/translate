@@ -21,6 +21,7 @@ export interface VisibleImageTranslationResult {
 }
 
 type TranslateText = (text: string) => Promise<string>;
+type CreateTranslationCacheKey = (text: string) => string;
 
 interface DetectedText {
   rawValue?: string;
@@ -83,6 +84,7 @@ declare global {
 export class ImageTranslator {
   private isActive = false;
   private translateText: TranslateText | null = null;
+  private createTranslationCacheKey: CreateTranslationCacheKey = text => text;
   private overlayElements: Map<Element, HTMLElement[]> = new Map();
   private styleElement: HTMLStyleElement | null = null;
   private selectionElement: HTMLElement | null = null;
@@ -113,7 +115,8 @@ export class ImageTranslator {
 
   async toggle(
     translateText: TranslateText,
-    ocrLanguage: BundledOcrLanguageCode = 'eng'
+    ocrLanguage: BundledOcrLanguageCode = 'eng',
+    createTranslationCacheKey: CreateTranslationCacheKey = text => text
   ): Promise<ImageTranslatorState> {
     if (this.isActive) {
       this.disable();
@@ -124,15 +127,17 @@ export class ImageTranslator {
       };
     }
 
-    return this.enable(translateText, ocrLanguage);
+    return this.enable(translateText, ocrLanguage, createTranslationCacheKey);
   }
 
   enable(
     translateText: TranslateText,
-    ocrLanguage: BundledOcrLanguageCode = 'eng'
+    ocrLanguage: BundledOcrLanguageCode = 'eng',
+    createTranslationCacheKey: CreateTranslationCacheKey = text => text
   ): ImageTranslatorState {
     this.isActive = true;
     this.translateText = translateText;
+    this.createTranslationCacheKey = createTranslationCacheKey;
     this.ocrLanguage = ocrLanguage;
     this.createStyleElement();
     document.body.classList.add('lexibridge-image-translation-mode');
@@ -370,19 +375,20 @@ export class ImageTranslator {
   private async translateCachedImageText(text: string): Promise<string> {
     if (!this.translateText) return '';
 
-    let translatedText = this.translationCache.get(text);
+    const cacheKey = this.createTranslationCacheKey(text);
+    let translatedText = this.translationCache.get(cacheKey);
     if (translatedText === undefined) {
-      let pendingTranslation = this.pendingTranslationCache.get(text);
+      let pendingTranslation = this.pendingTranslationCache.get(cacheKey);
       if (!pendingTranslation) {
         pendingTranslation = this.translateText(text)
           .then(result => {
-            this.translationCache.set(text, result);
+            this.translationCache.set(cacheKey, result);
             return result;
           })
           .finally(() => {
-            this.pendingTranslationCache.delete(text);
+            this.pendingTranslationCache.delete(cacheKey);
           });
-        this.pendingTranslationCache.set(text, pendingTranslation);
+        this.pendingTranslationCache.set(cacheKey, pendingTranslation);
       }
       translatedText = await pendingTranslation;
     }

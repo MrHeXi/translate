@@ -21,8 +21,10 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - AI-assisted side-panel polish, rewrite, drafting, reply, and summary actions with configured-AI-provider enforcement, output-language, tone, length, optional-instruction, and iterative-use controls.
 - Side-panel initialization and mode switching load or update local controls only and never send a provider request until the user submits text.
 - Document translator for pasted text, text files, HTML, JSON, DOCX, EPUB, subtitle files, and PDFs, with bundled PDF.js page rendering, positioned text extraction, browser-plus-bundled offline OCR for image-only pages, side-by-side original/translated previews, and flattened translated-PDF export.
+- Mixed PDF pages with sparse text layers are supplemented by local OCR when PDF.js identifies raster content; text-layer and OCR blocks are merged and duplicate detections are removed.
+- Editing a loaded PDF preserves block IDs, page geometry, column metadata, and formula metadata when safe; newly inserted text without safe source geometry remains translatable but disables PDF export rather than being silently omitted.
 - Conservative two-column PDF detection with left-column-then-right-column reading order and translated overlays constrained to inferred column regions.
-- Local standalone-formula detection that preserves likely mathematical expressions without sending them to translation providers or painting over them in translated previews and PDF exports.
+- Local standalone-formula detection that preserves likely mathematical expressions, excludes them from direct translation and neighboring AI context, and does not paint over them in translated previews or PDF exports.
 - Video subtitle translation for pages that expose caption/subtitle text tracks or common DOM-rendered caption containers.
 - Video subtitles and Live captions remain text-only modes and never start tab recording.
 - SRT export for translated video subtitle cues from the current session.
@@ -35,6 +37,7 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Manual image text translation for selected images, canvases, SVGs, dragged image regions, and eligible graphics currently visible in the viewport, using browser OCR first and bundled offline OCR otherwise while retaining separate per-image or OCR-block overlays.
 - Persisted offline OCR language selection for English, Simplified Chinese, Traditional Chinese, Japanese, and Korean, with PDF page progress and local worker cleanup on Stop.
 - Explicit Translate visible images command with hidden/offscreen/tiny/extension-owned filtering, duplicate-text request caching, and immediate batch cancellation when Image text stops.
+- Content, image, video-subtitle, and live-caption translation caches include provider, target language, settings revision, source text, and context; a single MessageManager listener owns content-script command dispatch so each toggle executes once.
 - 100+ target language choices in settings.
 - 29 implemented provider adapters: Google Translate, MyMemory, DeepL, Microsoft Translator, OpenAI-compatible, Gemini, DeepSeek, OpenRouter, Groq, Qwen, Zhipu GLM/ChatGLM, SiliconFlow, Ollama, Claude, Azure OpenAI, LibreTranslate, Yandex Cloud Translate, NiuTrans, Caiyun Translate, ModernMT, Lingvanex, Naver Papago, Baidu Translate, Volcengine Translate, Alibaba Machine Translation, Amazon Translate, IBM Watson Language Translator, Youdao Translate, and SYSTRAN Translate.
 - AI translation controls for AI-capable providers, including opt-in neighboring page/document context, nine domain experts, normalized terminology mappings, custom instructions, and context-aware cache isolation.
@@ -48,11 +51,11 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 
 ### Verification
 
-Verified on 2026-07-18:
+Verified on 2026-07-19:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 49 test suites and 376 tests.
+- `jest --runInBand --silent`: passed, 49 test suites and 387 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 
@@ -67,7 +70,7 @@ Expected build warnings:
 
 - Unpacked extension folder: `dist`
 - Test package: `chrome-translation-extension.zip`
-- ZIP size: `17,729,941` bytes
-- SHA-256: `8A1731A34C50D8AA0460EDEA59F95E1655CB97101825B773BD69B71A441AAA9A`
+- ZIP size: `17,731,836` bytes
+- SHA-256: `A19ECEBF25D2CBEF9B358E9E2F955FCC70F5762325DD5D96ED9A4E4F455DDD41`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

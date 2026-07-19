@@ -115,6 +115,31 @@ describe('VideoSubtitleTranslator', () => {
     expect(overlay?.textContent).toContain('Translated: Hello from captions.');
   });
 
+  it('does not reuse a subtitle translation after the cache identity changes', async () => {
+    const track = createTextTrack('showing');
+    mockVideoTracks([track]);
+    let provider = 'google';
+    const translateText = jest.fn(async (text: string) => `${provider}: ${text}`);
+    const createCacheKey = (text: string): string => `${provider}:${text}`;
+
+    translator.enable(translateText, createCacheKey);
+    track.setActiveText('The same subtitle text.');
+    track.fireCueChange();
+    await flushPromises();
+    expect(translateText).toHaveBeenCalledTimes(1);
+
+    translator.disable();
+    provider = 'deepl';
+    translator.enable(translateText, createCacheKey);
+    track.setActiveText('The same subtitle text.');
+    track.fireCueChange();
+    await flushPromises();
+
+    expect(translateText).toHaveBeenCalledTimes(2);
+    expect(document.getElementById('lexibridge-video-subtitle-overlay')?.textContent)
+      .toContain('deepl: The same subtitle text.');
+  });
+
   it('translates DOM-rendered video captions after manual enablement', async () => {
     document.body.innerHTML = [
       '<video></video>',

@@ -1,4 +1,4 @@
-import { getDocument, GlobalWorkerOptions, Util } from 'pdfjs-dist/legacy/build/pdf';
+import { getDocument, GlobalWorkerOptions, OPS, Util } from 'pdfjs-dist/legacy/build/pdf';
 import { PDFDocument } from 'pdf-lib';
 import type { DocumentBlock, DocumentBlockLayout } from './DocumentTextExtractor';
 import {
@@ -24,6 +24,7 @@ interface PdfTextItemLike {
 interface PdfPageLike {
   getViewport(params: { scale: number }): PdfViewportLike;
   getTextContent(): Promise<{ items: Array<PdfTextItemLike | { type: string }> }>;
+  getOperatorList?(): Promise<{ fnArray: number[] }>;
   render(params: {
     canvasContext: CanvasRenderingContext2D;
     viewport: PdfViewportLike;
@@ -83,7 +84,7 @@ export interface PdfPageSummary {
   blockCount: number;
   formulaBlockCount: number;
   columnCount: number;
-  source: 'text' | 'ocr' | 'none';
+  source: 'text' | 'ocr' | 'mixed' | 'none';
   ocrEngine?: 'browser' | 'tesseract';
 }
 
@@ -118,7 +119,9 @@ interface PdfTextFragment {
   hasEOL: boolean;
 }
 
-interface PdfTextLine extends PdfTextFragment {}
+interface PdfTextLine extends PdfTextFragment {
+  sourceBlock?: DocumentBlock;
+}
 
 interface PdfAnalyzedLine extends PdfTextLine {
   contentKind: 'prose' | 'formula';
@@ -136,6 +139,30 @@ interface PdfLineAnalysis {
 
 const DEFAULT_PREVIEW_SCALE = 1.35;
 const OCR_SCALE = 2;
+const SPARSE_TEXT_MAX_BLOCKS = 4;
+const SPARSE_TEXT_MAX_CHARACTERS = 160;
+const SPARSE_TEXT_MAX_PAGE_AREA_RATIO = 0.03;
+const SPARSE_TEXT_MARGIN_RATIO = 0.2;
+const RASTER_IMAGE_OPERATORS = new Set<number>([
+  OPS.paintImageMaskXObject,
+  OPS.paintImageMaskXObjectGroup,
+  OPS.paintImageXObject,
+  OPS.paintInlineImageXObject,
+  OPS.paintInlineImageXObjectGroup,
+  OPS.paintImageXObjectRepeat,
+  OPS.paintImageMaskXObjectRepeat
+]);
+
+const isUsableOcrResult = (result: PdfOcrResult): boolean => {
+  const box = result?.boundingBox;
+  if (typeof result?.rawValue !== 'string' || !result.rawValue.trim() || !box) return false;
+  return Number.isFinite(box.x)
+    && Number.isFinite(box.y)
+    && Number.isFinite(box.width)
+    && Number.isFinite(box.height)
+    && box.width > 0
+    && box.height > 0;
+};
 
 const defaultEngine: PdfEngineAdapter = {
   getDocument: params => getDocument(params as any) as unknown as PdfLoadingTaskLike,
@@ -171,7 +198,7 @@ class DefaultPdfOcrDetector implements PdfOcrDetector {
   ): Promise<PdfOcrResult[]> {
     if (this.browserDetector) {
       try {
-        const browserResults = await this.browserDetector.detect(source);
+        const browserResults = (await this.browserDetector.detect(source)).filter(isUsableOcrResult);
         if (browserResults.length > 0) {
           return browserResults.map(result => ({ ...result, engine: 'browser' }));
         }
@@ -292,19 +319,28 @@ export class PdfDocumentSession {
         const page = await this.getPage(pageNumber);
         const viewport = page.getViewport({ scale: 1 });
         const textContent = await page.getTextContent();
-        let pageBlocks = this.createTextBlocks(textContent.items, pageNumber, viewport);
+        const textBlocks = this.createTextBlocks(textContent.items, pageNumber, viewport);
+        let pageBlocks = textBlocks;
         let source: PdfPageSummary['source'] = 'text';
         let ocrEngine: PdfPageSummary['ocrEngine'];
 
-        if (pageBlocks.length === 0 && this.ocrDetector) {
+        if (this.ocrDetector && await this.shouldRunOcr(page, textBlocks, viewport)) {
           const ocrResult = await this.createOcrBlocks(page, this.ocrDetector, pageNumber, viewport);
-          pageBlocks = ocrResult.blocks;
           ocrEngine = ocrResult.engine;
-          if (pageBlocks.length > 0) {
-            source = 'ocr';
+          if (ocrResult.blocks.length > 0) {
             ocrPageCount++;
             if (ocrEngine === 'tesseract') bundledOcrPageCount++;
           }
+          pageBlocks = this.mergePageBlocks(textBlocks, ocrResult.blocks, viewport);
+          const hasTextBlocks = pageBlocks.some(block => block.layout?.source === 'pdf-text');
+          const hasOcrBlocks = pageBlocks.some(block => block.layout?.source === 'pdf-ocr');
+          source = hasTextBlocks && hasOcrBlocks
+            ? 'mixed'
+            : hasOcrBlocks
+              ? 'ocr'
+              : hasTextBlocks
+                ? 'text'
+                : 'none';
         }
 
         if (pageBlocks.length === 0) {
@@ -381,6 +417,200 @@ export class PdfDocumentSession {
         line
       )
     }));
+  }
+
+  private async shouldRunOcr(
+    page: PdfPageLike,
+    textBlocks: DocumentBlock[],
+    viewport: PdfViewportLike
+  ): Promise<boolean> {
+    if (textBlocks.length === 0) return true;
+    if (!this.hasSparseText(textBlocks, viewport)) return false;
+    if (!page.getOperatorList) return this.isTextConfinedToPageMargins(textBlocks, viewport);
+
+    try {
+      const operatorList = await page.getOperatorList();
+      if (operatorList.fnArray.some(operator => RASTER_IMAGE_OPERATORS.has(operator))) return true;
+      return this.isTextConfinedToPageMargins(textBlocks, viewport);
+    } catch {
+      // Sparse marginal text is still safer to supplement when operator inspection is unavailable.
+      return this.isTextConfinedToPageMargins(textBlocks, viewport);
+    }
+  }
+
+  private hasSparseText(
+    blocks: DocumentBlock[],
+    viewport: PdfViewportLike
+  ): boolean {
+    if (blocks.length > SPARSE_TEXT_MAX_BLOCKS || viewport.width <= 0 || viewport.height <= 0) {
+      return false;
+    }
+
+    const characterCount = blocks.reduce(
+      (total, block) => total + Array.from(block.originalText.replace(/\s+/g, '')).length,
+      0
+    );
+    if (characterCount > SPARSE_TEXT_MAX_CHARACTERS) return false;
+
+    const occupiedArea = blocks.reduce((total, block) => {
+      const layout = block.layout;
+      if (!layout) return total;
+      const left = Math.max(0, layout.x);
+      const top = Math.max(0, layout.y);
+      const right = Math.min(viewport.width, layout.x + layout.width);
+      const bottom = Math.min(viewport.height, layout.y + layout.height);
+      return total + Math.max(0, right - left) * Math.max(0, bottom - top);
+    }, 0);
+    if (occupiedArea / (viewport.width * viewport.height) > SPARSE_TEXT_MAX_PAGE_AREA_RATIO) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private isTextConfinedToPageMargins(
+    blocks: DocumentBlock[],
+    viewport: PdfViewportLike
+  ): boolean {
+    if (viewport.height <= 0) return false;
+
+    const marginBoundary = viewport.height * SPARSE_TEXT_MARGIN_RATIO;
+    return blocks.every(block => {
+      const layout = block.layout;
+      if (!layout) return false;
+      const verticalCenter = layout.y + layout.height / 2;
+      return verticalCenter <= marginBoundary
+        || verticalCenter >= viewport.height - marginBoundary;
+    });
+  }
+
+  private mergePageBlocks(
+    textBlocks: DocumentBlock[],
+    ocrBlocks: DocumentBlock[],
+    viewport: PdfViewportLike
+  ): DocumentBlock[] {
+    if (ocrBlocks.length === 0) return textBlocks;
+
+    const retained = [...textBlocks];
+    for (const ocrBlock of ocrBlocks) {
+      if (!retained.some(block => this.areDuplicateBlocks(block, ocrBlock))) {
+        retained.push(ocrBlock);
+      }
+    }
+
+    const combinedLines: PdfTextLine[] = retained.map(block => {
+      const layout = block.layout!;
+      return {
+        text: block.originalText,
+        x: layout.x,
+        y: layout.y,
+        width: layout.width,
+        height: layout.height,
+        hasEOL: true,
+        sourceBlock: block
+      };
+    });
+    const lineAnalysis = this.analyzePageLines(combinedLines, viewport.width);
+
+    return lineAnalysis.lines.map((line, index) => {
+      const sourceBlock = line.sourceBlock!;
+      const layout = sourceBlock.layout!;
+      return {
+        ...sourceBlock,
+        id: index + 1,
+        layout: {
+          ...layout,
+          contentKind: line.contentKind,
+          readingOrder: line.readingOrder,
+          columnIndex: line.columnIndex,
+          columnCount: line.columnCount,
+          regionX: Math.max(0, Math.round(line.regionX * 100) / 100),
+          regionWidth: Math.max(8, Math.round(line.regionWidth * 100) / 100)
+        }
+      };
+    });
+  }
+
+  private areDuplicateBlocks(preferred: DocumentBlock, candidate: DocumentBlock): boolean {
+    const preferredLayout = preferred.layout;
+    const candidateLayout = candidate.layout;
+    if (!preferredLayout || !candidateLayout || preferredLayout.pageNumber !== candidateLayout.pageNumber) {
+      return false;
+    }
+    if (!this.haveEquivalentGeometry(preferredLayout, candidateLayout)) return false;
+
+    const preferredText = this.normalizeComparableText(preferred.originalText);
+    const candidateText = this.normalizeComparableText(candidate.originalText);
+    if (!preferredText || !candidateText) return false;
+    if (preferredText === candidateText) return true;
+
+    if (
+      preferredLayout.source === 'pdf-text'
+      && candidateLayout.source === 'pdf-ocr'
+      && candidateText.length >= 4
+      && preferredText.includes(candidateText)
+    ) {
+      return true;
+    }
+
+    const longestLength = Math.max(preferredText.length, candidateText.length);
+    const shortestLength = Math.min(preferredText.length, candidateText.length);
+    const allowedDistance = Math.max(1, Math.floor(longestLength * 0.18));
+    if (shortestLength < 4 || longestLength - shortestLength > allowedDistance) return false;
+    if (preferredText.includes(candidateText) || candidateText.includes(preferredText)) return true;
+    return this.editDistance(preferredText, candidateText) <= allowedDistance;
+  }
+
+  private haveEquivalentGeometry(
+    first: DocumentBlockLayout,
+    second: DocumentBlockLayout
+  ): boolean {
+    const intersectionWidth = Math.max(
+      0,
+      Math.min(first.x + first.width, second.x + second.width) - Math.max(first.x, second.x)
+    );
+    const intersectionHeight = Math.max(
+      0,
+      Math.min(first.y + first.height, second.y + second.height) - Math.max(first.y, second.y)
+    );
+    const intersectionArea = intersectionWidth * intersectionHeight;
+    const smallestArea = Math.min(first.width * first.height, second.width * second.height);
+    if (smallestArea > 0 && intersectionArea / smallestArea >= 0.45) return true;
+
+    const verticalOverlap = intersectionHeight / Math.max(1, Math.min(first.height, second.height));
+    const firstCenterX = first.x + first.width / 2;
+    const secondCenterX = second.x + second.width / 2;
+    const horizontalTolerance = Math.max(
+      Math.max(first.height, second.height) * 2,
+      Math.max(first.width, second.width) * 0.25
+    );
+    return verticalOverlap >= 0.55 && Math.abs(firstCenterX - secondCenterX) <= horizontalTolerance;
+  }
+
+  private normalizeComparableText(text: string): string {
+    return text
+      .normalize('NFKC')
+      .toLowerCase()
+      .replace(/[\s\p{P}]+/gu, '');
+  }
+
+  private editDistance(first: string, second: string): number {
+    let previous = Array.from({ length: second.length + 1 }, (_, index) => index);
+
+    for (let firstIndex = 1; firstIndex <= first.length; firstIndex++) {
+      const current = [firstIndex];
+      for (let secondIndex = 1; secondIndex <= second.length; secondIndex++) {
+        const substitutionCost = first[firstIndex - 1] === second[secondIndex - 1] ? 0 : 1;
+        current[secondIndex] = Math.min(
+          (current[secondIndex - 1] || 0) + 1,
+          (previous[secondIndex] || 0) + 1,
+          (previous[secondIndex - 1] || 0) + substitutionCost
+        );
+      }
+      previous = current;
+    }
+
+    return previous[second.length] || 0;
   }
 
   private createTextFragment(item: PdfTextItemLike, viewport: PdfViewportLike): PdfTextFragment | null {
@@ -606,9 +836,9 @@ export class PdfDocumentSession {
     const detected = await detector.detect(canvas, progress => {
       this.onOcrProgress?.({ ...progress, pageNumber });
     });
-    const engine = detected.find(result => result.engine)?.engine;
-    const lines = detected
-      .filter(result => result.rawValue.trim() && result.boundingBox.width > 0 && result.boundingBox.height > 0)
+    const usableResults = detected.filter(isUsableOcrResult);
+    const engine = usableResults.find(result => result.engine)?.engine;
+    const lines = usableResults
       .sort((first, second) => first.boundingBox.y - second.boundingBox.y || first.boundingBox.x - second.boundingBox.x)
       .map(result => ({
         text: result.rawValue.replace(/\s+/g, ' ').trim(),

@@ -355,6 +355,7 @@ class DocumentTranslatorController {
   private createDocumentContext(blocks: DocumentBlock[], blockIndex: number): string {
     return blocks
       .slice(Math.max(0, blockIndex - 2), Math.min(blocks.length, blockIndex + 3))
+      .filter(block => block.layout?.contentKind !== 'formula')
       .map(block => block.originalText.replace(/\s+/g, ' ').trim())
       .filter(Boolean)
       .join('\n')
@@ -473,11 +474,18 @@ class DocumentTranslatorController {
   }
 
   private async exportTranslatedPdf(): Promise<void> {
+    const hasUnpositionedPdfText = this.currentResults.some(result => (
+      !result.block.layout && result.translatedText.trim()
+    ));
     const pdfResults = this.currentResults.filter(result => (
       result.block.layout
       && result.block.layout.contentKind !== 'formula'
       && result.translatedText.trim()
     ));
+    if (hasUnpositionedPdfText) {
+      this.showMessage('PDF export is unavailable after adding text without source geometry.', 'error');
+      return;
+    }
     if (!this.pdfSession || pdfResults.length === 0) {
       this.showMessage('Translate a PDF before exporting.', 'error');
       return;
@@ -869,7 +877,160 @@ class DocumentTranslatorController {
       return this.loadedDocumentBlocks;
     }
 
-    return DocumentTextExtractor.splitIntoBlocks(text);
+    const editedBlocks = DocumentTextExtractor.splitIntoBlocks(text);
+    if (
+      !this.loadedDocumentBlocks
+      || !this.isPdfFileName(this.loadedFileName)
+      || !this.loadedDocumentBlocks.some(block => block.layout)
+    ) {
+      return editedBlocks;
+    }
+
+    return this.mapEditedPdfBlocks(editedBlocks, this.loadedDocumentBlocks);
+  }
+
+  private mapEditedPdfBlocks(
+    editedBlocks: DocumentBlock[],
+    loadedBlocks: DocumentBlock[]
+  ): DocumentBlock[] {
+    if (editedBlocks.length === 0 || loadedBlocks.length === 0) return [];
+
+    const unpositionedInsertions: Array<{ beforeLoadedIndex: number; text: string }> = [];
+    const anchors: Array<{ loadedIndex: number; editedIndex: number }> = [];
+    let nextEditedIndex = 0;
+
+    for (let loadedIndex = 0; loadedIndex < loadedBlocks.length; loadedIndex++) {
+      const editedIndex = editedBlocks.findIndex((editedBlock, index) => (
+        index >= nextEditedIndex
+        && editedBlock.originalText === loadedBlocks[loadedIndex]!.originalText
+      ));
+      if (editedIndex < 0) continue;
+
+      anchors.push({ loadedIndex, editedIndex });
+      nextEditedIndex = editedIndex + 1;
+    }
+
+    const mappedTexts = new Map<number, string>();
+    anchors.forEach(anchor => {
+      mappedTexts.set(anchor.loadedIndex, editedBlocks[anchor.editedIndex]!.originalText);
+    });
+
+    let loadedStart = 0;
+    let editedStart = 0;
+    const boundaries = [
+      ...anchors,
+      { loadedIndex: loadedBlocks.length, editedIndex: editedBlocks.length }
+    ];
+
+    for (const boundary of boundaries) {
+      const loadedCount = boundary.loadedIndex - loadedStart;
+      const editedCount = boundary.editedIndex - editedStart;
+
+      if (loadedCount > 0) {
+        const mappedCount = Math.min(loadedCount, editedCount);
+        for (let index = 0; index < mappedCount; index++) {
+          mappedTexts.set(
+            loadedStart + index,
+            editedBlocks[editedStart + index]!.originalText
+          );
+        }
+
+        // New PDF blocks can share only adjacent prose geometry. Formula geometry is never reused.
+        if (editedCount > loadedCount) {
+          const overflowText = editedBlocks
+            .slice(editedStart + loadedCount, boundary.editedIndex)
+            .map(block => block.originalText)
+            .join('\n\n');
+          if (!this.attachInsertedPdfText(mappedTexts, loadedBlocks, boundary.loadedIndex, overflowText)) {
+            unpositionedInsertions.push({
+              beforeLoadedIndex: boundary.loadedIndex,
+              text: overflowText
+            });
+          }
+        }
+      } else if (editedCount > 0) {
+        const insertedText = editedBlocks
+          .slice(editedStart, boundary.editedIndex)
+          .map(block => block.originalText)
+          .join('\n\n');
+        if (!this.attachInsertedPdfText(
+          mappedTexts,
+          loadedBlocks,
+          boundary.loadedIndex,
+          insertedText
+        )) {
+          unpositionedInsertions.push({
+            beforeLoadedIndex: boundary.loadedIndex,
+            text: insertedText
+          });
+        }
+      }
+
+      loadedStart = boundary.loadedIndex + 1;
+      editedStart = boundary.editedIndex + 1;
+    }
+
+    const insertionMap = new Map<number, string[]>();
+    unpositionedInsertions.forEach(insertion => {
+      const texts = insertionMap.get(insertion.beforeLoadedIndex) || [];
+      texts.push(insertion.text);
+      insertionMap.set(insertion.beforeLoadedIndex, texts);
+    });
+    let nextBlockId = loadedBlocks.reduce((maximum, block) => Math.max(maximum, block.id), 0) + 1;
+    const mappedBlocks: DocumentBlock[] = [];
+
+    for (let index = 0; index <= loadedBlocks.length; index++) {
+      for (const insertion of insertionMap.get(index) || []) {
+        const insertedBlocks = DocumentTextExtractor.splitIntoBlocks(insertion);
+        insertedBlocks.forEach(block => {
+          mappedBlocks.push({ ...block, id: nextBlockId++ });
+        });
+      }
+
+      const loadedBlock = loadedBlocks[index];
+      const mappedText = mappedTexts.get(index);
+      if (loadedBlock && mappedText !== undefined) {
+        mappedBlocks.push({ ...loadedBlock, originalText: mappedText });
+      }
+    }
+
+    return mappedBlocks;
+  }
+
+  private attachInsertedPdfText(
+    mappedTexts: Map<number, string>,
+    loadedBlocks: DocumentBlock[],
+    nextLoadedIndex: number,
+    insertedText: string
+  ): boolean {
+    if (!insertedText.trim()) return true;
+
+    const previousLoadedIndex = nextLoadedIndex - 1;
+    const previousBlock = loadedBlocks[previousLoadedIndex];
+    const nextBlock = loadedBlocks[nextLoadedIndex];
+    const previousIsProse = Boolean(
+      previousBlock && previousBlock.layout?.contentKind !== 'formula'
+    );
+    const nextIsProse = Boolean(nextBlock && nextBlock.layout?.contentKind !== 'formula');
+
+    if (previousIsProse) {
+      const previousText = mappedTexts.get(previousLoadedIndex);
+      mappedTexts.set(
+        previousLoadedIndex,
+        previousText ? `${previousText}\n\n${insertedText}` : insertedText
+      );
+      return true;
+    }
+    if (nextIsProse) {
+      const nextText = mappedTexts.get(nextLoadedIndex);
+      mappedTexts.set(
+        nextLoadedIndex,
+        nextText ? `${insertedText}\n\n${nextText}` : insertedText
+      );
+      return true;
+    }
+
+    return false;
   }
 
   private getBlockLabel(block: DocumentBlock): string {
@@ -956,7 +1117,13 @@ class DocumentTranslatorController {
       && result.block.layout.contentKind !== 'formula'
       && result.translatedText.trim()
     ));
-    this.exportPdfButton.disabled = isBusy || !this.pdfSession || !hasTranslatedPdf;
+    const hasUnpositionedPdfText = Boolean(this.pdfSession) && this.currentResults.some(result => (
+      !result.block.layout && result.translatedText.trim()
+    ));
+    this.exportPdfButton.disabled = isBusy
+      || !this.pdfSession
+      || !hasTranslatedPdf
+      || hasUnpositionedPdfText;
   }
 
   private isJsonDocumentFile(file: File): boolean {

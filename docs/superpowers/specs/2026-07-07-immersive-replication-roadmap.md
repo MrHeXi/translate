@@ -75,6 +75,8 @@ Current batch:
 - Google Meet, Zoom, and Teams-style meeting caption adapters with speaker-label preservation.
 - Manual image text translation for selected images, canvases, and SVGs.
 - Bundled offline OCR for image-only PDFs and page images in English, Simplified Chinese, Traditional Chinese, Japanese, and Korean.
+- Single-owner content message dispatch with exactly-once image/video/live-caption command execution.
+- Content, image, video-subtitle, and live-caption cache identity includes provider, target language, settings revision, and source text/context.
 
 ## Planned Batches
 
@@ -140,11 +142,11 @@ Current batch:
 - Done: fall back to a bundled Tesseract worker when browser `TextDetector` is unavailable or returns no text.
 - Done: expose a persisted OCR language choice and per-page bundled OCR progress.
 - Done: export translated PDF pages locally as a flattened visual PDF.
-- Confirmed P1: mixed scanned pages currently skip OCR whenever a page contains any text-layer block; sparse text-layer content must still permit OCR and OCR/text results must be deduplicated.
-- Confirmed P1: editing loaded PDF source text currently drops block layout and formula metadata, which also prevents translated PDF export; edits must preserve source block identity and geometry.
-- Confirmed P1: standalone formula blocks can currently enter neighboring AI context even though they are excluded from direct translation requests; formula content must be excluded from all provider payloads.
-- Confirmed risk: nonempty but unusable browser OCR can suppress the bundled Tesseract fallback, and flattened export can overlap or silently omit wrapped lines.
-- Remaining: real PDF fixture and PDF.js round-trip tests, editable block-level PDF text reflow, structural MathML/LaTeX reconstruction, form/annotation preservation, scan preprocessing, mixed-language detection, and advanced multi-column/table layout fitting beyond conservative two-column detection.
+- Done: supplement sparse text layers on raster-backed pages, merge OCR/text blocks in deterministic reading order, deduplicate overlapping equivalent blocks, and reject unusable browser OCR results before falling back to bundled Tesseract.
+- Done: preserve loaded PDF block identity, page geometry, column metadata, and formula metadata through source edits; map inserted text only to adjacent prose geometry and disable PDF export when no safe geometry exists.
+- Done: exclude standalone formula blocks from neighboring AI context as well as direct translation requests.
+- Verified: generated real PDF.js fixtures cover text extraction, columns/formulas, and a real raster-backed mixed page; flattened export remains covered as a visual-PDF contract.
+- Remaining: editable block-level PDF reflow beyond safe geometry mapping, structural MathML/LaTeX reconstruction, form/annotation preservation, scan preprocessing, mixed-language detection, and advanced multi-column/table layout fitting beyond conservative two-column detection.
 
 ### Batch E: Video Subtitle Translation
 
@@ -172,8 +174,8 @@ Current batch:
 - Done: skip hidden, offscreen, tiny, nested SVG, and extension-owned graphics during visible-image batches.
 - Done: keep all OCR-triggering actions explicit.
 - Done: terminate the local image OCR session immediately when Image text mode stops.
-- Confirmed P1: production content initialization currently installs both MessageManager and legacy content-script listeners, so a single image-mode command can execute twice; converge on one message dispatch path before adding reconstruction.
-- Confirmed risk: image translation cache identity currently ignores target language and provider, so translated text can be reused across incompatible settings.
+- Done: converge production content initialization on the MessageManager listener and add exactly-once behavioral coverage for image commands while retaining all media actions.
+- Done: isolate content, image, video-subtitle, and live-caption translation caches by provider, target language, settings revision, source text, and context.
 - Remaining: retain source-pixel polygons and OCR confidence; infer panels, bubbles, and reading order; group lines before translation; remove source text with masks and inpainting; fit translated typography in place; and provide Apply, Undo, Download PNG, and overlay fallback controls.
 - Stop must abort OCR, translation, reconstruction, and visible-image queues immediately and restore the untouched source image.
 

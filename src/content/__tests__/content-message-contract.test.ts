@@ -1,4 +1,4 @@
-describe('Content script direct runtime message contract', () => {
+describe('Content script MessageManager contract', () => {
   const flushPromises = async (): Promise<void> => {
     await Promise.resolve();
     await Promise.resolve();
@@ -9,16 +9,25 @@ describe('Content script direct runtime message contract', () => {
     new Promise(resolve => setTimeout(() => resolve({ timedOut: true }), ms))
   );
 
+  const dispatchRegisteredMessage = async (
+    registerHandlers: jest.Mock,
+    request: any
+  ): Promise<any> => {
+    const handlers = registerHandlers.mock.calls[0]?.[0] as Record<string, (message: any, sender: any) => Promise<any>>;
+    const handler = handlers?.[request.action];
+    if (!handler) {
+      throw new Error(`No registered handler for ${request.action}`);
+    }
+    return handler(request, {});
+  };
+
   beforeEach(() => {
     jest.resetModules();
     document.body.innerHTML = '<main><p>Hello world for translation.</p></main>';
   });
 
   it('returns the updated translation status when popup toggles translation mode', async () => {
-    const listeners: Array<(request: any, sender: any, sendResponse: (response: any) => void) => boolean> = [];
-    const addListener = jest.fn((listener) => {
-      listeners.push(listener);
-    });
+    const registerHandlers = jest.fn();
     const showError = jest.fn();
 
     (global as any).chrome = {
@@ -45,7 +54,7 @@ describe('Content script direct runtime message contract', () => {
           callback({ success: true });
         }),
         onMessage: {
-          addListener,
+          addListener: jest.fn(),
           removeListener: jest.fn()
         }
       }
@@ -89,7 +98,7 @@ describe('Content script direct runtime message contract', () => {
 
     jest.doMock('../../services/MessageManager', () => ({
       messageManager: {
-        registerHandlers: jest.fn(),
+        registerHandlers,
         sendToBackground: jest.fn(async (request) => ({
           success: true,
           data: {
@@ -139,24 +148,22 @@ describe('Content script direct runtime message contract', () => {
     await import('../content');
     await flushPromises();
 
-    expect(addListener).toHaveBeenCalled();
-    const directListener = listeners[listeners.length - 1]!;
-
-    const sendDirectMessage = (request: any): Promise<any> => new Promise(resolve => {
-      directListener(request, {}, resolve);
-    });
+    expect(registerHandlers).toHaveBeenCalledTimes(1);
+    const sendDirectMessage = (request: any): Promise<any> => dispatchRegisteredMessage(registerHandlers, request);
 
     const toggleResponse = await sendDirectMessage({ action: 'toggleTranslation' });
-    expect(toggleResponse).toEqual({ success: true, isActive: true });
+    expect(toggleResponse).toEqual({ success: true, data: { isActive: true } });
 
     const statusResponse = await sendDirectMessage({ action: 'getTranslationStatus' });
     expect(statusResponse).toEqual({
       success: true,
-      isActive: true,
-      isLearningMode: false,
-      isVideoSubtitleMode: false,
-      isLiveCaptionMode: false,
-      isImageTranslationMode: false
+      data: {
+        isActive: true,
+        isLearningMode: false,
+        isVideoSubtitleMode: false,
+        isLiveCaptionMode: false,
+        isImageTranslationMode: false
+      }
     });
 
     const settingsResponse = await sendDirectMessage({
@@ -168,18 +175,18 @@ describe('Content script direct runtime message contract', () => {
     expect(settingsResponse).toEqual({ success: true });
 
     const stoppedStatus = await sendDirectMessage({ action: 'getTranslationStatus' });
-    expect(stoppedStatus).toEqual(expect.objectContaining({ success: true, isActive: false }));
+    expect(stoppedStatus).toEqual(expect.objectContaining({
+      success: true,
+      data: expect.objectContaining({ isActive: false })
+    }));
 
     const blockedToggle = await sendDirectMessage({ action: 'toggleTranslation' });
-    expect(blockedToggle).toEqual({ success: true, isActive: false });
+    expect(blockedToggle).toEqual({ success: true, data: { isActive: false } });
     expect(showError).toHaveBeenCalledWith('Page translation is disabled for this site in settings.');
   });
 
   it('lets popup close translation mode immediately while page translation is still running', async () => {
-    const listeners: Array<(request: any, sender: any, sendResponse: (response: any) => void) => boolean> = [];
-    const addListener = jest.fn((listener) => {
-      listeners.push(listener);
-    });
+    const registerHandlers = jest.fn();
     const loadingManager = {
       showLoading: jest.fn(),
       showSimpleLoading: jest.fn(() => 'simple-loading'),
@@ -213,7 +220,7 @@ describe('Content script direct runtime message contract', () => {
           callback({ success: true });
         }),
         onMessage: {
-          addListener,
+          addListener: jest.fn(),
           removeListener: jest.fn()
         }
       }
@@ -257,7 +264,7 @@ describe('Content script direct runtime message contract', () => {
 
     jest.doMock('../../services/MessageManager', () => ({
       messageManager: {
-        registerHandlers: jest.fn(),
+        registerHandlers,
         sendToBackground: neverFinishingTranslation
       }
     }));
@@ -292,16 +299,13 @@ describe('Content script direct runtime message contract', () => {
     await import('../content');
     await flushPromises();
 
-    const directListener = listeners[listeners.length - 1]!;
-    const sendDirectMessage = (request: any): Promise<any> => new Promise(resolve => {
-      directListener(request, {}, resolve);
-    });
+    const sendDirectMessage = (request: any): Promise<any> => dispatchRegisteredMessage(registerHandlers, request);
 
     const openResponse = await Promise.race([
       sendDirectMessage({ action: 'toggleTranslation' }),
       timeoutAfter(50)
     ]);
-    expect(openResponse).toEqual({ success: true, isActive: true });
+    expect(openResponse).toEqual({ success: true, data: { isActive: true } });
     expect(loadingManager.showLoading).toHaveBeenCalledWith(
       expect.stringMatching(/^page_translation_/),
       expect.objectContaining({
@@ -315,17 +319,19 @@ describe('Content script direct runtime message contract', () => {
       sendDirectMessage({ action: 'toggleTranslation' }),
       timeoutAfter(50)
     ]);
-    expect(closeResponse).toEqual({ success: true, isActive: false });
+    expect(closeResponse).toEqual({ success: true, data: { isActive: false } });
     expect(loadingManager.hideLoading).toHaveBeenCalledWith(expect.stringMatching(/^page_translation_/));
 
     const statusResponse = await sendDirectMessage({ action: 'getTranslationStatus' });
     expect(statusResponse).toEqual({
       success: true,
-      isActive: false,
-      isLearningMode: false,
-      isVideoSubtitleMode: false,
-      isLiveCaptionMode: false,
-      isImageTranslationMode: false
+      data: {
+        isActive: false,
+        isLearningMode: false,
+        isVideoSubtitleMode: false,
+        isLiveCaptionMode: false,
+        isImageTranslationMode: false
+      }
     });
   });
 
@@ -341,10 +347,7 @@ describe('Content script direct runtime message contract', () => {
       <footer>Footer text should translate only in whole-page mode.</footer>
     `;
 
-    const listeners: Array<(request: any, sender: any, sendResponse: (response: any) => void) => boolean> = [];
-    const addListener = jest.fn((listener) => {
-      listeners.push(listener);
-    });
+    const registerHandlers = jest.fn();
     const addTranslation = jest.fn();
     const setDisplayMode = jest.fn();
     const setStylePreset = jest.fn();
@@ -393,7 +396,7 @@ describe('Content script direct runtime message contract', () => {
           callback({ success: true });
         }),
         onMessage: {
-          addListener,
+          addListener: jest.fn(),
           removeListener: jest.fn()
         }
       }
@@ -437,7 +440,7 @@ describe('Content script direct runtime message contract', () => {
 
     jest.doMock('../../services/MessageManager', () => ({
       messageManager: {
-        registerHandlers: jest.fn(),
+        registerHandlers,
         sendToBackground
       }
     }));
@@ -478,10 +481,7 @@ describe('Content script direct runtime message contract', () => {
     await import('../content');
     await flushPromises();
 
-    const directListener = listeners[listeners.length - 1]!;
-    const sendDirectMessage = (request: any): Promise<any> => new Promise(resolve => {
-      directListener(request, {}, resolve);
-    });
+    const sendDirectMessage = (request: any): Promise<any> => dispatchRegisteredMessage(registerHandlers, request);
 
     await sendDirectMessage({ action: 'toggleTranslation' });
     await flushPromises();
@@ -539,10 +539,7 @@ describe('Content script direct runtime message contract', () => {
   });
 
   it('does not start page translation automatically when the content script initializes', async () => {
-    const listeners: Array<(request: any, sender: any, sendResponse: (response: any) => void) => boolean> = [];
-    const addListener = jest.fn((listener) => {
-      listeners.push(listener);
-    });
+    const registerHandlers = jest.fn();
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     const sendToBackground = jest.fn(async (request) => ({
       success: true,
@@ -579,7 +576,7 @@ describe('Content script direct runtime message contract', () => {
           callback({ success: true });
         }),
         onMessage: {
-          addListener,
+          addListener: jest.fn(),
           removeListener: jest.fn()
         }
       }
@@ -623,7 +620,7 @@ describe('Content script direct runtime message contract', () => {
 
     jest.doMock('../../services/MessageManager', () => ({
       messageManager: {
-        registerHandlers: jest.fn(),
+        registerHandlers,
         sendToBackground
       }
     }));
@@ -669,28 +666,32 @@ describe('Content script direct runtime message contract', () => {
       action: 'translate'
     }));
 
-    const directListener = listeners[listeners.length - 1]!;
-    const statusResponse = await new Promise<any>(resolve => {
-      directListener({ action: 'getTranslationStatus' }, {}, resolve);
-    });
+    const statusResponse = await dispatchRegisteredMessage(registerHandlers, { action: 'getTranslationStatus' });
 
     expect(statusResponse).toEqual({
       success: true,
-      isActive: false,
-      isLearningMode: false,
-      isVideoSubtitleMode: false,
-      isLiveCaptionMode: false,
-      isImageTranslationMode: false
+      data: {
+        isActive: false,
+        isLearningMode: false,
+        isVideoSubtitleMode: false,
+        isLiveCaptionMode: false,
+        isImageTranslationMode: false
+      }
     });
 
     warnSpy.mockRestore();
   });
 
-  it('toggles subtitle, live-caption, and image translation through the direct runtime message contract', async () => {
+  it('initializes without image translation, dispatches one command once, and preserves media actions', async () => {
     const listeners: Array<(request: any, sender: any, sendResponse: (response: any) => void) => boolean> = [];
     const registerHandlers = jest.fn();
+    const registeredMessageHandlers: Record<string, (request: any, sender: any) => Promise<any>> = {};
     const addListener = jest.fn((listener) => {
       listeners.push(listener);
+    });
+
+    registerHandlers.mockImplementation((handlers) => {
+      Object.assign(registeredMessageHandlers, handlers);
     });
 
     (global as any).chrome = {
@@ -722,6 +723,21 @@ describe('Content script direct runtime message contract', () => {
         }
       }
     };
+
+    const messageManagerListener = (
+      request: any,
+      sender: any,
+      sendResponse: (response: any) => void
+    ): boolean => {
+      const handler = registeredMessageHandlers[request.action];
+      if (!handler) return false;
+      void handler(request, sender).then(sendResponse);
+      return true;
+    };
+    addListener(messageManagerListener);
+
+    const { ImageTranslator } = jest.requireActual('../components/ImageTranslator') as typeof import('../components/ImageTranslator');
+    const imageToggleSpy = jest.spyOn(ImageTranslator.prototype, 'toggle');
 
     jest.doMock('../components/FloatingIcon', () => ({
       FloatingIcon: jest.fn().mockImplementation(() => ({
@@ -812,6 +828,58 @@ describe('Content script direct runtime message contract', () => {
     await flushPromises();
 
     const registeredHandlers = registerHandlers.mock.calls[0][0];
+    expect(imageToggleSpy).not.toHaveBeenCalled();
+
+    await Promise.all(listeners.map(listener => new Promise(resolve => {
+      const keepsChannelOpen = listener({ action: 'toggleImageTranslation' }, {}, resolve);
+      if (keepsChannelOpen !== true) resolve(undefined);
+    })));
+
+    expect(imageToggleSpy).toHaveBeenCalledTimes(1);
+    const createImageTranslationCacheKey = imageToggleSpy.mock.calls[0]?.[2] as (
+      text: string
+    ) => string;
+    const translateImageText = imageToggleSpy.mock.calls[0]?.[0] as (
+      text: string
+    ) => Promise<string>;
+    const { messageManager } = jest.requireMock('../../services/MessageManager') as {
+      messageManager: { sendToBackground: jest.Mock };
+    };
+    expect(JSON.parse(createImageTranslationCacheKey('Repeated image text'))).toEqual([
+      0,
+      'google',
+      'zh-CN',
+      'Repeated image text',
+      ''
+    ]);
+    await expect(translateImageText('Repeated image text')).resolves.toBe(
+      'translated: Repeated image text'
+    );
+    await expect(translateImageText('Repeated image text')).resolves.toBe(
+      'translated: Repeated image text'
+    );
+    expect(messageManager.sendToBackground).toHaveBeenCalledTimes(1);
+    await registeredHandlers.updateSettings({
+      data: { translationProvider: 'deepl', defaultTargetLanguage: 'ja' }
+    });
+    expect(JSON.parse(createImageTranslationCacheKey('Repeated image text'))).toEqual([
+      1,
+      'deepl',
+      'ja',
+      'Repeated image text',
+      ''
+    ]);
+    await expect(translateImageText('Repeated image text')).resolves.toBe(
+      'translated: Repeated image text'
+    );
+    expect(messageManager.sendToBackground).toHaveBeenCalledTimes(2);
+    expect(messageManager.sendToBackground.mock.calls.map(call => call[0].data)).toEqual([
+      expect.objectContaining({ provider: 'google', targetLang: 'zh-CN' }),
+      expect.objectContaining({ provider: 'deepl', targetLang: 'ja' })
+    ]);
+    await registeredHandlers.toggleImageTranslation();
+    imageToggleSpy.mockRestore();
+
     await expect(registeredHandlers.translateVisibleImages()).resolves.toEqual({
       success: true,
       data: {
@@ -833,62 +901,71 @@ describe('Content script direct runtime message contract', () => {
       }
     });
 
-    const directListener = listeners[listeners.length - 1]!;
-    const sendDirectMessage = (request: any): Promise<any> => new Promise(resolve => {
-      directListener(request, {}, resolve);
-    });
+    const sendDirectMessage = (request: any): Promise<any> => dispatchRegisteredMessage(registerHandlers, request);
 
     const startResponse = await sendDirectMessage({ action: 'toggleVideoSubtitleTranslation' });
     expect(startResponse).toEqual({
       success: true,
-      isActive: true,
-      hasTrack: false,
-      message: 'No caption track found'
+      data: {
+        isActive: true,
+        hasTrack: false,
+        message: 'No caption track found'
+      }
     });
 
     const statusResponse = await sendDirectMessage({ action: 'getTranslationStatus' });
     expect(statusResponse).toEqual({
       success: true,
-      isActive: false,
-      isLearningMode: false,
-      isVideoSubtitleMode: true,
-      isLiveCaptionMode: false,
-      isImageTranslationMode: false
+      data: {
+        isActive: false,
+        isLearningMode: false,
+        isVideoSubtitleMode: true,
+        isLiveCaptionMode: false,
+        isImageTranslationMode: false
+      }
     });
 
     const stopResponse = await sendDirectMessage({ action: 'toggleVideoSubtitleTranslation' });
     expect(stopResponse).toEqual({
       success: true,
-      isActive: false,
-      hasTrack: false,
-      message: 'Video subtitle translation stopped'
+      data: {
+        isActive: false,
+        hasTrack: false,
+        message: 'Video subtitle translation stopped'
+      }
     });
 
     const emptySubtitleExportResponse = await sendDirectMessage({ action: 'exportVideoSubtitles' });
     expect(emptySubtitleExportResponse).toEqual({
       success: true,
-      cueCount: 0,
-      filename: expect.stringMatching(/lexibridge\.srt$/),
-      content: '',
-      message: 'No translated subtitles to export yet'
+      data: {
+        cueCount: 0,
+        filename: expect.stringMatching(/lexibridge\.srt$/),
+        content: '',
+        message: 'No translated subtitles to export yet'
+      }
     });
 
     const liveCaptionStartResponse = await sendDirectMessage({ action: 'toggleLiveCaptionTranslation' });
     expect(liveCaptionStartResponse).toEqual({
       success: true,
-      isActive: true,
-      hasCaption: false,
-      cueCount: 0,
-      message: 'Waiting for live captions'
+      data: {
+        isActive: true,
+        hasCaption: false,
+        cueCount: 0,
+        message: 'Waiting for live captions'
+      }
     });
 
     const liveCaptionTranscriptStatus = await sendDirectMessage({ action: 'getLiveCaptionTranscriptStatus' });
     expect(liveCaptionTranscriptStatus).toEqual({
       success: true,
-      isActive: true,
-      cueCount: 0,
-      sessionStartedAt: null,
-      message: 'No live caption transcript yet'
+      data: {
+        isActive: true,
+        cueCount: 0,
+        sessionStartedAt: null,
+        message: 'No live caption transcript yet'
+      }
     });
 
     const emptyTranscriptExport = await sendDirectMessage({
@@ -897,76 +974,92 @@ describe('Content script direct runtime message contract', () => {
     });
     expect(emptyTranscriptExport).toEqual({
       success: true,
-      format: 'json',
-      cueCount: 0,
-      filename: 'meeting-lexibridge-live-captions.json',
-      content: '',
-      message: 'No live caption transcript to export yet'
+      data: {
+        format: 'json',
+        cueCount: 0,
+        filename: 'meeting-lexibridge-live-captions.json',
+        content: '',
+        message: 'No live caption transcript to export yet'
+      }
     });
 
     const clearTranscriptResponse = await sendDirectMessage({ action: 'clearLiveCaptionTranscript' });
     expect(clearTranscriptResponse).toEqual({
       success: true,
-      isActive: true,
-      cueCount: 0,
-      sessionStartedAt: null,
-      message: 'Live caption transcript cleared'
+      data: {
+        isActive: true,
+        cueCount: 0,
+        sessionStartedAt: null,
+        message: 'Live caption transcript cleared'
+      }
     });
 
     const liveCaptionStatusResponse = await sendDirectMessage({ action: 'getTranslationStatus' });
     expect(liveCaptionStatusResponse).toEqual({
       success: true,
-      isActive: false,
-      isLearningMode: false,
-      isVideoSubtitleMode: false,
-      isLiveCaptionMode: true,
-      isImageTranslationMode: false
+      data: {
+        isActive: false,
+        isLearningMode: false,
+        isVideoSubtitleMode: false,
+        isLiveCaptionMode: true,
+        isImageTranslationMode: false
+      }
     });
 
     const liveCaptionStopResponse = await sendDirectMessage({ action: 'toggleLiveCaptionTranslation' });
     expect(liveCaptionStopResponse).toEqual({
       success: true,
-      isActive: false,
-      hasCaption: false,
-      cueCount: 0,
-      message: 'Live caption translation stopped'
+      data: {
+        isActive: false,
+        hasCaption: false,
+        cueCount: 0,
+        message: 'Live caption translation stopped'
+      }
     });
 
     const imageStartResponse = await sendDirectMessage({ action: 'toggleImageTranslation' });
     expect(imageStartResponse).toEqual({
       success: true,
-      isActive: true,
-      hasImage: false,
-      message: 'No image found'
+      data: {
+        isActive: true,
+        hasImage: false,
+        message: 'No image found'
+      }
     });
 
     const visibleImageResponse = await sendDirectMessage({ action: 'translateVisibleImages' });
     expect(visibleImageResponse).toEqual({
       success: true,
-      isActive: true,
-      visibleImageCount: 0,
-      translatedImageCount: 0,
-      unreadableImageCount: 0,
-      failedImageCount: 0,
-      message: 'No visible images found'
+      data: {
+        isActive: true,
+        visibleImageCount: 0,
+        translatedImageCount: 0,
+        unreadableImageCount: 0,
+        failedImageCount: 0,
+        message: 'No visible images found'
+      }
     });
 
     const imageStatusResponse = await sendDirectMessage({ action: 'getTranslationStatus' });
     expect(imageStatusResponse).toEqual({
       success: true,
-      isActive: false,
-      isLearningMode: false,
-      isVideoSubtitleMode: false,
-      isLiveCaptionMode: false,
-      isImageTranslationMode: true
+      data: {
+        isActive: false,
+        isLearningMode: false,
+        isVideoSubtitleMode: false,
+        isLiveCaptionMode: false,
+        isImageTranslationMode: true
+      }
     });
 
     const imageStopResponse = await sendDirectMessage({ action: 'toggleImageTranslation' });
     expect(imageStopResponse).toEqual({
       success: true,
-      isActive: false,
-      hasImage: false,
-      message: 'Image translation stopped'
+      data: {
+        isActive: false,
+        hasImage: false,
+        message: 'Image translation stopped'
+      }
     });
   });
 });

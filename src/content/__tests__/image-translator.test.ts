@@ -160,6 +160,38 @@ describe('ImageTranslator', () => {
     expect(document.querySelectorAll('.lexibridge-image-translation-result')).toHaveLength(2);
   });
 
+  it('isolates cached image translations by the current provider and target language', async () => {
+    document.body.innerHTML = '<img id="target" alt="Repeated label">';
+    setRect(document.getElementById('target')!, 20, 20, 180, 90);
+
+    let provider = 'google';
+    let targetLanguage = 'zh-CN';
+    const translateText = jest.fn(async (text: string) => (
+      `${provider}/${targetLanguage}: ${text}`
+    ));
+    translator.enable(
+      translateText,
+      'eng',
+      text => JSON.stringify([provider, targetLanguage, text])
+    );
+
+    await translator.translateVisibleImages();
+    await translator.translateVisibleImages();
+    expect(translateText).toHaveBeenCalledTimes(1);
+
+    provider = 'deepl';
+    await translator.translateVisibleImages();
+    expect(translateText).toHaveBeenCalledTimes(2);
+    expect(document.querySelector('.lexibridge-image-translation-result')?.textContent)
+      .toBe('deepl/zh-CN: Repeated label');
+
+    targetLanguage = 'ja';
+    await translator.translateVisibleImages();
+    expect(translateText).toHaveBeenCalledTimes(3);
+    expect(document.querySelector('.lexibridge-image-translation-result')?.textContent)
+      .toBe('deepl/ja: Repeated label');
+  });
+
   it('stops a visible-image batch before processing the next image', async () => {
     document.body.innerHTML = `
       <img id="first" alt="First image text">

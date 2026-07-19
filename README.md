@@ -78,7 +78,8 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Detect confidently separated two-column PDF text, keep left-column-then-right-column reading order, and constrain translated overlays to the detected column region.
 - Identify likely standalone mathematical expressions, preserve them in their original form, and exclude them from translation-provider requests and translated overlays.
 - Show original and translated PDF pages side by side, or switch to translation-only or original-only display.
-- Attempt local OCR on image-only PDF pages with browser `TextDetector` first and bundled Tesseract fallback, retaining detected bounding boxes for positioned translations.
+- Supplement sparse text layers on raster-backed PDF pages with browser `TextDetector` first and bundled Tesseract fallback, merge/deduplicate OCR and text-layer blocks, and retain detected bounding boxes for positioned translations.
+- Preserve PDF block identity and geometry through safe source edits; inserted text without safe source geometry remains visible for translation but disables flattened PDF export.
 - Choose bundled OCR recognition for English, Simplified Chinese, Traditional Chinese, Japanese, or Korean and see per-page recognition progress.
 - Export translated PDF pages locally as a flattened visual PDF so browser fonts and the rendered source page remain visible.
 - OCR quality still depends on scan resolution, contrast, orientation, language choice, and page complexity. Formula and column detection are conservative heuristics; editable text reflow, complex table fitting, form/annotation editing, and layout-perfect Office/eBook conversion remain later work.
@@ -115,6 +116,7 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Skip hidden, offscreen, tiny, and extension-owned graphics during a visible-image batch, and stop the batch as soon as image mode is turned off.
 - Use browser `TextDetector` OCR when available, then fall back to bundled offline Tesseract OCR for English, Simplified Chinese, Traditional Chinese, Japanese, or Korean.
 - Render separate translation overlays for detected OCR text blocks when either OCR engine provides bounding boxes.
+- Scope content, image, video-subtitle, and live-caption translation caches to the current provider, target language, settings revision, source text, and context.
 - Keep every OCR action explicit; opening or scrolling a page never starts image translation.
 - Automatic manga panel segmentation, source-text removal, and in-place image reconstruction are planned for later batches.
 

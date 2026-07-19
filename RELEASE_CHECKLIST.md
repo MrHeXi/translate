@@ -73,6 +73,8 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Confirm exact and wildcard site rules override display/scope/style/exclusions, and a blocked site remains untranslated after a manual Start click.
 - [ ] Confirm Main content excludes navigation/footer text on a representative article and Whole page includes it only after manual Start.
 - [ ] Load a standards-compliant PDF, confirm original and translated page previews render, switch all three display modes, and export a flattened translated PDF.
+- [ ] Load a mixed PDF page with sparse centered text plus raster content; confirm local OCR supplements the text layer and duplicate OCR/text detections are not translated twice.
+- [ ] Edit a loaded PDF block and confirm its page, coordinate, column, and formula metadata remain attached; add text without safe geometry and confirm translation remains visible while Export PDF is disabled with an explanatory message.
 - [ ] Load a representative two-column academic PDF; confirm blocks are ordered down the left column before the right and translated overlays do not cross the inferred gutter.
 - [ ] Load a PDF with standalone equations; confirm likely formulas are labeled as preserved, send no translation request, remain visible in preview, and are not painted over in exported pages.
 - [ ] Confirm an image-only PDF tries local browser OCR first, falls back to bundled Tesseract OCR, reports per-page progress, and reports pages without detected text.
@@ -85,6 +87,8 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Configure each credentialed provider with a test key or mock endpoint, verify masked-key display, and verify Remove configuration.
 - [ ] Save Ollama without an API key, confirm Chrome requests `http://localhost/*`, and verify settings cannot activate it before provider configuration is saved.
 - [ ] Confirm Image text stays idle until Start plus a click, drag, or Translate visible images action; confirm Stop cancels the remaining visible-image batch and clears overlays.
+- [ ] Confirm repeated image text is reused only within the same provider, target language, settings revision, and context; changing settings while Image text remains enabled makes a fresh provider request.
+- [ ] Confirm repeated Video subtitle and Live caption text also makes a fresh request after provider, target language, or translation settings change.
 - [ ] Confirm Video subtitles consumes only exposed text-track/DOM caption text after Start and never requests tab audio capture.
 - [ ] Confirm Live captions captures only visible DOM captions after Start, merges incremental updates, retains cues after Stop, exports TXT/SRT/VTT/JSON locally, and clears without recording audio.
 - [ ] Configure OpenAI or Groq, select a supported local media file under 25 MB, click Generate subtitles, confirm timed cues can be translated and exported as SRT/VTT, and confirm Cancel stops the temporary upload.

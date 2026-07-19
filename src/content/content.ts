@@ -72,6 +72,7 @@ class ContentScript {
   private isLearningMode: boolean = false;
   private userSettings: UserSettings | null = null;
   private translationCache: Map<string, string> = new Map();
+  private translationSettingsRevision = 0;
   private pageObserver: MutationObserver | null = null;
   private isInitialized: boolean = false;
   private translationRunId: number = 0;
@@ -149,9 +150,6 @@ class ContentScript {
       // 监听动态内容变化
       this.observePageChanges();
 
-      // 监听来自后台脚本的消息
-      this.setupMessageListener();
-
       this.isInitialized = true;
       console.log('内容脚本初始化完成');
     } catch (error) {
@@ -218,6 +216,8 @@ class ContentScript {
       },
       'updateSettings': async (request) => {
         this.userSettings = { ...this.userSettings, ...request.data };
+        this.translationSettingsRevision++;
+        this.translationCache.clear();
         await this.applySettingsChanges();
         return { success: true };
       },
@@ -265,102 +265,6 @@ class ContentScript {
       siteTranslationRules: [],
       documentOcrLanguage: 'eng'
     };
-  }
-
-  private setupMessageListener(): void {
-    chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
-      this.handleRuntimeMessage(request, sendResponse);
-      return true; // 保持消息通道开放
-    });
-  }
-
-  private async handleRuntimeMessage(request: any, sendResponse: (response: any) => void): Promise<void> {
-    try {
-      switch (request.action) {
-        case 'toggleTranslation':
-          await this.toggleTranslation();
-          sendResponse({ success: true, isActive: this.isTranslationMode });
-          break;
-        
-        case 'toggleLearningMode':
-          await this.toggleLearningMode();
-          sendResponse({ success: true, isActive: this.isLearningMode });
-          break;
-
-        case 'toggleVideoSubtitleTranslation': {
-          const state = await this.toggleVideoSubtitleTranslation();
-          sendResponse({ success: true, ...state });
-          break;
-        }
-
-        case 'exportVideoSubtitles':
-          sendResponse({ success: true, ...this.exportVideoSubtitles() });
-          break;
-
-        case 'toggleLiveCaptionTranslation': {
-          const state = await this.toggleLiveCaptionTranslation();
-          sendResponse({ success: true, ...state });
-          break;
-        }
-
-        case 'getLiveCaptionTranscriptStatus':
-          sendResponse({ success: true, ...this.getLiveCaptionTranscriptStatus() });
-          break;
-
-        case 'exportLiveCaptionTranscript':
-          sendResponse({ success: true, ...this.exportLiveCaptionTranscript(request.data?.format) });
-          break;
-
-        case 'clearLiveCaptionTranscript':
-          sendResponse({ success: true, ...this.clearLiveCaptionTranscript() });
-          break;
-
-        case 'toggleImageTranslation': {
-          const state = await this.toggleImageTranslation();
-          sendResponse({ success: true, ...state });
-          break;
-        }
-
-        case 'translateVisibleImages': {
-          const result = await this.translateVisibleImages();
-          sendResponse({ success: true, ...result });
-          break;
-        }
-        
-        case 'updateSettings':
-          this.userSettings = { ...this.userSettings, ...request.data };
-          await this.applySettingsChanges();
-          sendResponse({ success: true });
-          break;
-        
-        case 'highlightWord':
-          this.highlightWordInPage(request.data.word, request.data.color);
-          sendResponse({ success: true });
-          break;
-        
-        case 'getPageInfo': {
-          const pageInfo = this.getPageInfo();
-          sendResponse({ success: true, data: pageInfo });
-          break;
-        }
-
-        case 'getTranslationStatus':
-          sendResponse({
-            success: true,
-            isActive: this.isTranslationMode,
-            isLearningMode: this.isLearningMode,
-            isVideoSubtitleMode: this.videoSubtitleTranslator.getStatus().isActive,
-            isLiveCaptionMode: this.liveCaptionTranslator.getStatus().isActive,
-            isImageTranslationMode: this.imageTranslator.getStatus().isActive
-          });
-          break;
-        
-        default:
-          sendResponse({ success: false, error: '未知的操作类型' });
-      }
-    } catch (error) {
-      sendResponse({ success: false, error: error instanceof Error ? error.message : '未知错误' });
-    }
   }
 
   private async toggleTranslation(): Promise<void> {
@@ -418,7 +322,10 @@ class ContentScript {
   }
 
   private async toggleVideoSubtitleTranslation(): Promise<{ isActive: boolean; hasTrack: boolean; message: string }> {
-    return this.videoSubtitleTranslator.toggle((text) => this.translateInteractiveText(text));
+    return this.videoSubtitleTranslator.toggle(
+      (text) => this.translateInteractiveText(text),
+      (text) => this.createTranslationCacheKey(text)
+    );
   }
 
   private exportVideoSubtitles(): { cueCount: number; filename: string; content: string; message: string } {
@@ -431,7 +338,10 @@ class ContentScript {
     cueCount: number;
     message: string;
   }> {
-    return this.liveCaptionTranslator.toggle((text) => this.translateInteractiveText(text));
+    return this.liveCaptionTranslator.toggle(
+      (text) => this.translateInteractiveText(text),
+      (text) => this.createTranslationCacheKey(text)
+    );
   }
 
   private getLiveCaptionTranscriptStatus(): LiveCaptionTranscriptStatus {
@@ -454,7 +364,8 @@ class ContentScript {
   private async toggleImageTranslation(): Promise<{ isActive: boolean; hasImage: boolean; message: string }> {
     return this.imageTranslator.toggle(
       (text) => this.translateInteractiveText(text),
-      this.userSettings?.documentOcrLanguage || 'eng'
+      this.userSettings?.documentOcrLanguage || 'eng',
+      (text) => this.createTranslationCacheKey(text)
     );
   }
 
@@ -601,7 +512,8 @@ class ContentScript {
 
     try {
       // 检查缓存
-      let translation: string | undefined = this.translationCache.get(text);
+      const cacheKey = this.createTranslationCacheKey(text);
+      let translation: string | undefined = this.translationCache.get(cacheKey);
       
       if (!translation) {
         // 检查网络状态
@@ -621,7 +533,7 @@ class ContentScript {
           // 在线翻译
           const result = await this.requestTranslation(text);
           translation = result.translatedText;
-          this.translationCache.set(text, translation);
+          this.translationCache.set(cacheKey, translation);
         }
       }
 
@@ -768,13 +680,14 @@ class ContentScript {
       return '';
     }
 
-    const cachedTranslation = this.translationCache.get(normalizedText);
+    const cacheKey = this.createTranslationCacheKey(normalizedText);
+    const cachedTranslation = this.translationCache.get(cacheKey);
     if (cachedTranslation) {
       return cachedTranslation;
     }
 
     const result = await this.requestTranslation(normalizedText);
-    this.translationCache.set(normalizedText, result.translatedText);
+    this.translationCache.set(cacheKey, result.translatedText);
     return result.translatedText;
   }
 
@@ -791,12 +704,13 @@ class ContentScript {
       if (node.textContent && node.textContent.trim().length > 3) {
         try {
           // 检查缓存
-          let translation = this.translationCache.get(node.textContent);
+          const cacheKey = this.createTranslationCacheKey(node.textContent, context);
+          let translation = this.translationCache.get(cacheKey);
           
           if (!translation) {
             const result = await this.requestTranslation(node.textContent, context);
             translation = result.translatedText;
-            this.translationCache.set(node.textContent, translation);
+            this.translationCache.set(cacheKey, translation);
           }
 
           if (runId !== undefined && !this.isCurrentTranslationRun(runId)) {
@@ -994,6 +908,16 @@ class ContentScript {
       .filter(Boolean)
       .join('\n')
       .slice(0, 4000);
+  }
+
+  private createTranslationCacheKey(text: string, context: string = ''): string {
+    return JSON.stringify([
+      this.translationSettingsRevision,
+      this.userSettings?.translationProvider || 'google',
+      this.userSettings?.defaultTargetLanguage || 'zh-CN',
+      text.trim(),
+      context.trim()
+    ]);
   }
 
   private async applySettingsChanges(): Promise<void> {

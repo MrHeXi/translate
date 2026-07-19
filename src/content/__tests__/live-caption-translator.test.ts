@@ -50,6 +50,26 @@ describe('LiveCaptionTranslator', () => {
     expect(overlay?.textContent).toContain('Translated: Speaker says hello to everyone.');
   });
 
+  it('does not reuse a live-caption translation after the cache identity changes', async () => {
+    document.body.innerHTML = '<div aria-live="polite">The same caption text.</div>';
+    let provider = 'google';
+    const translateText = jest.fn(async (text: string) => `${provider}: ${text}`);
+    const createCacheKey = (text: string): string => `${provider}:${text}`;
+
+    translator.enable(translateText, createCacheKey);
+    await flushPromises();
+    expect(translateText).toHaveBeenCalledTimes(1);
+
+    translator.disable();
+    provider = 'deepl';
+    translator.enable(translateText, createCacheKey);
+    await flushPromises();
+
+    expect(translateText).toHaveBeenCalledTimes(2);
+    expect(document.getElementById('lexibridge-live-caption-overlay')?.textContent)
+      .toContain('deepl: The same caption text.');
+  });
+
   it.each([
     [
       'Google Meet',

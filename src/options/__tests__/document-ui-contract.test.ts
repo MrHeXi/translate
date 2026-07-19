@@ -440,12 +440,18 @@ describe('document translator page', () => {
       );
       expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(true);
 
+      const sourceText = document.getElementById('sourceText') as HTMLTextAreaElement;
+      const formulaText = sourceText.value.split('\n\n')[1]!;
+      sourceText.value = sourceText.value.replace(
+        'PDF.js positioned heading',
+        'Edited PDF.js positioned heading'
+      );
       document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
       await flushPromises();
       await flushPromises();
 
       const overlay = document.querySelector('.pdf-translation-overlay') as HTMLElement;
-      expect(overlay.textContent).toBe('translated: PDF.js positioned heading');
+      expect(overlay.textContent).toBe('translated: Edited PDF.js positioned heading');
       expect(overlay.style.left).toBe('12%');
       expect(parseFloat(overlay.style.width)).toBeLessThanOrEqual(35);
       expect(parseFloat(overlay.style.left) + parseFloat(overlay.style.width)).toBeLessThanOrEqual(46.67);
@@ -458,6 +464,9 @@ describe('document translator page', () => {
         .map(call => call[0])
         .filter(message => message.action === 'translate');
       expect(translationMessages).toHaveLength(1);
+      expect(translationMessages[0].data.text).toBe('Edited PDF.js positioned heading');
+      expect(translationMessages[0].data.context).toBe('Edited PDF.js positioned heading');
+      expect(translationMessages[0].data.context).not.toContain(formulaText);
       expect(document.getElementById('documentMessage')?.textContent).toBe(
         'Translated 1 blocks and preserved 1 formulas'
       );
@@ -476,7 +485,29 @@ describe('document translator page', () => {
       await flushPromises();
 
       expect(exportTranslatedPdf).toHaveBeenCalledWith([
-        expect.objectContaining({ translatedText: 'translated: PDF.js positioned heading' })
+        expect.objectContaining({
+          block: expect.objectContaining({
+            id: 1,
+            originalText: 'Edited PDF.js positioned heading',
+            layout: expect.objectContaining({
+              pageNumber: 1,
+              x: 72,
+              y: 80,
+              width: 210,
+              height: 20,
+              pageWidth: 600,
+              pageHeight: 800,
+              contentKind: 'prose',
+              readingOrder: 0,
+              columnIndex: 1,
+              columnCount: 2,
+              regionX: 50,
+              regionWidth: 230,
+              source: 'pdf-text'
+            })
+          }),
+          translatedText: 'translated: Edited PDF.js positioned heading'
+        })
       ]);
       expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
       expect(exportedBlob).not.toBeNull();
@@ -484,6 +515,46 @@ describe('document translator page', () => {
       expect(revokeObjectURL).toHaveBeenCalledWith('blob:translated-pdf');
       expect(document.getElementById('documentMessage')?.textContent).toBe(
         'Exported translated PDF with 1 positioned blocks'
+      );
+
+      (global as any).chrome.runtime.sendMessage.mockClear();
+      sourceText.value = formulaText;
+      document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      const formulaOnlyMessages = ((global as any).chrome.runtime.sendMessage as jest.Mock).mock.calls
+        .map(call => call[0])
+        .filter(message => message.action === 'translate');
+      expect(formulaOnlyMessages).toHaveLength(0);
+      expect(document.querySelectorAll('.document-result-block--formula')).toHaveLength(1);
+      expect(document.querySelector('.block-index')?.textContent).toContain('Block 2');
+      expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(true);
+
+      (global as any).chrome.runtime.sendMessage.mockClear();
+      sourceText.value = `${formulaText}\n\nAdded prose without source geometry`;
+      document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      const insertedProseMessages = ((global as any).chrome.runtime.sendMessage as jest.Mock).mock.calls
+        .map(call => call[0])
+        .filter(message => message.action === 'translate');
+      expect(insertedProseMessages).toHaveLength(1);
+      expect(insertedProseMessages[0].data).toEqual(expect.objectContaining({
+        text: 'Added prose without source geometry',
+        context: 'Added prose without source geometry'
+      }));
+      expect(insertedProseMessages[0].data.context).not.toContain(formulaText);
+      expect(document.querySelectorAll('.document-result-block--formula')).toHaveLength(1);
+      expect(document.querySelectorAll('.document-result-block--layout')).toHaveLength(1);
+      expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(true);
+
+      document.getElementById('exportPdfFile')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      expect(exportTranslatedPdf).toHaveBeenCalledTimes(1);
+      expect(document.getElementById('documentMessage')?.textContent).toBe(
+        'PDF export is unavailable after adding text without source geometry.'
       );
 
       (global as any).chrome.runtime.sendMessage.mockClear();
@@ -504,6 +575,164 @@ describe('document translator page', () => {
       );
       expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(true);
       expect(document.querySelector('.pdf-translation-overlay')).toBeNull();
+    } finally {
+      clickSpy.mockRestore();
+    }
+  });
+
+  it('maps PDF block-count edits only onto known export geometry', async () => {
+    const firstLayout = {
+      pageNumber: 1,
+      x: 40,
+      y: 60,
+      width: 180,
+      height: 16,
+      pageWidth: 500,
+      pageHeight: 700,
+      contentKind: 'prose' as const,
+      readingOrder: 4,
+      columnIndex: 1,
+      columnCount: 1,
+      regionX: 20,
+      regionWidth: 460,
+      source: 'pdf-text' as const
+    };
+    const secondLayout = {
+      ...firstLayout,
+      x: 55,
+      y: 110,
+      width: 240,
+      readingOrder: 5
+    };
+    const exportTranslatedPdf = jest.fn(async (_results: unknown) => new Uint8Array([37, 80, 68, 70]));
+    const session = {
+      analyze: jest.fn(async () => ({
+        blocks: [
+          { id: 11, originalText: 'Original first block', layout: firstLayout },
+          { id: 22, originalText: 'Original second block', layout: secondLayout }
+        ],
+        pages: [{
+          pageNumber: 1,
+          width: 500,
+          height: 700,
+          blockCount: 2,
+          formulaBlockCount: 0,
+          columnCount: 1,
+          source: 'text'
+        }],
+        ocrPageCount: 0,
+        bundledOcrPageCount: 0,
+        unreadablePageCount: 0,
+        formulaBlockCount: 0,
+        multiColumnPageCount: 0
+      })),
+      renderPage: jest.fn(async () => ({
+        pageNumber: 1,
+        width: 500,
+        height: 700,
+        scale: 1
+      })),
+      exportTranslatedPdf,
+      destroy: jest.fn(async () => undefined)
+    };
+    jest.doMock('../../services/PdfDocumentService', () => ({
+      pdfDocumentService: { open: jest.fn(async () => session) }
+    }));
+
+    const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: jest.fn(() => 'blob:edited-pdf'),
+      configurable: true
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      value: jest.fn(),
+      configurable: true
+    });
+
+    try {
+      require('../document');
+      document.dispatchEvent(new Event('DOMContentLoaded'));
+      await flushPromises();
+
+      const file = new File(['pdf bytes'], 'edited-layout.pdf', { type: 'application/pdf' });
+      Object.defineProperty(file, 'arrayBuffer', {
+        value: async () => new Uint8Array([1, 2, 3]).buffer,
+        configurable: true
+      });
+      const fileInput = document.getElementById('documentFile') as HTMLInputElement;
+      Object.defineProperty(fileInput, 'files', { value: [file], configurable: true });
+      fileInput.dispatchEvent(new Event('change'));
+      await flushPromises();
+      await flushPromises();
+
+      const sourceText = document.getElementById('sourceText') as HTMLTextAreaElement;
+      (global as any).chrome.runtime.sendMessage.mockClear();
+      sourceText.value = 'Edited first line\ncontinued\n\nEdited second block\n\nAdded tail block';
+      expect((global as any).chrome.runtime.sendMessage).not.toHaveBeenCalled();
+
+      document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      const translationMessages = ((global as any).chrome.runtime.sendMessage as jest.Mock).mock.calls
+        .map(call => call[0])
+        .filter(message => message.action === 'translate');
+      expect(translationMessages.map(message => message.data.text)).toEqual([
+        'Edited first line continued',
+        'Edited second block\n\nAdded tail block'
+      ]);
+      const resultBlocks = document.querySelectorAll('.document-result-block--layout');
+      expect(resultBlocks).toHaveLength(2);
+      expect(resultBlocks[0].querySelector('.block-index')?.textContent).toContain('Block 11');
+      expect(resultBlocks[0].querySelector('.block-index')?.textContent).toContain('x 40');
+      expect(resultBlocks[1].querySelector('.block-index')?.textContent).toContain('Block 22');
+      expect(resultBlocks[1].querySelector('.block-index')?.textContent).toContain('y 110');
+      expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(false);
+
+      document.getElementById('exportPdfFile')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      expect(exportTranslatedPdf).toHaveBeenCalledWith([
+        expect.objectContaining({
+          block: expect.objectContaining({
+            id: 11,
+            originalText: 'Edited first line continued',
+            layout: firstLayout
+          })
+        }),
+        expect.objectContaining({
+          block: expect.objectContaining({
+            id: 22,
+            originalText: 'Edited second block\n\nAdded tail block',
+            layout: secondLayout
+          })
+        })
+      ]);
+
+      (global as any).chrome.runtime.sendMessage.mockClear();
+      sourceText.value = 'Only the first PDF slot remains';
+      document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      expect(document.querySelectorAll('.document-result-block--layout')).toHaveLength(1);
+      expect(document.querySelector('.block-index')?.textContent).toContain('Block 11');
+      expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(false);
+
+      document.getElementById('exportPdfFile')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      expect(exportTranslatedPdf).toHaveBeenLastCalledWith([
+        expect.objectContaining({
+          block: expect.objectContaining({
+            id: 11,
+            originalText: 'Only the first PDF slot remains',
+            layout: firstLayout
+          })
+        })
+      ]);
     } finally {
       clickSpy.mockRestore();
     }

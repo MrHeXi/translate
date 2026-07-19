@@ -121,7 +121,7 @@ describe('product packaging contract', () => {
     expect(readme).toContain('left-column-then-right-column reading order');
     expect(readme).toContain('exclude them from translation-provider requests');
     expect(readme).toContain('Export translated PDF pages locally as a flattened visual PDF');
-    expect(readme).toContain('Attempt local OCR on image-only PDF pages');
+    expect(readme).toContain('merge/deduplicate OCR and text-layer blocks');
     expect(readme).toContain('bundled Tesseract fallback');
     expect(readme).toContain('Simplified Chinese, Traditional Chinese, Japanese, or Korean');
     expect(readme).toContain('separate translation overlays for detected OCR text blocks');
@@ -139,6 +139,9 @@ describe('product packaging contract', () => {
     expect(readme).toContain('meeting bot that records or joins calls');
     expect(readme).not.toMatch(/automatic audio transcription|records calls|joins calls automatically/i);
     expect(readme).toContain('not marketed as guaranteed OCR for every scanned PDF');
+    expect(readme).toContain('Supplement sparse text layers on raster-backed PDF pages');
+    expect(readme).toContain('inserted text without safe source geometry remains visible for translation');
+    expect(readme).toContain('Scope content, image, video-subtitle, and live-caption translation caches');
 
     const privacy = readProjectFile('PRIVACY.md');
     expect(privacy).toContain('No default telemetry');
@@ -197,6 +200,10 @@ describe('product packaging contract', () => {
     expect(checklist).toContain('Screenshots');
     expect(checklist).toContain('Permissions');
     expect(checklist).toContain('Version');
+    expect(checklist).toContain('mixed PDF page with sparse centered text plus raster content');
+    expect(checklist).toContain('add text without safe geometry');
+    expect(checklist).toContain('changing settings while Image text remains enabled makes a fresh provider request');
+    expect(checklist).toContain('repeated Video subtitle and Live caption text also makes a fresh request');
   });
 
   it('provides store listing copy with permission, privacy, and screenshot guidance', () => {
@@ -278,12 +285,15 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('49 test suites and 376 tests');
-    expect(releaseNotes).toContain('17,729,941');
-    expect(releaseNotes).toContain('8A1731A34C50D8AA0460EDEA59F95E1655CB97101825B773BD69B71A441AAA9A');
+    expect(releaseNotes).toContain('49 test suites and 387 tests');
+    expect(releaseNotes).toContain('17,731,836');
+    expect(releaseNotes).toContain('A19ECEBF25D2CBEF9B358E9E2F955FCC70F5762325DD5D96ED9A4E4F455DDD41');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
+    expect(releaseNotes).toContain('Mixed PDF pages with sparse text layers');
+    expect(releaseNotes).toContain('newly inserted text without safe source geometry remains translatable');
+    expect(releaseNotes).toContain('single MessageManager listener owns content-script command dispatch');
 
     expect(screenshotGuide).toContain('Popup Overview');
     expect(screenshotGuide).toContain('Floating Button');
@@ -353,9 +363,10 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('order left-column text before right-column text');
     expect(roadmap).toContain('identify likely standalone formulas locally');
     expect(roadmap).toContain('flattened visual PDF');
-    expect(roadmap).toContain('mixed scanned pages currently skip OCR');
-    expect(roadmap).toContain('editing loaded PDF source text currently drops block layout');
-    expect(roadmap).toContain('standalone formula blocks can currently enter neighboring AI context');
+    expect(roadmap).toContain('supplement sparse text layers on raster-backed pages');
+    expect(roadmap).toContain('preserve loaded PDF block identity, page geometry');
+    expect(roadmap).toContain('exclude standalone formula blocks from neighboring AI context');
+    expect(roadmap).toContain('generated real PDF.js fixtures cover text extraction');
     expect(roadmap).toContain('browser `TextDetector`');
     expect(roadmap).toContain('bundled Tesseract worker');
     expect(roadmap).toContain('five selectable recognition languages');
@@ -381,8 +392,8 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('Image, manga, and OCR translation');
     expect(roadmap).toContain('separate OCR text-block overlays');
     expect(roadmap).toContain('Translate visible images');
-    expect(roadmap).toContain('both MessageManager and legacy content-script listeners');
-    expect(roadmap).toContain('cache identity currently ignores target language and provider');
+    expect(roadmap).toContain('converge production content initialization on the MessageManager listener');
+    expect(roadmap).toContain('isolate content, image, video-subtitle, and live-caption translation caches');
     expect(roadmap).toContain('Apply, Undo, Download PNG, and overlay fallback controls');
     expect(roadmap).toContain('Multiple translation engines');
     expect(roadmap).toContain('29 implemented provider adapters');

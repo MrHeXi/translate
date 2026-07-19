@@ -4,7 +4,9 @@ import {
   PdfOcrDetector,
   PdfOcrDetectorFactory
 } from '../PdfDocumentService';
+import { BundledOcrSession, bundledOcrService } from '../BundledOcrService';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { getDocument, OPS, Util } from 'pdfjs-dist/legacy/build/pdf';
 import { ReadableStream } from 'stream/web';
 
 Object.assign(globalThis, { ReadableStream });
@@ -22,6 +24,7 @@ const createEngine = (
     width?: number;
     height?: number;
     items: FakeTextItem[];
+    operatorIds?: number[];
     render?: jest.Mock;
   }>
 ): { engine: PdfEngineAdapter; destroy: jest.Mock } => {
@@ -37,6 +40,7 @@ const createEngine = (
           transform: [scale, 0, 0, -scale, 0, (page.height || 800) * scale]
         }),
         getTextContent: jest.fn(async () => ({ items: page.items })),
+        getOperatorList: jest.fn(async () => ({ fnArray: page.operatorIds || [] })),
         render: page.render || jest.fn(() => ({ promise: Promise.resolve() }))
       };
     }),
@@ -83,6 +87,71 @@ describe('PdfDocumentService', () => {
       }));
     } finally {
       await session.destroy();
+    }
+  });
+
+  it('uses PDF.js raster operators to supplement sparse centered text on a real PDF', async () => {
+    const source = await PDFDocument.create();
+    const font = await source.embedFont(StandardFonts.Helvetica);
+    const page = source.addPage([600, 800]);
+    page.drawText('Sparse central marker', { x: 250, y: 390, size: 12, font });
+    const pngBytes = Uint8Array.from(Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=',
+      'base64'
+    ));
+    const image = await source.embedPng(pngBytes);
+    page.drawImage(image, { x: 0, y: 0, width: 600, height: 800 });
+    const bytes = new Uint8Array(await source.save());
+    const detector: PdfOcrDetector = {
+      detect: jest.fn(async () => [{
+        rawValue: 'Scanned body from raster page',
+        engine: 'browser' as const,
+        boundingBox: { x: 120, y: 1000, width: 360, height: 36 }
+      }]),
+      dispose: jest.fn(async () => undefined)
+    };
+    const contextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue({} as CanvasRenderingContext2D);
+
+    try {
+      const realPdfJsEngine: PdfEngineAdapter = {
+        getDocument: params => {
+          const loadingTask = getDocument(params as any);
+          return {
+            promise: loadingTask.promise.then(pdf => ({
+              numPages: pdf.numPages,
+              getPage: async (pageNumber: number) => {
+                const page = await pdf.getPage(pageNumber);
+                return {
+                  getViewport: page.getViewport.bind(page),
+                  getTextContent: page.getTextContent.bind(page),
+                  getOperatorList: page.getOperatorList.bind(page),
+                  render: () => ({ promise: Promise.resolve() })
+                };
+              },
+              destroy: pdf.destroy.bind(pdf)
+            }))
+          };
+        },
+        transform: (first, second) => Util.transform(first, second)
+      };
+      const session = await new PdfDocumentService(realPdfJsEngine, () => detector).open(bytes);
+      const analysis = await session.analyze();
+
+      expect(detector.detect).toHaveBeenCalledTimes(1);
+      expect(analysis.blocks.map(block => block.originalText)).toEqual([
+        'Sparse central marker',
+        'Scanned body from raster page'
+      ]);
+      expect(analysis.pages[0]).toEqual(expect.objectContaining({
+        source: 'mixed',
+        blockCount: 2,
+        ocrEngine: 'browser'
+      }));
+      await session.destroy();
+      expect(detector.dispose).toHaveBeenCalledTimes(1);
+    } finally {
+      contextSpy.mockRestore();
     }
   });
 
@@ -214,6 +283,177 @@ describe('PdfDocumentService', () => {
     expect(analysis.multiColumnPageCount).toBe(1);
   });
 
+  it('runs OCR for sparse marginal text and keeps useful text-layer and OCR blocks', async () => {
+    const render = jest.fn(() => ({ promise: Promise.resolve() }));
+    const { engine } = createEngine([{
+      items: [
+        { str: 'Journal header', transform: [1, 0, 0, 12, 40, 760], width: 92, height: 12, hasEOL: true }
+      ],
+      operatorIds: [OPS.paintImageXObject],
+      render
+    }]);
+    const detector: PdfOcrDetector = {
+      detect: jest.fn(async () => [{
+        rawValue: 'Scanned body paragraph',
+        engine: 'browser' as const,
+        boundingBox: { x: 80, y: 320, width: 600, height: 40 }
+      }])
+    };
+    const contextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue({} as CanvasRenderingContext2D);
+
+    try {
+      const session = await new PdfDocumentService(engine, () => detector)
+        .open(new Uint8Array([1, 2, 3]));
+      const analysis = await session.analyze();
+
+      expect(render).toHaveBeenCalledTimes(1);
+      expect(detector.detect).toHaveBeenCalledTimes(1);
+      expect(analysis.blocks.map(block => block.originalText)).toEqual([
+        'Journal header',
+        'Scanned body paragraph'
+      ]);
+      expect(analysis.blocks.map(block => block.layout?.source)).toEqual([
+        'pdf-text',
+        'pdf-ocr'
+      ]);
+      expect(analysis.blocks[1]?.layout).toEqual(expect.objectContaining({
+        pageNumber: 1,
+        x: 40,
+        y: 160,
+        pageWidth: 600,
+        pageHeight: 800,
+        readingOrder: 1
+      }));
+      expect(analysis.pages[0]).toEqual(expect.objectContaining({
+        source: 'mixed',
+        blockCount: 2,
+        ocrEngine: 'browser'
+      }));
+      expect(analysis.ocrPageCount).toBe(1);
+    } finally {
+      contextSpy.mockRestore();
+    }
+  });
+
+  it('runs OCR for sparse centered text when the page has raster content', async () => {
+    const { engine } = createEngine([{
+      items: [
+        { str: 'Scanned page marker', transform: [1, 0, 0, 12, 280, 420], width: 120, height: 12, hasEOL: true }
+      ],
+      operatorIds: [OPS.paintImageXObject]
+    }]);
+    const detector: PdfOcrDetector = {
+      detect: jest.fn(async () => [{
+        rawValue: 'Centered scanned body',
+        engine: 'browser' as const,
+        boundingBox: { x: 160, y: 1000, width: 280, height: 36 }
+      }])
+    };
+    const contextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue({} as CanvasRenderingContext2D);
+
+    try {
+      const session = await new PdfDocumentService(engine, () => detector)
+        .open(new Uint8Array([1, 2, 3]));
+      const analysis = await session.analyze();
+
+      expect(detector.detect).toHaveBeenCalledTimes(1);
+      expect(analysis.blocks.map(block => block.originalText)).toEqual([
+        'Scanned page marker',
+        'Centered scanned body'
+      ]);
+      expect(analysis.pages[0]?.source).toBe('mixed');
+    } finally {
+      contextSpy.mockRestore();
+    }
+  });
+
+  it('removes equivalent OCR text that overlaps a text-layer block', async () => {
+    const { engine } = createEngine([{
+      items: [
+        { str: 'Quarterly report', transform: [1, 0, 0, 12, 40, 760], width: 100, height: 12, hasEOL: true }
+      ],
+      operatorIds: [OPS.paintImageXObject]
+    }]);
+    const detector: PdfOcrDetector = {
+      detect: jest.fn(async () => [{
+        rawValue: 'Quarterly report.',
+        engine: 'browser' as const,
+        boundingBox: { x: 80, y: 56, width: 200, height: 24 }
+      }])
+    };
+    const contextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue({} as CanvasRenderingContext2D);
+
+    try {
+      const session = await new PdfDocumentService(engine, () => detector)
+        .open(new Uint8Array([1, 2, 3]));
+      const analysis = await session.analyze();
+
+      expect(detector.detect).toHaveBeenCalledTimes(1);
+      expect(analysis.blocks).toHaveLength(1);
+      expect(analysis.blocks[0]).toEqual(expect.objectContaining({
+        originalText: 'Quarterly report',
+        layout: expect.objectContaining({ source: 'pdf-text' })
+      }));
+      expect(analysis.pages[0]).toEqual(expect.objectContaining({
+        source: 'text',
+        blockCount: 1,
+        ocrEngine: 'browser'
+      }));
+      expect(analysis.ocrPageCount).toBe(1);
+    } finally {
+      contextSpy.mockRestore();
+    }
+  });
+
+  it('does not run OCR when the text layer is sufficiently populated', async () => {
+    const render = jest.fn(() => ({ promise: Promise.resolve() }));
+    const { engine } = createEngine([{
+      items: [
+        { str: 'Line one', transform: [1, 0, 0, 12, 40, 760], width: 70, height: 12, hasEOL: true },
+        { str: 'Line two', transform: [1, 0, 0, 12, 40, 740], width: 70, height: 12, hasEOL: true },
+        { str: 'Line three', transform: [1, 0, 0, 12, 40, 720], width: 80, height: 12, hasEOL: true },
+        { str: 'Line four', transform: [1, 0, 0, 12, 40, 700], width: 75, height: 12, hasEOL: true },
+        { str: 'Line five', transform: [1, 0, 0, 12, 40, 680], width: 75, height: 12, hasEOL: true }
+      ],
+      operatorIds: [OPS.paintImageXObject],
+      render
+    }]);
+    const detector: PdfOcrDetector = { detect: jest.fn(async () => []) };
+    const session = await new PdfDocumentService(engine, () => detector)
+      .open(new Uint8Array([1, 2, 3]));
+    const analysis = await session.analyze();
+
+    expect(detector.detect).not.toHaveBeenCalled();
+    expect(render).not.toHaveBeenCalled();
+    expect(analysis.blocks).toHaveLength(5);
+    expect(analysis.pages[0]?.source).toBe('text');
+    expect(analysis.ocrPageCount).toBe(0);
+  });
+
+  it('does not run OCR for a sparse text-only page without raster content', async () => {
+    const render = jest.fn(() => ({ promise: Promise.resolve() }));
+    const { engine } = createEngine([{
+      items: [
+        { str: 'Short text page', transform: [1, 0, 0, 12, 40, 760], width: 94, height: 12, hasEOL: true }
+      ],
+      operatorIds: [OPS.showText],
+      render
+    }]);
+    const detector: PdfOcrDetector = { detect: jest.fn(async () => []) };
+    const session = await new PdfDocumentService(engine, () => detector)
+      .open(new Uint8Array([1, 2, 3]));
+    const analysis = await session.analyze();
+
+    expect(detector.detect).not.toHaveBeenCalled();
+    expect(render).not.toHaveBeenCalled();
+    expect(analysis.blocks.map(block => block.originalText)).toEqual(['Short text page']);
+    expect(analysis.pages[0]?.source).toBe('text');
+    expect(analysis.ocrPageCount).toBe(0);
+  });
+
   it('uses browser OCR for image-only PDF pages and keeps bounding boxes', async () => {
     const render = jest.fn(() => ({ promise: Promise.resolve() }));
     const { engine } = createEngine([{ items: [], render }]);
@@ -257,6 +497,53 @@ describe('PdfDocumentService', () => {
       ]);
     } finally {
       contextSpy.mockRestore();
+    }
+  });
+
+  it('falls back to bundled OCR when browser OCR returns only unusable results', async () => {
+    const { engine } = createEngine([{ items: [] }]);
+    const browserDetect = jest.fn(async () => [{
+      rawValue: 'Browser artifact',
+      boundingBox: { x: 20, y: 30, width: 0, height: 20 }
+    }]);
+    const recognize = jest.fn(async () => [{
+      text: 'Bundled fallback line',
+      confidence: 91,
+      boundingBox: { x: 20, y: 30, width: 240, height: 40 }
+    }]);
+    const terminate = jest.fn(async () => undefined);
+    const bundledSession = { recognize, terminate } as unknown as BundledOcrSession;
+    const createSessionSpy = jest.spyOn(bundledOcrService, 'createSession')
+      .mockReturnValue(bundledSession);
+    const contextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue({} as CanvasRenderingContext2D);
+    const globalScope = globalThis as typeof globalThis & { TextDetector?: unknown };
+    const previousTextDetector = globalScope.TextDetector;
+    globalScope.TextDetector = class {
+      detect = browserDetect;
+    };
+
+    try {
+      const session = await new PdfDocumentService(engine).open(new Uint8Array([4, 5, 6]));
+      const analysis = await session.analyze();
+
+      expect(browserDetect).toHaveBeenCalledTimes(1);
+      expect(recognize).toHaveBeenCalledTimes(1);
+      expect(analysis.blocks[0]).toEqual(expect.objectContaining({
+        originalText: 'Bundled fallback line',
+        layout: expect.objectContaining({ source: 'pdf-ocr' })
+      }));
+      expect(analysis.pages[0]?.ocrEngine).toBe('tesseract');
+      expect(analysis.bundledOcrPageCount).toBe(1);
+      expect(terminate).toHaveBeenCalledTimes(1);
+    } finally {
+      if (previousTextDetector === undefined) {
+        delete globalScope.TextDetector;
+      } else {
+        globalScope.TextDetector = previousTextDetector;
+      }
+      contextSpy.mockRestore();
+      createSessionSpy.mockRestore();
     }
   });
 

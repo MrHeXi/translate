@@ -33,6 +33,7 @@ export interface LiveCaptionTranscriptExport {
 }
 
 type TranslateText = (text: string) => Promise<string>;
+type CreateTranslationCacheKey = (text: string) => string;
 
 interface LiveCaptionCandidate {
   speaker?: string;
@@ -168,6 +169,7 @@ const LIVE_CAPTION_SELECTORS = [
 export class LiveCaptionTranslator {
   private isActive = false;
   private translateText: TranslateText | null = null;
+  private createTranslationCacheKey: CreateTranslationCacheKey = text => text;
   private overlayElement: HTMLElement | null = null;
   private observer: MutationObserver | null = null;
   private scanTimer: number | null = null;
@@ -177,7 +179,10 @@ export class LiveCaptionTranslator {
   private activeTranscriptCue: LiveCaptionTranscriptCue | null = null;
   private sessionStartedAt: number | null = null;
 
-  async toggle(translateText: TranslateText): Promise<LiveCaptionTranslatorState> {
+  async toggle(
+    translateText: TranslateText,
+    createTranslationCacheKey: CreateTranslationCacheKey = text => text
+  ): Promise<LiveCaptionTranslatorState> {
     if (this.isActive) {
       this.disable();
       return {
@@ -188,12 +193,16 @@ export class LiveCaptionTranslator {
       };
     }
 
-    return this.enable(translateText);
+    return this.enable(translateText, createTranslationCacheKey);
   }
 
-  enable(translateText: TranslateText): LiveCaptionTranslatorState {
+  enable(
+    translateText: TranslateText,
+    createTranslationCacheKey: CreateTranslationCacheKey = text => text
+  ): LiveCaptionTranslatorState {
     this.isActive = true;
     this.translateText = translateText;
+    this.createTranslationCacheKey = createTranslationCacheKey;
     this.createOverlay();
     this.startWatching();
 
@@ -333,10 +342,11 @@ export class LiveCaptionTranslator {
     this.renderCaption(caption, 'Translating...');
 
     try {
-      let translatedText = this.translationCache.get(caption.text);
+      const cacheKey = this.createTranslationCacheKey(caption.text);
+      let translatedText = this.translationCache.get(cacheKey);
       if (!translatedText) {
         translatedText = await this.translateText(caption.text);
-        this.translationCache.set(caption.text, translatedText);
+        this.translationCache.set(cacheKey, translatedText);
       }
 
       if (transcriptCue.originalText === caption.text) {

@@ -12,6 +12,7 @@ export interface VideoSubtitleExport {
 }
 
 type TranslateText = (text: string) => Promise<string>;
+type CreateTranslationCacheKey = (text: string) => string;
 
 interface ActiveSubtitleCue {
   text: string;
@@ -29,6 +30,7 @@ interface TranslatedSubtitleCue {
 export class VideoSubtitleTranslator {
   private isActive = false;
   private translateText: TranslateText | null = null;
+  private createTranslationCacheKey: CreateTranslationCacheKey = text => text;
   private overlayElement: HTMLElement | null = null;
   private currentTrack: TextTrack | null = null;
   private currentVideo: HTMLVideoElement | null = null;
@@ -43,7 +45,10 @@ export class VideoSubtitleTranslator {
     void this.handleCueChange();
   };
 
-  async toggle(translateText: TranslateText): Promise<VideoSubtitleTranslatorState> {
+  async toggle(
+    translateText: TranslateText,
+    createTranslationCacheKey: CreateTranslationCacheKey = text => text
+  ): Promise<VideoSubtitleTranslatorState> {
     if (this.isActive) {
       this.disable();
       return {
@@ -53,12 +58,16 @@ export class VideoSubtitleTranslator {
       };
     }
 
-    return this.enable(translateText);
+    return this.enable(translateText, createTranslationCacheKey);
   }
 
-  enable(translateText: TranslateText): VideoSubtitleTranslatorState {
+  enable(
+    translateText: TranslateText,
+    createTranslationCacheKey: CreateTranslationCacheKey = text => text
+  ): VideoSubtitleTranslatorState {
     this.isActive = true;
     this.translateText = translateText;
+    this.createTranslationCacheKey = createTranslationCacheKey;
     this.createOverlay();
     const hasTrack = this.scanForSubtitleSource();
 
@@ -216,10 +225,11 @@ export class VideoSubtitleTranslator {
     this.renderSubtitle(cueText, 'Translating...');
 
     try {
-      let translatedText = this.translationCache.get(cueText);
+      const cacheKey = this.createTranslationCacheKey(cueText);
+      let translatedText = this.translationCache.get(cacheKey);
       if (!translatedText) {
         translatedText = await this.translateText(cueText);
-        this.translationCache.set(cueText, translatedText);
+        this.translationCache.set(cacheKey, translatedText);
       }
 
       if (this.isActive && this.lastCueText === cueText) {
@@ -250,10 +260,11 @@ export class VideoSubtitleTranslator {
     this.renderSubtitle(cueText, 'Translating...');
 
     try {
-      let translatedText = this.translationCache.get(cueText);
+      const cacheKey = this.createTranslationCacheKey(cueText);
+      let translatedText = this.translationCache.get(cacheKey);
       if (!translatedText) {
         translatedText = await this.translateText(cueText);
-        this.translationCache.set(cueText, translatedText);
+        this.translationCache.set(cacheKey, translatedText);
       }
 
       if (this.isActive && !this.currentTrack && this.lastCueText === cueText) {
