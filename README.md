@@ -45,13 +45,16 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 ### Selection Translation
 
 - Select text on a page to show a translation tooltip.
+- Click the tooltip's speech action when you want the selected text read aloud; selecting text or finishing a translation never starts speech automatically.
+- Infer speech locale from the selected script for English, Simplified Chinese, Japanese, Korean, and Russian text, and cancel an existing utterance before a new explicit click.
 - Add useful words to the vocabulary notebook.
 - Use the selected text as learning material instead of a one-time lookup.
 
 ### Hover and Input Translation
 
 - Hold Control while hovering over a readable paragraph to translate it in place.
-- Type three trailing spaces in a supported input box, textarea, or editable field to translate the typed text.
+- Type three trailing spaces in a supported input box, textarea, or editable field to translate the typed text; the shortcut also works with mobile input/touch events.
+- Prefix the text with a known language such as `/en`, `/中文`, or `/zh-CN` to override the output language for that input only.
 - Keep both interactions deliberate so pages and forms are never translated automatically.
 
 ### Side Panel Text Translation
@@ -164,7 +167,8 @@ The generated test package is `chrome-translation-extension.zip`.
 
 1. Select text on any page.
 2. Read the translation tooltip.
-3. Add useful words to the vocabulary notebook when needed.
+3. Click Speak only when you want browser speech; it is never started by selection or translation completion.
+4. Add useful words to the vocabulary notebook when needed.
 
 ### Translate While Hovering
 
@@ -174,8 +178,9 @@ The generated test package is `chrome-translation-extension.zip`.
 ### Translate in an Input Box
 
 1. Type text into a supported input, textarea, or editable field.
-2. Press Space three times at the end of the text.
-3. LexiBridge replaces the typed text with the translation.
+2. Optionally start with `/en`, `/中文`, or another supported language code.
+3. Press Space three times at the end of the text; mobile input/touch interaction uses the same deliberate shortcut.
+4. LexiBridge replaces the typed text with the translation and does not trigger from existing text at page load.
 
 ### Translate Text in the Side Panel
 

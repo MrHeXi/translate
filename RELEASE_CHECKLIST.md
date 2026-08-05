@@ -82,6 +82,10 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Confirm `dist/ocr` includes the worker, SIMD/non-SIMD LSTM core files, five compressed language models, and license files.
 - [ ] Confirm Stop terminates an active image OCR session and removes all image overlays without starting work on another image.
 - [ ] Confirm selected text shows a translation tooltip.
+- [ ] Confirm selection does not speak on initialization, selection, or translation completion; click Speak explicitly, verify locale inference, and verify a second click cancels the prior utterance first.
+- [ ] Confirm missing Web Speech APIs degrade without an exception and cleanup cancels active speech.
+- [ ] Confirm input translation does not scan existing fields on page load, accepts `/en`, `/中文`, and `/zh-CN` prefixes, rejects unknown path-like prefixes, and preserves the default target when no prefix is present.
+- [ ] Confirm desktop and mobile three-space shortcuts honor their timing windows, synthetic page/writeback events do not trigger or recurse, touchend alone does not count as a space, failures can retry, and cleanup removes listeners.
 - [ ] Open the side panel from the popup and with `Alt+S`; confirm opening and mode changes send no provider request, configured providers are selectable, `Ctrl+Enter` translates, and Copy/Clear work.
 - [ ] Run Polish, Rewrite, Write, Reply, and Summarize with a configured AI provider; confirm ordinary translation providers are disabled, output language/Tone/Length/Additional requirement are applied, and Use result as input works.
 - [ ] Configure each credentialed provider with a test key or mock endpoint, verify masked-key display, and verify Remove configuration.

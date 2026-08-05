@@ -14,9 +14,14 @@ interface TranslationEntry {
   translationElement: HTMLElement;
 }
 
+interface SelectionTooltipActions {
+  onSpeak?: () => void;
+}
+
 export class TranslationOverlay {
   private translations: Map<Node, TranslationEntry> = new Map();
   private tooltipElement: HTMLElement | null = null;
+  private tooltipHideTimer: number | null = null;
   private wordDetailsModal: HTMLElement | null = null;
   private displayMode: PageTranslationDisplayMode = 'bilingual';
   private stylePreset: TranslationStylePreset = 'subtle';
@@ -380,7 +385,12 @@ export class TranslationOverlay {
   }
 
   // 新增方法：显示工具提示
-  showTooltip(originalText: string, translation: string, position: { x: number; y: number }): void {
+  showTooltip(
+    originalText: string,
+    translation: string,
+    position: { x: number; y: number },
+    actions: SelectionTooltipActions = {}
+  ): void {
     this.hideTooltip();
 
     this.tooltipElement = document.createElement('div');
@@ -390,15 +400,28 @@ export class TranslationOverlay {
         <div class="tooltip-original">${this.escapeHtml(originalText)}</div>
         <div class="tooltip-translation">${this.escapeHtml(translation)}</div>
       </div>
+      ${actions.onSpeak ? `
+        <div class="tooltip-actions">
+          <button type="button" class="tooltip-speak" data-action="selection-speak">朗读</button>
+        </div>
+      ` : ''}
     `;
 
     this.setTooltipStyles();
+    const speakButton = this.tooltipElement.querySelector('[data-action="selection-speak"]');
+    speakButton?.addEventListener('click', event => {
+      event.stopPropagation();
+      actions.onSpeak?.();
+    });
     this.positionTooltip(position);
     
     document.body.appendChild(this.tooltipElement);
 
     // 3秒后自动隐藏
-    setTimeout(() => this.hideTooltip(), 3000);
+    this.tooltipHideTimer = window.setTimeout(() => {
+      this.tooltipHideTimer = null;
+      this.hideTooltip();
+    }, 3000);
   }
 
   private setTooltipStyles(): void {
@@ -413,7 +436,7 @@ export class TranslationOverlay {
       fontSize: '14px',
       zIndex: '10003',
       maxWidth: '300px',
-      pointerEvents: 'none',
+      pointerEvents: 'auto',
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
     });
 
@@ -426,6 +449,25 @@ export class TranslationOverlay {
     const translationDiv = this.tooltipElement.querySelector('.tooltip-translation') as HTMLElement;
     if (translationDiv) {
       translationDiv.style.opacity = '0.9';
+    }
+
+    const actionsDiv = this.tooltipElement.querySelector('.tooltip-actions') as HTMLElement;
+    if (actionsDiv) {
+      actionsDiv.style.marginTop = '8px';
+      actionsDiv.style.textAlign = 'right';
+    }
+
+    const speakButton = this.tooltipElement.querySelector('.tooltip-speak') as HTMLElement;
+    if (speakButton) {
+      Object.assign(speakButton.style, {
+        border: '1px solid rgba(255, 255, 255, 0.45)',
+        borderRadius: '4px',
+        backgroundColor: 'transparent',
+        color: 'white',
+        cursor: 'pointer',
+        padding: '4px 8px',
+        fontSize: '12px'
+      });
     }
   }
 
@@ -450,6 +492,11 @@ export class TranslationOverlay {
   }
 
   hideTooltip(): void {
+    if (this.tooltipHideTimer !== null) {
+      window.clearTimeout(this.tooltipHideTimer);
+      this.tooltipHideTimer = null;
+    }
+
     if (this.tooltipElement && this.tooltipElement.parentNode) {
       this.tooltipElement.parentNode.removeChild(this.tooltipElement);
       this.tooltipElement = null;

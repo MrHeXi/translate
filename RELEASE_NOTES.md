@@ -14,9 +14,9 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Intelligent main-content detection with semantic-region priority, text/link density fallback, whole-page mode, and per-site scope overrides.
 - Immediate settings broadcasts to open tabs without exposing local translation provider secrets.
 - Bottom-right floating button with a visible "Translate page" hint.
-- Selected-text translation tooltip with vocabulary collection actions.
+- Selected-text translation tooltip with vocabulary collection actions and explicit click-to-speak speech using script-aware locales; selection and translation completion never start speech.
 - Control-hover paragraph translation for on-demand reading help.
-- Input box translation by typing three trailing spaces.
+- Input box translation by typing three trailing spaces, with language prefixes such as `/en`, `/中文`, and `/zh-CN`, mobile input/touch support, timeout protection, trusted-user-event enforcement, and no initialization scan.
 - Chrome side-panel text translation opened from the popup or `Alt+S`, with configured-provider filtering, provider-specific target languages, `Ctrl+Enter`, copy, and clear controls.
 - AI-assisted side-panel polish, rewrite, drafting, reply, and summary actions with configured-AI-provider enforcement, output-language, tone, length, optional-instruction, and iterative-use controls.
 - Side-panel initialization and mode switching load or update local controls only and never send a provider request until the user submits text.
@@ -51,11 +51,11 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 
 ### Verification
 
-Verified on 2026-07-19:
+Verified on 2026-08-05:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 49 test suites and 387 tests.
+- `jest --runInBand --silent`: passed, 50 test suites and 419 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 
@@ -70,7 +70,7 @@ Expected build warnings:
 
 - Unpacked extension folder: `dist`
 - Test package: `chrome-translation-extension.zip`
-- ZIP size: `17,731,836` bytes
-- SHA-256: `A19ECEBF25D2CBEF9B358E9E2F955FCC70F5762325DD5D96ED9A4E4F455DDD41`
+- ZIP size: `17,734,279` bytes
+- SHA-256: `0D2F3EC6D4C651343D5F0A3F90B7D987180B202C92B0D517266D2D608645A28D`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

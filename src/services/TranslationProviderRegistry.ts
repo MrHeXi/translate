@@ -327,6 +327,7 @@ export const TRANSLATION_LANGUAGES: TranslationLanguageDefinition[] = [
   { code: 'be', label: 'Belarusian' },
   { code: 'bn', label: 'Bengali' },
   { code: 'bho', label: 'Bhojpuri' },
+  { code: 'bo', label: 'Tibetan' },
   { code: 'bs', label: 'Bosnian' },
   { code: 'bg', label: 'Bulgarian' },
   { code: 'ca', label: 'Catalan' },

@@ -527,17 +527,96 @@ export class SelectionHandler {
     }
   }
 
-  private async speakText(): Promise<void> {
+  private normalizeSpeechLocale(language?: string): string | null {
+    const normalized = language?.trim().replace('_', '-').toLowerCase();
+    if (!normalized || normalized === 'auto' || normalized === 'unknown') return null;
+
+    const localeByLanguage: Readonly<Record<string, string>> = {
+      en: 'en-US',
+      fr: 'fr-FR',
+      es: 'es-ES',
+      de: 'de-DE',
+      it: 'it-IT',
+      pt: 'pt-BR',
+      ja: 'ja-JP',
+      ko: 'ko-KR',
+      ru: 'ru-RU',
+      'zh-cn': 'zh-CN',
+      'zh-hans': 'zh-CN',
+      'zh-tw': 'zh-TW',
+      'zh-hant': 'zh-TW'
+    };
+
+    return localeByLanguage[normalized]
+      || (/^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/.test(normalized) ? language!.replace('_', '-') : null);
+  }
+
+  private inferSpeechLocale(text: string, sourceLanguage?: string): string {
+    const sourceLocale = this.normalizeSpeechLocale(sourceLanguage);
+    if (sourceLocale) return sourceLocale;
+
+    // Check language-specific scripts before Han characters, which are shared
+    // by Chinese and Japanese text.
+    if (/[\u3040-\u30ff\u31f0-\u31ff\uff66-\uff9f]/.test(text)) {
+      return 'ja-JP';
+    }
+
+    if (/[\u1100-\u11ff\u3130-\u318f\ua960-\ua97f\uac00-\ud7ff]/.test(text)) {
+      return 'ko-KR';
+    }
+
+    if (/[\u0400-\u052f]/.test(text)) {
+      return 'ru-RU';
+    }
+
+    if (/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(text)) {
+      return 'zh-CN';
+    }
+
+    const pageLocale = this.normalizeSpeechLocale(document.documentElement?.lang);
+    if (pageLocale) return pageLocale;
+
+    return 'en-US';
+  }
+
+  private cancelSpeech(): void {
     try {
-      // 使用Web Speech API朗读
-      if ('speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(this.currentSelection);
-        utterance.lang = 'en-US';
-        utterance.rate = 0.8;
-        speechSynthesis.speak(utterance);
-      } else {
-        console.warn('浏览器不支持语音合成');
+      const speechSynthesis = typeof window !== 'undefined' ? window.speechSynthesis : undefined;
+      if (speechSynthesis && typeof speechSynthesis.cancel === 'function') {
+        speechSynthesis.cancel();
       }
+    } catch (error) {
+      console.error('语音停止失败:', error);
+    }
+  }
+
+  public speakText(text: string = this.currentSelection, sourceLanguage?: string): void {
+    try {
+      if (typeof window === 'undefined') return;
+
+      const normalizedText = text.trim();
+      if (!normalizedText) return;
+
+      const speechSynthesis = window.speechSynthesis;
+      const SpeechSynthesisUtteranceConstructor = window.SpeechSynthesisUtterance;
+
+      if (
+        !speechSynthesis ||
+        typeof speechSynthesis.cancel !== 'function' ||
+        typeof speechSynthesis.speak !== 'function' ||
+        typeof SpeechSynthesisUtteranceConstructor !== 'function'
+      ) {
+        console.warn('浏览器不支持语音合成');
+        return;
+      }
+
+      // Cancel first so repeated explicit clicks never overlap.
+      speechSynthesis.cancel();
+
+      const utterance = new SpeechSynthesisUtteranceConstructor(normalizedText);
+      utterance.lang = this.inferSpeechLocale(normalizedText, sourceLanguage);
+      utterance.rate = 0.8;
+      speechSynthesis.speak(utterance);
     } catch (error) {
       console.error('语音播放失败:', error);
     }
@@ -685,6 +764,7 @@ export class SelectionHandler {
   cleanup(): void {
     this.hideTooltip();
     this.setEnabled(false);
+    this.cancelSpeech();
     
     // 移除事件监听器
     document.removeEventListener('mouseup', this.boundHandleSelection);

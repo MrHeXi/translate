@@ -72,6 +72,7 @@ class ContentScript {
   private isLearningMode: boolean = false;
   private userSettings: UserSettings | null = null;
   private translationCache: Map<string, string> = new Map();
+  private selectionSourceLanguageCache: Map<string, string> = new Map();
   private translationSettingsRevision = 0;
   private pageObserver: MutationObserver | null = null;
   private isInitialized: boolean = false;
@@ -138,7 +139,9 @@ class ContentScript {
       });
 
       this.hoverTranslator.initialize((text) => this.translateInteractiveText(text));
-      this.inputBoxTranslator.initialize((text) => this.translateInteractiveText(text));
+      this.inputBoxTranslator.initialize((text, targetLanguage) => (
+        this.translateInteractiveText(text, targetLanguage)
+      ));
       this.documentPagePrompt.initialize();
 
       // 如果启用了学习模式，初始化词汇高亮
@@ -218,6 +221,7 @@ class ContentScript {
         this.userSettings = { ...this.userSettings, ...request.data };
         this.translationSettingsRevision++;
         this.translationCache.clear();
+        this.selectionSourceLanguageCache.clear();
         await this.applySettingsChanges();
         return { success: true };
       },
@@ -514,6 +518,7 @@ class ContentScript {
       // 检查缓存
       const cacheKey = this.createTranslationCacheKey(text);
       let translation: string | undefined = this.translationCache.get(cacheKey);
+      let sourceLanguage: string | undefined = this.selectionSourceLanguageCache.get(cacheKey);
       
       if (!translation) {
         // 检查网络状态
@@ -526,6 +531,9 @@ class ContentScript {
           
           if (offlineResult.success) {
             translation = offlineResult.data.translatedText;
+            sourceLanguage = typeof offlineResult.data?.sourceLang === 'string'
+              ? offlineResult.data.sourceLang
+              : undefined;
           } else {
             throw new Error('离线模式下无法翻译新内容');
           }
@@ -533,7 +541,12 @@ class ContentScript {
           // 在线翻译
           const result = await this.requestTranslation(text);
           translation = result.translatedText;
+          sourceLanguage = result.sourceLang;
           this.translationCache.set(cacheKey, translation);
+        }
+
+        if (sourceLanguage) {
+          this.selectionSourceLanguageCache.set(cacheKey, sourceLanguage);
         }
       }
 
@@ -546,7 +559,9 @@ class ContentScript {
       loadingManager.hideLoading(loadingId);
 
       // 显示翻译工具提示
-      this.translationOverlay.showTooltip(text, translation, position);
+      this.translationOverlay.showTooltip(text, translation, position, {
+        onSpeak: () => this.selectionHandler.speakText(text, sourceLanguage)
+      });
       
       // 如果启用学习模式，提供添加到生词本的选项
       if (this.isLearningMode) {
@@ -674,19 +689,19 @@ class ContentScript {
     }
   }
 
-  private async translateInteractiveText(text: string): Promise<string> {
+  private async translateInteractiveText(text: string, targetLanguage?: string): Promise<string> {
     const normalizedText = text.trim();
     if (!normalizedText) {
       return '';
     }
 
-    const cacheKey = this.createTranslationCacheKey(normalizedText);
+    const cacheKey = this.createTranslationCacheKey(normalizedText, '', targetLanguage);
     const cachedTranslation = this.translationCache.get(cacheKey);
     if (cachedTranslation) {
       return cachedTranslation;
     }
 
-    const result = await this.requestTranslation(normalizedText);
+    const result = await this.requestTranslation(normalizedText, undefined, targetLanguage);
     this.translationCache.set(cacheKey, result.translatedText);
     return result.translatedText;
   }
@@ -733,7 +748,10 @@ class ContentScript {
 
   private restoreOriginalPage(clearCache: boolean = true): void {
     this.translationOverlay.removeAllTranslations();
-    if (clearCache) this.translationCache.clear();
+    if (clearCache) {
+      this.translationCache.clear();
+      this.selectionSourceLanguageCache.clear();
+    }
   }
 
   private isCurrentTranslationRun(runId: number): boolean {
@@ -810,7 +828,11 @@ class ContentScript {
     }
   }
 
-  private async requestTranslation(text: string, context?: string): Promise<TranslationResult> {
+  private async requestTranslation(
+    text: string,
+    context?: string,
+    targetLanguage?: string
+  ): Promise<TranslationResult> {
     const startTime = Date.now();
     try {
       const response = await messageManager.sendToBackground({
@@ -818,7 +840,7 @@ class ContentScript {
         data: {
           text: text,
           context,
-          targetLang: this.userSettings?.defaultTargetLanguage || 'zh-CN',
+          targetLang: targetLanguage || this.userSettings?.defaultTargetLanguage || 'zh-CN',
           provider: this.userSettings?.translationProvider || 'google'
         }
       });
@@ -910,11 +932,15 @@ class ContentScript {
       .slice(0, 4000);
   }
 
-  private createTranslationCacheKey(text: string, context: string = ''): string {
+  private createTranslationCacheKey(
+    text: string,
+    context: string = '',
+    targetLanguage?: string
+  ): string {
     return JSON.stringify([
       this.translationSettingsRevision,
       this.userSettings?.translationProvider || 'google',
-      this.userSettings?.defaultTargetLanguage || 'zh-CN',
+      targetLanguage || this.userSettings?.defaultTargetLanguage || 'zh-CN',
       text.trim(),
       context.trim()
     ]);

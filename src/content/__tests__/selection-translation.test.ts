@@ -37,15 +37,28 @@ const mockDocument = {
   caretRangeFromPoint: jest.fn()
 };
 
+const mockSpeechSynthesis = {
+  cancel: jest.fn(),
+  speak: jest.fn()
+};
+
+const mockSpeechSynthesisUtterance = jest.fn().mockImplementation(function (
+  this: { text?: string; lang?: string; rate?: number },
+  text: string
+) {
+  this.text = text;
+  this.lang = '';
+  this.rate = 1;
+});
+
 const mockWindow = {
   getSelection: jest.fn(),
   innerWidth: 1024,
   innerHeight: 768,
   scrollY: 0,
   scrollX: 0,
-  speechSynthesis: {
-    speak: jest.fn()
-  }
+  speechSynthesis: mockSpeechSynthesis,
+  SpeechSynthesisUtterance: mockSpeechSynthesisUtterance
 };
 
 const mockChromeRuntime = {
@@ -56,11 +69,26 @@ const mockChromeRuntime = {
 (global as any).document = mockDocument;
 (global as any).window = mockWindow;
 (global as any).chrome = { runtime: mockChromeRuntime };
-(global as any).SpeechSynthesisUtterance = jest.fn();
+(global as any).SpeechSynthesisUtterance = mockSpeechSynthesisUtterance;
 (global as any).requestAnimationFrame = (callback: FrameRequestCallback) => callback(0);
 
 // 导入要测试的组件
 import { SelectionHandler } from '../components/SelectionHandler';
+
+const showSpeechTooltip = (selectionHandler: SelectionHandler, text: string): void => {
+  (selectionHandler as any).currentSelection = text;
+  (selectionHandler as any).createTooltip(text, 'translation', mockElementRect as unknown as DOMRect);
+};
+
+const clickTooltipAction = (selectionHandler: SelectionHandler, action: string): void => {
+  const tooltip = (selectionHandler as any).tooltip as HTMLElement;
+  const actionButton = tooltip.querySelector(`[data-action="${action}"]`) as HTMLButtonElement | null;
+  if (!actionButton) {
+    throw new Error(`Tooltip action not found: ${action}`);
+  }
+
+  actionButton.click();
+};
 
 const getExpectedSelectedText = (selectedText: string, selectionMethod: string): string => {
   if (selectionMethod === 'dblclick') {
@@ -77,6 +105,8 @@ describe('选词翻译功能属性测试', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (window as any).getSelection = mockWindow.getSelection;
+    (window as any).speechSynthesis = mockSpeechSynthesis;
+    (window as any).SpeechSynthesisUtterance = mockSpeechSynthesisUtterance;
     (document as any).caretRangeFromPoint = mockDocument.caretRangeFromPoint;
     mockElementRect = {
       left: 100,
@@ -150,6 +180,145 @@ describe('选词翻译功能属性测试', () => {
     expect(position.top).toBeGreaterThanOrEqual(10);
     expect(position.left + 200).toBeLessThanOrEqual(790);
     expect(position.top + 100).toBeLessThanOrEqual(590);
+  });
+
+  describe('explicit selection speech', () => {
+    it('requires a click on the tooltip speak button', () => {
+      selectionHandler.initialize();
+      showSpeechTooltip(selectionHandler, 'Hello world');
+
+      expect(mockSpeechSynthesis.speak).not.toHaveBeenCalled();
+
+      clickTooltipAction(selectionHandler, 'details');
+      expect(mockSpeechSynthesis.speak).not.toHaveBeenCalled();
+
+      clickTooltipAction(selectionHandler, 'speak');
+      expect(mockSpeechSynthesis.speak).toHaveBeenCalledTimes(1);
+    });
+
+    it('cancels existing speech before every speak call', () => {
+      showSpeechTooltip(selectionHandler, 'Hello world');
+
+      clickTooltipAction(selectionHandler, 'speak');
+      clickTooltipAction(selectionHandler, 'speak');
+
+      expect(mockSpeechSynthesis.cancel).toHaveBeenCalledTimes(2);
+      expect(mockSpeechSynthesis.speak).toHaveBeenCalledTimes(2);
+      expect(mockSpeechSynthesis.cancel.mock.invocationCallOrder[0]).toBeLessThan(
+        mockSpeechSynthesis.speak.mock.invocationCallOrder[0]!
+      );
+      expect(mockSpeechSynthesis.cancel.mock.invocationCallOrder[1]).toBeLessThan(
+        mockSpeechSynthesis.speak.mock.invocationCallOrder[1]!
+      );
+    });
+
+    it.each([
+      ['Chinese', '\u4f60\u597d\u4e16\u754c', 'zh-CN'],
+      ['Japanese', '\u3053\u3093\u306b\u3061\u306f', 'ja-JP'],
+      ['Korean', '\uc548\ub155\ud558\uc138\uc694', 'ko-KR'],
+      ['Russian', '\u041f\u0440\u0438\u0432\u0435\u0442', 'ru-RU'],
+      ['English by default', 'Hello world', 'en-US']
+    ])('infers the %s locale for selected text', (_language, text, expectedLocale) => {
+      showSpeechTooltip(selectionHandler, text);
+      clickTooltipAction(selectionHandler, 'speak');
+
+      const utterance = mockSpeechSynthesisUtterance.mock.instances[0] as {
+        text: string;
+        lang: string;
+        rate: number;
+      };
+      expect(utterance).toMatchObject({
+        text,
+        lang: expectedLocale,
+        rate: 0.8
+      });
+    });
+
+    it.each([
+      ['Latin-script French', 'Bonjour tout le monde', 'fr', 'fr-FR'],
+      ['Han-only Japanese', '\u6771\u4eac', 'ja', 'ja-JP']
+    ])('uses the detected source language for %s speech', (_case, text, sourceLanguage, locale) => {
+      selectionHandler.speakText(text, sourceLanguage);
+
+      const utterance = mockSpeechSynthesisUtterance.mock.instances[0] as {
+        text: string;
+        lang: string;
+      };
+      expect(utterance).toMatchObject({
+        text,
+        lang: locale
+      });
+    });
+
+    it('does not speak during initialization or ordinary text selection', () => {
+      const onTextSelected = jest.fn();
+      const selection = {
+        toString: () => 'Hello world',
+        rangeCount: 1,
+        getRangeAt: () => ({
+          getBoundingClientRect: () => mockElementRect
+        })
+      };
+
+      selectionHandler.onTextSelected(onTextSelected);
+      selectionHandler.initialize();
+      mockWindow.getSelection.mockReturnValue(selection);
+      (selectionHandler as any).handleSelection({ type: 'mouseup' } as Event);
+
+      expect(onTextSelected).toHaveBeenCalledWith('Hello world', { x: 200, y: 150 });
+      expect(mockSpeechSynthesis.cancel).not.toHaveBeenCalled();
+      expect(mockSpeechSynthesis.speak).not.toHaveBeenCalled();
+    });
+
+    it('does not speak when selection translation completes', async () => {
+      const selection = {
+        rangeCount: 1,
+        getRangeAt: () => ({
+          getBoundingClientRect: () => mockElementRect
+        })
+      } as unknown as Selection;
+
+      await (selectionHandler as any).showTranslationTooltip('Hello world', selection);
+
+      expect(mockChromeRuntime.sendMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'translate' }),
+        expect.any(Function)
+      );
+      expect(mockSpeechSynthesis.speak).not.toHaveBeenCalled();
+    });
+
+    it('does not throw when Web Speech APIs are unavailable', () => {
+      showSpeechTooltip(selectionHandler, 'Hello world');
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      try {
+        (window as any).speechSynthesis = undefined;
+        (window as any).SpeechSynthesisUtterance = undefined;
+        expect(() => clickTooltipAction(selectionHandler, 'speak')).not.toThrow();
+
+        (window as any).speechSynthesis = { speak: jest.fn() };
+        expect(() => clickTooltipAction(selectionHandler, 'speak')).not.toThrow();
+      } finally {
+        (window as any).speechSynthesis = mockSpeechSynthesis;
+        (window as any).SpeechSynthesisUtterance = mockSpeechSynthesisUtterance;
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('cancels active speech during cleanup without speaking again', () => {
+      showSpeechTooltip(selectionHandler, 'Hello world');
+      clickTooltipAction(selectionHandler, 'speak');
+
+      mockSpeechSynthesis.cancel.mockClear();
+      mockSpeechSynthesis.speak.mockClear();
+      mockSpeechSynthesisUtterance.mockClear();
+
+      selectionHandler.cleanup();
+
+      expect(mockSpeechSynthesis.cancel).toHaveBeenCalledTimes(1);
+      expect(mockSpeechSynthesis.speak).not.toHaveBeenCalled();
+      expect(mockSpeechSynthesisUtterance).not.toHaveBeenCalled();
+    });
   });
 
   describe('属性 4：选词翻译响应性', () => {

@@ -91,4 +91,25 @@ describe('TranslationOverlay display modes', () => {
     expect(translation.style.borderLeftColor).toBe('transparent');
     expect(translation.style.padding).toBe('0px');
   });
+
+  it('runs selection speech only after the user clicks the speak button', () => {
+    const onSpeak = jest.fn();
+
+    overlay.showTooltip(
+      'Bonjour tout le monde',
+      'Hello everyone',
+      { x: 100, y: 120 },
+      { onSpeak }
+    );
+
+    expect(onSpeak).not.toHaveBeenCalled();
+
+    const speakButton = document.querySelector(
+      '[data-action="selection-speak"]'
+    ) as HTMLButtonElement | null;
+    expect(speakButton).not.toBeNull();
+
+    speakButton!.click();
+    expect(onSpeak).toHaveBeenCalledTimes(1);
+  });
 });

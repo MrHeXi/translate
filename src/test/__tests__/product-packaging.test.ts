@@ -82,6 +82,10 @@ describe('product packaging contract', () => {
     expect(readme).toContain('They never start translation when a page opens');
     expect(readme).toContain('Hold Control while hovering');
     expect(readme).toContain('Press Space three times');
+    expect(readme).toContain('Click the tooltip\'s speech action');
+    expect(readme).toContain('mobile input/touch events');
+    expect(readme).toContain('`/en`, `/中文`, or `/zh-CN`');
+    expect(readme).toContain('does not trigger from existing text at page load');
     expect(readme).toContain('Side Panel Text Translation');
     expect(readme).toContain('no text is sent until the user submits it');
     expect(readme).toContain('polish, rewrite, compose, reply, or summarize');
@@ -285,15 +289,17 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('49 test suites and 387 tests');
-    expect(releaseNotes).toContain('17,731,836');
-    expect(releaseNotes).toContain('A19ECEBF25D2CBEF9B358E9E2F955FCC70F5762325DD5D96ED9A4E4F455DDD41');
+    expect(releaseNotes).toContain('50 test suites and 419 tests');
+    expect(releaseNotes).toContain('17,734,279');
+    expect(releaseNotes).toContain('0D2F3EC6D4C651343D5F0A3F90B7D987180B202C92B0D517266D2D608645A28D');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
     expect(releaseNotes).toContain('Mixed PDF pages with sparse text layers');
     expect(releaseNotes).toContain('newly inserted text without safe source geometry remains translatable');
     expect(releaseNotes).toContain('single MessageManager listener owns content-script command dispatch');
+    expect(releaseNotes).toContain('explicit click-to-speak speech using script-aware locales');
+    expect(releaseNotes).toContain('language prefixes such as `/en`, `/中文`, and `/zh-CN`');
 
     expect(screenshotGuide).toContain('Popup Overview');
     expect(screenshotGuide).toContain('Floating Button');

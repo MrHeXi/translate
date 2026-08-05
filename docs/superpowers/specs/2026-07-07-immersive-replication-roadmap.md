@@ -37,7 +37,8 @@ Already implemented:
 
 - Manual page translation from popup and floating button.
 - Immediate Start/Stop state that restores the page.
-- Selected-text translation tooltip.
+- Selected-text translation tooltip with explicit click-to-speak speech and script-aware locale selection.
+- Input box translation with language prefixes, desktop/mobile deliberate shortcuts, timeout protection, and initialization no-op behavior.
 - Vocabulary notebook and review flow.
 - Built-in CET4, CET6, GRE, IELTS, and TOEFL dictionaries.
 - Floating button discoverability and release packaging.
@@ -83,7 +84,8 @@ Current batch:
 ### Batch A: Web Interaction Parity
 
 - Add modifier-key hover paragraph translation.
-- Add input box translation shortcut.
+- Done: add input box translation shortcut with language prefixes and mobile gesture handling.
+- Done: add explicit selection speech with locale inference and cancellation.
 - Keep page translation user-triggered.
 - Verify no automatic translation happens on page load.
 

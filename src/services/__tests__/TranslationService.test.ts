@@ -159,6 +159,7 @@ describe('TranslationService', () => {
       expect(TRANSLATION_LANGUAGES.some(language => language.code === 'zh-CN')).toBe(true);
       expect(TRANSLATION_LANGUAGES.some(language => language.code === 'en')).toBe(true);
       expect(TRANSLATION_LANGUAGES.some(language => language.code === 'es')).toBe(true);
+      expect(TRANSLATION_LANGUAGES.some(language => language.code === 'bo')).toBe(true);
       expect(getProviderTargetLanguages('caiyun').map(language => language.code)).toEqual([
         'zh-CN',
         'zh-TW',
