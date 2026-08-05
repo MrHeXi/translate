@@ -232,7 +232,9 @@ describe('product packaging contract', () => {
     expect(listing).toContain('DOCX paragraph text');
     expect(listing).toContain('translated source-file export');
     expect(listing).toContain('EPUB spine documents');
-    expect(listing).toContain('subtitle files with timing-preserving export');
+    expect(listing).toContain('editable SRT/VTT/ASS/SSA subtitle results');
+    expect(listing).toContain('ASS/SSA export preserves script sections, timing, styles, comments, and inline tags');
+    expect(listing).toContain('Document history is stored only after Save history in local Chrome storage');
     expect(listing).toContain('skipping scripts, styles, and markup');
     expect(listing).toContain('local PDF.js rendering');
     expect(listing).toContain('two-column reading order');
@@ -289,9 +291,9 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('50 test suites and 419 tests');
-    expect(releaseNotes).toContain('17,734,279');
-    expect(releaseNotes).toContain('0D2F3EC6D4C651343D5F0A3F90B7D987180B202C92B0D517266D2D608645A28D');
+    expect(releaseNotes).toContain('51 test suites and 436 tests');
+    expect(releaseNotes).toContain('17,742,915');
+    expect(releaseNotes).toContain('57AA6451D17856FB8A48D1A0E41EBFC08166B139C043C190915C0D169F1DD5E6');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -299,6 +301,8 @@ describe('product packaging contract', () => {
     expect(releaseNotes).toContain('newly inserted text without safe source geometry remains translatable');
     expect(releaseNotes).toContain('single MessageManager listener owns content-script command dispatch');
     expect(releaseNotes).toContain('explicit click-to-speak speech using script-aware locales');
+    expect(releaseNotes).toContain('Structure-preserving ASS/SSA subtitle import and export');
+    expect(releaseNotes).toContain('Explicit versioned document history in local Chrome storage');
     expect(releaseNotes).toContain('language prefixes such as `/en`, `/中文`, and `/zh-CN`');
 
     expect(screenshotGuide).toContain('Popup Overview');
@@ -410,7 +414,9 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('nine domain-specific AI translation experts');
     expect(roadmap).toContain('include AI preferences in cache identity');
     expect(roadmap).toContain('Document Formats, Batch Workflows, and History');
-    expect(roadmap).toContain('MOBI import and ASS/SSA subtitle import/export');
+    expect(roadmap).toContain('Done: add ASS/SSA subtitle import/export');
+    expect(roadmap).toContain('Remaining: add MOBI import');
+    expect(roadmap).toContain('explicit local translation history');
     expect(roadmap).toContain('YouTube standard videos, Live, Shorts');
     expect(roadmap).toContain('installable AI expert definitions');
     expect(roadmap).toContain('sensitive-data masking before provider requests');
@@ -443,6 +449,10 @@ describe('product packaging contract', () => {
     expect(documentHtml).toContain('id="pdfViewer"');
     expect(documentHtml).toContain('id="exportPdfFile"');
     expect(documentHtml).toContain('id="ocrLanguage"');
+    expect(documentHtml).toContain('.ass,.ssa');
+    expect(documentHtml).toContain('id="saveDocumentHistory"');
+    expect(documentHtml).toContain('id="historyRetention"');
+    expect(documentHtml).toContain('id="documentHistoryList"');
     const optionsHtml = readProjectFile('src/options/options.html');
     expect(optionsHtml).toContain('id="documentOcrLanguage"');
     expect(optionsHtml).toContain('id="aiContextEnabled"');

@@ -45,7 +45,8 @@ body {
   grid-template-areas:
     "toolbar toolbar"
     "input results"
-    "progress results";
+    "progress results"
+    "history results";
   gap: 16px;
   padding: 20px 28px 28px;
 }
@@ -171,6 +172,97 @@ select {
   gap: 10px;
   color: #617089;
   font-size: 13px;
+}
+
+.document-history {
+  grid-area: history;
+  min-width: 0;
+  background: #ffffff;
+  border: 1px solid #dce3ee;
+  border-radius: 8px;
+}
+
+.history-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: end;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid #e5ebf4;
+}
+
+.history-header h2 {
+  align-self: center;
+  margin: 0;
+  font-size: 15px;
+}
+
+.history-retention {
+  min-width: 72px;
+}
+
+.history-retention select {
+  min-height: 32px;
+}
+
+.history-header .secondary-btn {
+  min-height: 32px;
+  padding: 4px 10px;
+}
+
+.history-list {
+  max-height: 360px;
+  overflow: auto;
+}
+
+.history-empty {
+  margin: 0;
+  padding: 14px 12px;
+  color: #617089;
+  font-size: 13px;
+}
+
+.history-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid #edf1f6;
+}
+
+.history-item:last-child {
+  border-bottom: 0;
+}
+
+.history-item-title {
+  margin: 0;
+  overflow: hidden;
+  color: #172033;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item-meta {
+  margin: 4px 0 8px;
+  color: #617089;
+  font-size: 12px;
+}
+
+.history-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.history-item-actions button {
+  min-height: 30px;
+  padding: 3px 9px;
+  border: 1px solid #cfd8e6;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #246bfe;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
 }
 
 .progress-track {
@@ -325,19 +417,50 @@ select {
   border-top: 1px solid #e5ebf4;
 }
 
+.document-translation[contenteditable="plaintext-only"] {
+  min-height: 30px;
+  outline: none;
+  cursor: text;
+}
+
+.document-translation[contenteditable="plaintext-only"]:focus {
+  box-shadow: inset 3px 0 0 #246bfe;
+  padding-left: 8px;
+}
+
 @media (max-width: 860px) {
+  .document-header {
+    padding: 16px;
+  }
+
   .document-main {
     grid-template-columns: 1fr;
     grid-template-areas:
       "toolbar"
       "input"
       "progress"
+      "history"
       "results";
+    width: 100%;
+    padding: 16px;
   }
 
-  .document-toolbar,
+  .document-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .input-actions {
-    grid-template-columns: 1fr;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .input-actions > * {
+    min-width: 0;
+    width: 100%;
+  }
+
+  #sourceText {
+    min-width: 0;
   }
 
   .pdf-page-row {

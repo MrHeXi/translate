@@ -21,6 +21,9 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - AI-assisted side-panel polish, rewrite, drafting, reply, and summary actions with configured-AI-provider enforcement, output-language, tone, length, optional-instruction, and iterative-use controls.
 - Side-panel initialization and mode switching load or update local controls only and never send a provider request until the user submits text.
 - Document translator for pasted text, text files, HTML, JSON, DOCX, EPUB, subtitle files, and PDFs, with bundled PDF.js page rendering, positioned text extraction, browser-plus-bundled offline OCR for image-only pages, side-by-side original/translated previews, and flattened translated-PDF export.
+- Structure-preserving ASS/SSA subtitle import and export with timing, styles, comments, inline tags, and comma-bearing dialogue text retained; vector-drawing dialogue remains original.
+- Editable translated document blocks whose final text is used by subtitle, JSON, DOCX, EPUB, PDF, and history exports.
+- Explicit versioned document history in local Chrome storage with reopen-without-translation, JSON export, delete/clear controls, 10/25/50 retention, 512 KiB per-entry and 4 MiB total limits, and no binary PDF/DOCX/EPUB source persistence.
 - Mixed PDF pages with sparse text layers are supplemented by local OCR when PDF.js identifies raster content; text-layer and OCR blocks are merged and duplicate detections are removed.
 - Editing a loaded PDF preserves block IDs, page geometry, column metadata, and formula metadata when safe; newly inserted text without safe source geometry remains translatable but disables PDF export rather than being silently omitted.
 - Conservative two-column PDF detection with left-column-then-right-column reading order and translated overlays constrained to inferred column regions.
@@ -55,7 +58,7 @@ Verified on 2026-08-05:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 50 test suites and 419 tests.
+- `jest --runInBand --silent`: passed, 51 test suites and 436 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 
@@ -70,7 +73,7 @@ Expected build warnings:
 
 - Unpacked extension folder: `dist`
 - Test package: `chrome-translation-extension.zip`
-- ZIP size: `17,734,279` bytes
-- SHA-256: `0D2F3EC6D4C651343D5F0A3F90B7D987180B202C92B0D517266D2D608645A28D`
+- ZIP size: `17,742,915` bytes
+- SHA-256: `57AA6451D17856FB8A48D1A0E41EBFC08166B139C043C190915C0D169F1DD5E6`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

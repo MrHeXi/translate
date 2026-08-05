@@ -43,10 +43,11 @@
       <section class="document-input">
         <div class="input-actions">
           <label class="file-picker">
-            <input id="documentFile" type="file" accept=".txt,.md,.markdown,.html,.htm,.json,.docx,.epub,.srt,.vtt,.pdf,text/plain,text/markdown,text/html,application/xhtml+xml,application/json,text/json,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/epub+zip,application/pdf">
+            <input id="documentFile" type="file" accept=".txt,.md,.markdown,.html,.htm,.json,.docx,.epub,.srt,.vtt,.ass,.ssa,.pdf,text/plain,text/markdown,text/html,application/xhtml+xml,application/json,text/json,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/epub+zip,application/pdf">
             Choose file
           </label>
           <button id="translateDocument" class="primary-btn">Translate document</button>
+          <button id="saveDocumentHistory" class="secondary-btn" disabled>Save history</button>
           <button id="exportSubtitleFile" class="secondary-btn" disabled>Export subtitles</button>
           <button id="exportJsonFile" class="secondary-btn" disabled>Export JSON</button>
           <button id="exportDocxFile" class="secondary-btn" disabled>Export DOCX</button>
@@ -54,7 +55,7 @@
           <button id="exportPdfFile" class="secondary-btn" disabled>Export PDF</button>
           <button id="clearDocument" class="secondary-btn">Clear</button>
         </div>
-        <textarea id="sourceText" placeholder="Paste document text or load a PDF, HTML file, JSON file, DOCX, EPUB, or subtitle file."></textarea>
+        <textarea id="sourceText" placeholder="Paste document text or load a PDF, HTML, JSON, DOCX, EPUB, SRT, VTT, ASS, or SSA file."></textarea>
         <p id="documentMessage" class="document-message" role="status"></p>
       </section>
 
@@ -63,6 +64,22 @@
           <div id="progressBar" class="progress-bar"></div>
         </div>
         <span id="progressText">0 blocks</span>
+      </section>
+
+      <section class="document-history" aria-label="Local document translation history">
+        <header class="history-header">
+          <h2>History</h2>
+          <label class="history-retention">
+            Keep
+            <select id="historyRetention">
+              <option value="10">10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+            </select>
+          </label>
+          <button id="clearDocumentHistory" class="secondary-btn" type="button" disabled>Clear all</button>
+        </header>
+        <div id="documentHistoryList" class="history-list"></div>
       </section>
 
       <div class="document-output">

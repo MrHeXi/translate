@@ -45,6 +45,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Disclose Chrome storage and Chrome sync use.
 - [ ] Disclose all 29 implemented provider adapters and distinguish pre-granted hosts from provider hosts requested when configuration is saved.
 - [ ] Disclose that provider API keys, client/application IDs, and temporary session tokens stay in local Chrome storage and are excluded from Chrome sync and learning-data exports.
+- [ ] Disclose that document history is created only by Save history, stays in local storage, is size/retention bounded, and excludes binary PDF, DOCX, and EPUB source bytes.
 - [ ] Confirm AI neighboring context is off by default, is sent only for manual page/document translation when enabled, and is bounded before provider requests.
 - [ ] Confirm AI-capable provider requests include the selected domain, normalized glossary, and custom instructions while keeping source/context in a separate untrusted-data message.
 - [ ] Confirm changing AI translation settings clears the background translation cache and different contexts cannot share a cached result.
@@ -79,6 +80,9 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Load a PDF with standalone equations; confirm likely formulas are labeled as preserved, send no translation request, remain visible in preview, and are not painted over in exported pages.
 - [ ] Confirm an image-only PDF tries local browser OCR first, falls back to bundled Tesseract OCR, reports per-page progress, and reports pages without detected text.
 - [ ] Confirm English, Simplified Chinese, Traditional Chinese, Japanese, and Korean OCR choices persist and are shared by PDF and image translation.
+- [ ] Load representative ASS and SSA files; confirm selecting the file sends no translation request, only Dialogue text is translated after Translate document, edited translations are exported, and sections/timing/styles/comments/inline tags remain unchanged while vector drawings remain original.
+- [ ] Save an edited document result to history, confirm no entry exists before Save history, reopen it without a translation request, export JSON, change 10/25/50 retention, delete an entry, and clear all history.
+- [ ] Reopen PDF, DOCX, and EPUB results from history; confirm results remain readable but source-format export is disabled because binary source bytes were not persisted.
 - [ ] Confirm `dist/ocr` includes the worker, SIMD/non-SIMD LSTM core files, five compressed language models, and license files.
 - [ ] Confirm Stop terminates an active image OCR session and removes all image overlays without starting work on another image.
 - [ ] Confirm selected text shows a translation tooltip.

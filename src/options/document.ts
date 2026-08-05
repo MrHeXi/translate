@@ -15,6 +15,13 @@ import {
   getProviderTargetLanguages,
   TRANSLATION_LANGUAGES
 } from '../services/TranslationProviderRegistry';
+import {
+  DocumentHistoryEntry,
+  DocumentHistoryRetention,
+  DocumentHistorySourceKind,
+  DOCUMENT_HISTORY_SCHEMA_VERSION,
+  documentHistoryService
+} from '../services/DocumentHistoryService';
 
 type DisplayMode = 'bilingual' | 'translation-only' | 'original-only';
 
@@ -50,7 +57,11 @@ class DocumentTranslatorController {
   private exportDocxButton: HTMLButtonElement | null = null;
   private exportEpubButton: HTMLButtonElement | null = null;
   private exportPdfButton: HTMLButtonElement | null = null;
+  private saveHistoryButton: HTMLButtonElement | null = null;
   private clearButton: HTMLButtonElement | null = null;
+  private historyRetention: HTMLSelectElement | null = null;
+  private clearHistoryButton: HTMLButtonElement | null = null;
+  private historyList: HTMLElement | null = null;
   private targetLanguage: HTMLSelectElement | null = null;
   private translationProvider: HTMLSelectElement | null = null;
   private displayMode: HTMLSelectElement | null = null;
@@ -65,10 +76,14 @@ class DocumentTranslatorController {
   private loadedRawFileText = '';
   private loadedRawFileBytes: Uint8Array | null = null;
   private loadedFileName = '';
+  private loadedSourceKind: DocumentHistorySourceKind = 'manual';
+  private loadedSourceUrl = '';
   private currentResults: TranslationResult[] = [];
   private pdfSession: PdfDocumentSession | null = null;
   private pdfAnalysis: PdfDocumentAnalysis | null = null;
   private readonly pdfPageViews = new Map<number, PdfPageView>();
+  private historyEntries: DocumentHistoryEntry[] = [];
+  private isBusy = false;
 
   constructor() {
     this.initialize();
@@ -83,7 +98,11 @@ class DocumentTranslatorController {
     this.exportDocxButton = document.getElementById('exportDocxFile') as HTMLButtonElement | null;
     this.exportEpubButton = document.getElementById('exportEpubFile') as HTMLButtonElement | null;
     this.exportPdfButton = document.getElementById('exportPdfFile') as HTMLButtonElement | null;
+    this.saveHistoryButton = document.getElementById('saveDocumentHistory') as HTMLButtonElement | null;
     this.clearButton = document.getElementById('clearDocument') as HTMLButtonElement | null;
+    this.historyRetention = document.getElementById('historyRetention') as HTMLSelectElement | null;
+    this.clearHistoryButton = document.getElementById('clearDocumentHistory') as HTMLButtonElement | null;
+    this.historyList = document.getElementById('documentHistoryList');
     this.targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement | null;
     this.translationProvider = document.getElementById('translationProvider') as HTMLSelectElement | null;
     this.displayMode = document.getElementById('displayMode') as HTMLSelectElement | null;
@@ -100,6 +119,7 @@ class DocumentTranslatorController {
     this.bindEvents();
     this.renderResults([]);
     this.updateExportButtons();
+    await this.loadDocumentHistory();
   }
 
   private populateControls(): void {
@@ -164,11 +184,16 @@ class DocumentTranslatorController {
   }
 
   private applySourceUrl(): void {
-    const sourceUrl = new URLSearchParams(window.location.search).get('sourceUrl');
-    const sourceUrlInfo = document.getElementById('sourceUrlInfo');
-    if (!sourceUrl || !sourceUrlInfo) return;
+    const sourceUrl = new URLSearchParams(window.location.search).get('sourceUrl') || '';
+    this.loadedSourceUrl = sourceUrl;
+    this.setSourceUrlInfo(sourceUrl);
+  }
 
-    sourceUrlInfo.hidden = false;
+  private setSourceUrlInfo(sourceUrl: string): void {
+    const sourceUrlInfo = document.getElementById('sourceUrlInfo');
+    if (!sourceUrlInfo) return;
+
+    sourceUrlInfo.hidden = !sourceUrl;
     sourceUrlInfo.textContent = sourceUrl;
   }
 
@@ -180,7 +205,11 @@ class DocumentTranslatorController {
     this.exportDocxButton?.addEventListener('click', () => void this.exportTranslatedDocx());
     this.exportEpubButton?.addEventListener('click', () => void this.exportTranslatedEpub());
     this.exportPdfButton?.addEventListener('click', () => void this.exportTranslatedPdf());
+    this.saveHistoryButton?.addEventListener('click', () => void this.saveDocumentHistory());
     this.clearButton?.addEventListener('click', () => this.clearDocument());
+    this.historyRetention?.addEventListener('change', () => void this.changeHistoryRetention());
+    this.clearHistoryButton?.addEventListener('click', () => void this.clearDocumentHistory());
+    this.historyList?.addEventListener('click', event => void this.handleHistoryAction(event));
     this.displayMode?.addEventListener('change', () => this.applyDisplayMode());
     this.ocrLanguage?.addEventListener('change', () => void this.handleOcrLanguageChange());
     this.translationProvider?.addEventListener('change', () => this.updateTargetLanguageAvailability());
@@ -196,11 +225,14 @@ class DocumentTranslatorController {
     try {
       this.setBusy(true);
       await this.disposePdfSession();
+      this.applySourceUrl();
       const isJsonDocument = this.isJsonDocumentFile(file);
       const isDocxDocument = this.isDocxDocumentFile(file);
       const isEpubDocument = this.isEpubDocumentFile(file);
       const isPdfDocument = this.isPdfDocumentFile(file);
-      const rawText = isJsonDocument ? await file.text() : '';
+      const rawText = isDocxDocument || isEpubDocument || isPdfDocument
+        ? ''
+        : await file.text();
       const rawBytes = isDocxDocument || isEpubDocument || isPdfDocument
         ? new Uint8Array(await file.arrayBuffer())
         : null;
@@ -239,6 +271,7 @@ class DocumentTranslatorController {
         this.loadedRawFileText = '';
         this.loadedRawFileBytes = rawBytes;
         this.loadedFileName = file.name;
+        this.loadedSourceKind = this.getDocumentHistorySourceKind(file.name);
         this.currentResults = [];
         this.sourceText.value = '';
         this.renderResults([]);
@@ -257,6 +290,7 @@ class DocumentTranslatorController {
       this.loadedRawFileText = rawText;
       this.loadedRawFileBytes = rawBytes;
       this.loadedFileName = file.name;
+      this.loadedSourceKind = this.getDocumentHistorySourceKind(file.name);
       this.currentResults = [];
       this.sourceText.value = text;
       const hasLayout = blocks.some(block => block.layout);
@@ -397,6 +431,17 @@ class DocumentTranslatorController {
       const translation = document.createElement('div');
       translation.className = 'document-translation';
       translation.textContent = result.translatedText;
+      translation.setAttribute('role', 'textbox');
+      translation.setAttribute('aria-label', `Translation for ${this.getBlockLabel(result.block)}`);
+      translation.contentEditable = result.preservedOriginal ? 'false' : 'plaintext-only';
+      translation.spellcheck = false;
+      if (!result.preservedOriginal) {
+        translation.addEventListener('input', () => {
+          result.translatedText = this.readEditableTranslation(translation);
+          this.renderPdfTranslationOverlays();
+          this.updateExportButtons();
+        });
+      }
 
       block.append(index, original, translation);
       this.resultsContainer.appendChild(block);
@@ -405,16 +450,34 @@ class DocumentTranslatorController {
     this.applyDisplayMode();
   }
 
+  private readEditableTranslation(element: HTMLElement): string {
+    const text = typeof element.innerText === 'string'
+      ? element.innerText
+      : element.textContent || '';
+    return text.replace(/\r\n?/g, '\n');
+  }
+
   private exportTranslatedSubtitles(): void {
-    const subtitleResults = this.currentResults.filter(result => result.block.subtitle && result.translatedText.trim());
+    const subtitleResults = this.currentResults.filter(result => (
+      (result.block.subtitle || result.block.ass) && result.translatedText.trim()
+    ));
     if (subtitleResults.length === 0) {
       this.showMessage('Translate a subtitle file before exporting.', 'error');
       return;
     }
 
-    const format = subtitleResults[0]!.block.subtitle!.format;
-    const content = this.renderTranslatedSubtitleFile(subtitleResults, format);
-    const extension = format === 'vtt' ? 'vtt' : 'srt';
+    const firstBlock = subtitleResults[0]!.block;
+    const assFormat = firstBlock.ass?.format;
+    const format = assFormat || firstBlock.subtitle!.format;
+    if (assFormat && !this.loadedRawFileText) {
+      this.showMessage('The original ASS/SSA script is unavailable for export.', 'error');
+      return;
+    }
+
+    const content = assFormat
+      ? DocumentTextExtractor.rewriteAssWithTranslations(this.loadedRawFileText, subtitleResults)
+      : this.renderTranslatedSubtitleFile(subtitleResults, format as 'srt' | 'vtt');
+    const extension = format;
     const filename = this.createSubtitleExportFilename(extension);
 
     this.downloadTextFile(content, filename, `text/${format === 'vtt' ? 'vtt' : 'plain'};charset=utf-8`);
@@ -529,7 +592,7 @@ class DocumentTranslatorController {
       : `${cues.join('\n\n')}\n`;
   }
 
-  private createSubtitleExportFilename(extension: 'srt' | 'vtt'): string {
+  private createSubtitleExportFilename(extension: 'srt' | 'vtt' | 'ass' | 'ssa'): string {
     const baseName = (this.loadedFileName || 'translated-subtitles')
       .replace(/\.[^.]+$/, '')
       .replace(/[\\/:*?"<>|]+/g, '-')
@@ -1046,6 +1109,313 @@ class DocumentTranslatorController {
     ].join(' · ');
   }
 
+  private async loadDocumentHistory(): Promise<void> {
+    if (!this.historyList && !this.historyRetention && !this.clearHistoryButton) return;
+
+    try {
+      const [retention, entries] = await Promise.all([
+        documentHistoryService.getRetention(),
+        documentHistoryService.list()
+      ]);
+      if (this.historyRetention) this.historyRetention.value = String(retention);
+      this.historyEntries = entries;
+      this.renderDocumentHistory();
+    } catch {
+      this.historyEntries = [];
+      this.renderDocumentHistory();
+      this.showMessage('Could not load local document history.', 'error');
+    }
+  }
+
+  private renderDocumentHistory(): void {
+    if (this.clearHistoryButton) {
+      this.clearHistoryButton.disabled = this.historyEntries.length === 0;
+    }
+    if (!this.historyList) return;
+
+    this.historyList.replaceChildren();
+    if (this.historyEntries.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'history-empty';
+      empty.textContent = 'No saved documents.';
+      this.historyList.appendChild(empty);
+      return;
+    }
+
+    for (const entry of this.historyEntries) {
+      const item = document.createElement('article');
+      item.className = 'history-item';
+      item.dataset['historyId'] = entry.id;
+
+      const title = document.createElement('h3');
+      title.className = 'history-item-title';
+      title.textContent = entry.fileName || 'Pasted document';
+      title.title = title.textContent;
+
+      const metadata = document.createElement('p');
+      metadata.className = 'history-item-meta';
+      metadata.textContent = [
+        new Date(entry.createdAt).toLocaleString(),
+        entry.sourceKind.toUpperCase(),
+        entry.provider,
+        entry.targetLanguage,
+        `${entry.results.length} blocks`,
+        entry.complete ? 'Complete' : 'Partial'
+      ].join(' | ');
+
+      const actions = document.createElement('div');
+      actions.className = 'history-item-actions';
+      actions.append(
+        this.createHistoryActionButton('Open', 'open', entry.id),
+        this.createHistoryActionButton('Export', 'export', entry.id),
+        this.createHistoryActionButton('Delete', 'delete', entry.id)
+      );
+      item.append(title, metadata, actions);
+      this.historyList.appendChild(item);
+    }
+  }
+
+  private createHistoryActionButton(
+    label: string,
+    action: 'open' | 'export' | 'delete',
+    historyId: string
+  ): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.disabled = this.isBusy;
+    button.dataset['historyAction'] = action;
+    button.dataset['historyId'] = historyId;
+    return button;
+  }
+
+  private async handleHistoryAction(event: Event): Promise<void> {
+    if (this.isBusy) return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest<HTMLButtonElement>('button[data-history-action][data-history-id]');
+    if (!button || !this.historyList?.contains(button)) return;
+
+    const historyId = button.dataset['historyId'];
+    if (!historyId) return;
+    switch (button.dataset['historyAction']) {
+      case 'open':
+        await this.openDocumentHistory(historyId);
+        break;
+      case 'export':
+        await this.exportDocumentHistory(historyId);
+        break;
+      case 'delete':
+        await this.deleteDocumentHistory(historyId);
+        break;
+    }
+  }
+
+  private async saveDocumentHistory(): Promise<void> {
+    if (this.isBusy) return;
+    if (this.currentResults.length === 0) {
+      this.showMessage('Translate at least one block before saving history.', 'error');
+      return;
+    }
+
+    const sourceText = this.sourceText?.value || this.loadedSourceText;
+    const rawFileText = sourceText === this.loadedSourceText
+      ? this.loadedRawFileText
+      : '';
+    const sourceBlocks = this.getCurrentDocumentBlocks(sourceText.trim());
+    const complete = sourceBlocks.length === this.currentResults.length
+      && sourceBlocks.every((block, index) => (
+        block.originalText === this.currentResults[index]?.block.originalText
+        && Boolean(
+          this.currentResults[index]?.preservedOriginal
+          || this.currentResults[index]?.translatedText.trim()
+        )
+      ));
+
+    try {
+      this.setBusy(true);
+      const saved = await documentHistoryService.save({
+        fileName: this.loadedFileName || 'Pasted document',
+        sourceKind: this.loadedSourceKind,
+        sourceUrl: this.loadedSourceUrl,
+        sourceText,
+        ...(rawFileText && this.isTextHistorySourceKind(this.loadedSourceKind)
+          ? { rawFileText }
+          : {}),
+        provider: this.translationProvider?.value || 'google',
+        targetLanguage: this.targetLanguage?.value || 'zh-CN',
+        displayMode: (this.displayMode?.value || 'bilingual') as DisplayMode,
+        complete,
+        documentBlocks: sourceBlocks,
+        results: this.currentResults
+      });
+      await this.loadDocumentHistory();
+      this.showMessage(`Saved ${saved.fileName} to local history`);
+    } catch (error) {
+      this.showMessage(error instanceof Error ? error.message : 'Could not save local document history.', 'error');
+    } finally {
+      this.setBusy(false);
+    }
+  }
+
+  private async openDocumentHistory(historyId: string): Promise<void> {
+    if (this.isBusy) return;
+    try {
+      this.setBusy(true);
+      const entry = await documentHistoryService.get(historyId);
+      if (!entry) throw new Error('The selected history entry no longer exists.');
+
+      await this.disposePdfSession();
+      if (this.fileInput) this.fileInput.value = '';
+      if (this.sourceText) this.sourceText.value = entry.sourceText;
+      this.loadedDocumentBlocks = entry.documentBlocks;
+      this.loadedSourceText = entry.sourceText;
+      this.loadedRawFileText = entry.rawFileText || '';
+      this.loadedRawFileBytes = null;
+      this.loadedFileName = entry.fileName;
+      this.loadedSourceKind = entry.sourceKind;
+      this.loadedSourceUrl = entry.sourceUrl;
+      this.setSourceUrlInfo(entry.sourceUrl);
+      this.currentResults = entry.results.map(result => ({
+        block: result.block,
+        translatedText: result.translatedText,
+        ...(result.preservedOriginal === undefined
+          ? {}
+          : { preservedOriginal: result.preservedOriginal })
+      }));
+
+      if (
+        this.translationProvider
+        && Array.from(this.translationProvider.options).some(option => option.value === entry.provider)
+      ) {
+        this.translationProvider.value = entry.provider;
+      }
+      this.updateTargetLanguageAvailability();
+      if (
+        this.targetLanguage
+        && Array.from(this.targetLanguage.options).some(option => (
+          option.value === entry.targetLanguage && !option.disabled
+        ))
+      ) {
+        this.targetLanguage.value = entry.targetLanguage;
+      }
+      if (this.displayMode) this.displayMode.value = entry.displayMode;
+
+      this.renderResults(this.currentResults);
+      this.renderPdfTranslationOverlays();
+      this.updateProgress(this.currentResults.length, this.currentResults.length);
+      this.showMessage(`Opened ${entry.fileName} from local history`);
+    } catch (error) {
+      this.showMessage(error instanceof Error ? error.message : 'Could not open local document history.', 'error');
+    } finally {
+      this.setBusy(false);
+    }
+  }
+
+  private async exportDocumentHistory(historyId: string): Promise<void> {
+    try {
+      const entry = await documentHistoryService.get(historyId);
+      if (!entry) throw new Error('The selected history entry no longer exists.');
+
+      this.downloadTextFile(
+        `${JSON.stringify({
+          schemaVersion: DOCUMENT_HISTORY_SCHEMA_VERSION,
+          entry
+        }, null, 2)}\n`,
+        this.createHistoryExportFilename(entry.fileName),
+        'application/json;charset=utf-8'
+      );
+      this.showMessage(`Exported ${entry.fileName} history`);
+    } catch (error) {
+      this.showMessage(error instanceof Error ? error.message : 'Could not export local document history.', 'error');
+    }
+  }
+
+  private async deleteDocumentHistory(historyId: string): Promise<void> {
+    if (this.isBusy) return;
+    try {
+      this.setBusy(true);
+      const deleted = await documentHistoryService.delete(historyId);
+      await this.loadDocumentHistory();
+      this.showMessage(deleted ? 'Deleted local document history entry' : 'History entry was already deleted');
+    } catch (error) {
+      this.showMessage(error instanceof Error ? error.message : 'Could not delete local document history.', 'error');
+    } finally {
+      this.setBusy(false);
+    }
+  }
+
+  private async clearDocumentHistory(): Promise<void> {
+    if (this.isBusy) return;
+    if (this.historyEntries.length === 0) return;
+    if (!window.confirm('Delete all local document history?')) return;
+
+    try {
+      this.setBusy(true);
+      await documentHistoryService.clear();
+      await this.loadDocumentHistory();
+      this.showMessage('Cleared local document history');
+    } catch (error) {
+      this.showMessage(error instanceof Error ? error.message : 'Could not clear local document history.', 'error');
+    } finally {
+      this.setBusy(false);
+    }
+  }
+
+  private async changeHistoryRetention(): Promise<void> {
+    if (this.isBusy) return;
+    const retention = Number(this.historyRetention?.value);
+    if (retention !== 10 && retention !== 25 && retention !== 50) return;
+
+    try {
+      this.setBusy(true);
+      await documentHistoryService.setRetention(retention as DocumentHistoryRetention);
+      await this.loadDocumentHistory();
+      this.showMessage(`Keeping the latest ${retention} local history entries`);
+    } catch (error) {
+      this.showMessage(error instanceof Error ? error.message : 'Could not update history retention.', 'error');
+    } finally {
+      this.setBusy(false);
+    }
+  }
+
+  private getDocumentHistorySourceKind(fileName: string): DocumentHistorySourceKind {
+    const extension = fileName.toLowerCase().match(/\.([^.]+)$/)?.[1];
+    switch (extension) {
+      case 'txt':
+      case 'md':
+      case 'markdown':
+      case 'html':
+      case 'htm':
+      case 'json':
+      case 'srt':
+      case 'vtt':
+      case 'ass':
+      case 'ssa':
+      case 'pdf':
+      case 'docx':
+      case 'epub':
+        return extension;
+      default:
+        return 'manual';
+    }
+  }
+
+  private isTextHistorySourceKind(sourceKind: DocumentHistorySourceKind): boolean {
+    return sourceKind !== 'pdf' && sourceKind !== 'docx' && sourceKind !== 'epub';
+  }
+
+  private createHistoryExportFilename(fileName: string): string {
+    const baseName = (fileName || 'translated-document')
+      .replace(/\.[^.]+$/, '')
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 80) || 'translated-document';
+    return `${baseName}.translation-history.json`;
+  }
+
   private clearDocument(): void {
     void this.disposePdfSession();
     if (this.sourceText) this.sourceText.value = '';
@@ -1055,7 +1425,9 @@ class DocumentTranslatorController {
     this.loadedRawFileText = '';
     this.loadedRawFileBytes = null;
     this.loadedFileName = '';
+    this.loadedSourceKind = 'manual';
     this.currentResults = [];
+    this.applySourceUrl();
     this.renderResults([]);
     this.updateProgress(0, 0);
     this.updateExportButtons();
@@ -1069,7 +1441,22 @@ class DocumentTranslatorController {
   }
 
   private setBusy(isBusy: boolean): void {
+    this.isBusy = isBusy;
     if (this.translateButton) this.translateButton.disabled = isBusy;
+    if (this.fileInput) this.fileInput.disabled = isBusy;
+    if (this.sourceText) this.sourceText.disabled = isBusy;
+    if (this.clearButton) this.clearButton.disabled = isBusy;
+    if (this.targetLanguage) this.targetLanguage.disabled = isBusy;
+    if (this.translationProvider) this.translationProvider.disabled = isBusy;
+    if (this.ocrLanguage) this.ocrLanguage.disabled = isBusy;
+    if (this.historyRetention) this.historyRetention.disabled = isBusy;
+    if (this.clearHistoryButton) {
+      this.clearHistoryButton.disabled = isBusy || this.historyEntries.length === 0;
+    }
+    this.historyList?.querySelectorAll<HTMLButtonElement>('button[data-history-action]')
+      .forEach(button => {
+        button.disabled = isBusy;
+      });
     this.updateExportButtons(isBusy);
   }
 
@@ -1079,13 +1466,21 @@ class DocumentTranslatorController {
     this.updateDocxExportButton(isBusy);
     this.updateEpubExportButton(isBusy);
     this.updatePdfExportButton(isBusy);
+    if (this.saveHistoryButton) {
+      this.saveHistoryButton.disabled = isBusy || this.currentResults.length === 0;
+    }
   }
 
   private updateSubtitleExportButton(isBusy: boolean = false): void {
     if (!this.exportSubtitleButton) return;
 
-    const hasTranslatedSubtitles = this.currentResults.some(result => result.block.subtitle && result.translatedText.trim());
-    this.exportSubtitleButton.disabled = isBusy || !hasTranslatedSubtitles;
+    const hasTranslatedSubtitles = this.currentResults.some(result => (
+      (result.block.subtitle || result.block.ass) && result.translatedText.trim()
+    ));
+    const requiresRawAssScript = this.currentResults.some(result => result.block.ass);
+    this.exportSubtitleButton.disabled = isBusy
+      || !hasTranslatedSubtitles
+      || (requiresRawAssScript && !this.loadedRawFileText);
   }
 
   private updateJsonExportButton(isBusy: boolean = false): void {

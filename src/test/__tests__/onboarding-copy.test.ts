@@ -56,8 +56,9 @@ describe('first-run and empty-state copy', () => {
     expect(documentHtml).toContain('.html,.htm');
     expect(documentHtml).toContain('.json');
     expect(documentHtml).toContain('.docx,.epub');
-    expect(documentHtml).toContain('HTML file');
-    expect(documentHtml).toContain('JSON file');
+    expect(documentHtml).toContain('.ass,.ssa');
+    expect(documentHtml).toContain('Save history');
+    expect(documentHtml).toContain('Local document translation history');
     expect(documentHtml).toContain('DOCX');
     expect(documentHtml).toContain('EPUB');
     expect(documentHtml).toContain('Bilingual');

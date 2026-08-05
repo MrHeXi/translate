@@ -68,8 +68,9 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 ### Document Translation
 
 - Open the document translator from the popup or from detected document URLs.
-- Paste text or upload `.txt`, `.md`, `.html`, `.htm`, `.json`, `.docx`, `.epub`, `.srt`, `.vtt`, or `.pdf` files.
+- Paste text or upload `.txt`, `.md`, `.html`, `.htm`, `.json`, `.docx`, `.epub`, `.srt`, `.vtt`, `.ass`, `.ssa`, or `.pdf` files.
 - Translate document blocks manually with bilingual, translation-only, or original-only display.
+- Edit translated blocks directly before exporting or saving the result.
 - Extract readable HTML body blocks while skipping scripts, styles, and markup.
 - Extract readable string values from JSON files.
 - Export translated JSON files with the original object and array structure preserved.
@@ -77,6 +78,9 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Export translated DOCX files by writing translated paragraph text back into the original document archive.
 - Export translated EPUB files by writing translated readable blocks back into the original book archive.
 - Export translated `.srt` and `.vtt` subtitle files with their original timing preserved.
+- Import and export `.ass` and `.ssa` subtitles while preserving script sections, timing, styles, comments, commas inside dialogue text, and inline override tags; vector-drawing dialogue remains untouched.
+- Save document results explicitly to versioned local history, reopen them without starting translation, export an entry as JSON, delete entries, clear all history, and keep the latest 10, 25, or 50 entries.
+- Keep document history in `chrome.storage.local` only with bounded entry and total sizes. Binary PDF, DOCX, and EPUB source bytes are never stored, so source-format export is unavailable after reopening those files from history.
 - Parse and render PDF pages locally with Mozilla PDF.js, including compressed text streams, font mappings, page sizes, and positioned text lines.
 - Detect confidently separated two-column PDF text, keep left-column-then-right-column reading order, and constrain translated overlays to the detected column region.
 - Identify likely standalone mathematical expressions, preserve them in their original form, and exclude them from translation-provider requests and translated overlays.
@@ -242,9 +246,18 @@ In Main content scope, LexiBridge prefers semantic `article`, `main`, and `[role
 ### Translate Subtitle Files
 
 1. Open the document translator.
-2. Choose a `.srt` or `.vtt` subtitle file.
+2. Choose a `.srt`, `.vtt`, `.ass`, or `.ssa` subtitle file.
 3. Click Translate document.
-4. Click Export subtitles to download a translated subtitle file with the original cue timing.
+4. Edit any translated cue if needed.
+5. Click Export subtitles to download a translated subtitle file with its original timing and supported script metadata.
+
+### Use Local Document History
+
+1. Translate at least one document block and edit the translated text if needed.
+2. Click Save history; opening or translating a document never saves history automatically.
+3. Use Open to restore source text and translated blocks without sending a translation request.
+4. Use Export to download a JSON record, or Delete/Clear all to remove local entries.
+5. Choose whether to keep the latest 10, 25, or 50 entries.
 
 ### Translate JSON Files
 

@@ -113,6 +113,7 @@ const setupDocumentDom = (): void => {
     <select id="ocrLanguage"></select>
     <input id="documentFile" type="file">
     <button id="translateDocument"></button>
+    <button id="saveDocumentHistory" disabled></button>
     <button id="exportSubtitleFile" disabled></button>
     <button id="exportJsonFile" disabled></button>
     <button id="exportDocxFile" disabled></button>
@@ -123,17 +124,32 @@ const setupDocumentDom = (): void => {
     <p id="documentMessage"></p>
     <div id="progressBar"></div>
     <span id="progressText"></span>
+    <select id="historyRetention">
+      <option value="10">10</option>
+      <option value="25">25</option>
+      <option value="50">50</option>
+    </select>
+    <button id="clearDocumentHistory" disabled></button>
+    <section id="documentHistoryList"></section>
     <section id="pdfViewer" hidden></section>
     <section id="translationResults"></section>
   `;
 };
 
 describe('document translator page', () => {
+  let localStorageData: Record<string, unknown>;
+
   beforeEach(() => {
     jest.resetModules();
     jest.dontMock('../../services/PdfDocumentService');
     setupDocumentDom();
     window.history.replaceState({}, '', '/document.html?sourceUrl=https%3A%2F%2Fexample.com%2Fpaper.pdf');
+
+    localStorageData = {};
+    const localGet = jest.fn(async (key: string) => ({ [key]: localStorageData[key] }));
+    const localSet = jest.fn(async (items: Record<string, unknown>) => {
+      Object.assign(localStorageData, JSON.parse(JSON.stringify(items)));
+    });
 
     (global as any).chrome = {
       runtime: {
@@ -165,6 +181,20 @@ describe('document translator page', () => {
 
           callback({ success: true });
         })
+      },
+      storage: {
+        local: {
+          get: localGet,
+          set: localSet,
+          remove: jest.fn(),
+          clear: jest.fn()
+        },
+        sync: {
+          get: jest.fn(),
+          set: jest.fn(),
+          remove: jest.fn(),
+          clear: jest.fn()
+        }
       }
     };
   });
@@ -186,6 +216,11 @@ describe('document translator page', () => {
 
     sourceText.value = 'First paragraph.\n\nSecond paragraph.';
     document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+    expect((document.getElementById('documentFile') as HTMLInputElement).disabled).toBe(true);
+    expect(sourceText.disabled).toBe(true);
+    expect((document.getElementById('translationProvider') as HTMLSelectElement).disabled).toBe(true);
+    expect((document.getElementById('clearDocument') as HTMLButtonElement).disabled).toBe(true);
+    expect((document.getElementById('historyRetention') as HTMLSelectElement).disabled).toBe(true);
     await flushPromises();
     await flushPromises();
 
@@ -193,6 +228,8 @@ describe('document translator page', () => {
     expect(blocks).toHaveLength(2);
     expect(document.getElementById('translationResults')?.textContent).toContain('translated: First paragraph.');
     expect(document.getElementById('progressText')?.textContent).toBe('2/2 blocks');
+    expect((document.getElementById('documentFile') as HTMLInputElement).disabled).toBe(false);
+    expect(sourceText.disabled).toBe(false);
     const translationMessages = ((global as any).chrome.runtime.sendMessage as jest.Mock).mock.calls
       .map(call => call[0])
       .filter(message => message.action === 'translate');
@@ -201,6 +238,194 @@ describe('document translator page', () => {
       expect(message.data.context).toContain('First paragraph.');
       expect(message.data.context).toContain('Second paragraph.');
     });
+  });
+
+  it('saves, reopens, exports, and clears local history only through explicit controls', async () => {
+    let exportedBlob: Blob | null = null;
+    const createObjectURL = jest.fn((blob: Blob) => {
+      exportedBlob = blob;
+      return 'blob:document-history';
+    });
+    const revokeObjectURL = jest.fn();
+    const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
+    Object.defineProperty(URL, 'createObjectURL', { value: createObjectURL, configurable: true });
+    Object.defineProperty(URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true });
+
+    try {
+      require('../document');
+      document.dispatchEvent(new Event('DOMContentLoaded'));
+      await flushPromises();
+      await flushPromises();
+
+      const saveButton = document.getElementById('saveDocumentHistory') as HTMLButtonElement;
+      const sourceText = document.getElementById('sourceText') as HTMLTextAreaElement;
+      const sendMessage = (global as any).chrome.runtime.sendMessage as jest.Mock;
+      const getStoredHistory = () => localStorageData['documentHistory'] as {
+        retention: number;
+        entries: Array<{
+          fileName: string;
+          sourceText: string;
+          sourceUrl: string;
+          results: Array<{ translatedText: string }>;
+        }>;
+      };
+
+      expect(saveButton.disabled).toBe(true);
+      expect(localStorageData['documentHistory']).toBeUndefined();
+      expect(document.getElementById('documentHistoryList')?.textContent).toContain('No saved documents.');
+
+      sourceText.value = 'History source text.';
+      document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      const translation = document.querySelector<HTMLElement>('.document-translation');
+      expect(translation).not.toBeNull();
+      translation!.textContent = 'Edited history translation.';
+      translation!.dispatchEvent(new Event('input'));
+      expect(saveButton.disabled).toBe(false);
+
+      sendMessage.mockClear();
+      saveButton.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      expect(sendMessage.mock.calls.some(call => call[0].action === 'translate')).toBe(false);
+      expect(getStoredHistory()).toMatchObject({
+        retention: 10,
+        entries: [{
+          fileName: 'Pasted document',
+          sourceText: 'History source text.',
+          sourceUrl: 'https://example.com/paper.pdf',
+          results: [{ translatedText: 'Edited history translation.' }]
+        }]
+      });
+      expect((global as any).chrome.storage.sync.set).not.toHaveBeenCalled();
+
+      const retention = document.getElementById('historyRetention') as HTMLSelectElement;
+      retention.value = '25';
+      retention.dispatchEvent(new Event('change'));
+      await flushPromises();
+      await flushPromises();
+      expect(getStoredHistory().retention).toBe(25);
+
+      document.querySelector<HTMLElement>('button[data-history-action="export"]')!
+        .dispatchEvent(new Event('click', { bubbles: true }));
+      await flushPromises();
+
+      expect(exportedBlob).not.toBeNull();
+      const exported = JSON.parse(await readBlobText(exportedBlob!));
+      expect(exported).toMatchObject({
+        schemaVersion: 1,
+        entry: {
+          sourceText: 'History source text.',
+          results: [{ translatedText: 'Edited history translation.' }]
+        }
+      });
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:document-history');
+
+      document.getElementById('clearDocument')!.dispatchEvent(new Event('click'));
+      expect(document.querySelectorAll('.document-result-block')).toHaveLength(0);
+      sendMessage.mockClear();
+      document.querySelector<HTMLElement>('button[data-history-action="open"]')!
+        .dispatchEvent(new Event('click', { bubbles: true }));
+      await flushPromises();
+      await flushPromises();
+
+      expect(sendMessage.mock.calls.some(call => call[0].action === 'translate')).toBe(false);
+      expect(sourceText.value).toBe('History source text.');
+      expect(document.querySelector<HTMLElement>('.document-translation')?.textContent)
+        .toBe('Edited history translation.');
+
+      saveButton.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+      expect(getStoredHistory().entries).toHaveLength(2);
+
+      document.querySelector<HTMLElement>('button[data-history-action="delete"]')!
+        .dispatchEvent(new Event('click', { bubbles: true }));
+      await flushPromises();
+      await flushPromises();
+      expect(getStoredHistory().entries).toHaveLength(1);
+
+      document.getElementById('clearDocumentHistory')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+      expect(confirmSpy).toHaveBeenCalledWith('Delete all local document history?');
+      expect(getStoredHistory().entries).toEqual([]);
+      expect(document.getElementById('documentHistoryList')?.textContent).toContain('No saved documents.');
+      expect((document.getElementById('clearDocumentHistory') as HTMLButtonElement).disabled).toBe(true);
+      expect(sendMessage.mock.calls.some(call => call[0].action === 'translate')).toBe(false);
+    } finally {
+      confirmSpy.mockRestore();
+      clickSpy.mockRestore();
+    }
+  });
+
+  it('restores every source block from partial history and preserves its original source URL', async () => {
+    localStorageData['documentHistory'] = {
+      schemaVersion: 1,
+      retention: 10,
+      entries: [{
+        id: 'partial-entry',
+        createdAt: '2026-08-05T00:00:00.000Z',
+        fileName: 'partial.txt',
+        sourceKind: 'txt',
+        sourceUrl: 'https://source.example/original.txt',
+        sourceText: 'First block\n\nSecond block',
+        rawFileText: 'First block\n\nSecond block',
+        provider: 'google',
+        targetLanguage: 'zh-CN',
+        displayMode: 'bilingual',
+        complete: false,
+        documentBlocks: [
+          { id: 1, originalText: 'First block' },
+          { id: 2, originalText: 'Second block' }
+        ],
+        results: [{
+          block: { id: 1, originalText: 'First block' },
+          translatedText: 'Previously translated first block'
+        }]
+      }]
+    };
+
+    require('../document');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+    await flushPromises();
+
+    const sendMessage = (global as any).chrome.runtime.sendMessage as jest.Mock;
+    sendMessage.mockClear();
+    document.querySelector<HTMLElement>('button[data-history-action="open"]')!
+      .dispatchEvent(new Event('click', { bubbles: true }));
+    await flushPromises();
+    await flushPromises();
+
+    expect(sendMessage.mock.calls.some(call => call[0].action === 'translate')).toBe(false);
+    expect(document.querySelectorAll('.document-result-block')).toHaveLength(1);
+    expect(document.getElementById('sourceUrlInfo')?.textContent)
+      .toBe('https://source.example/original.txt');
+
+    document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+    await flushPromises();
+    const translationMessages = sendMessage.mock.calls
+      .map(call => call[0])
+      .filter(message => message.action === 'translate');
+    expect(translationMessages.map(message => message.data.text)).toEqual([
+      'First block',
+      'Second block'
+    ]);
+    expect(document.querySelectorAll('.document-result-block')).toHaveLength(2);
+
+    document.getElementById('saveDocumentHistory')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+    await flushPromises();
+    const stored = localStorageData['documentHistory'] as {
+      entries: Array<{ sourceUrl: string }>;
+    };
+    expect(stored.entries[0]?.sourceUrl).toBe('https://source.example/original.txt');
   });
 
   it('offers bundled PDF OCR languages and saves changes without translating', async () => {
@@ -1131,6 +1356,14 @@ describe('document translator page', () => {
       await flushPromises();
 
       expect((document.getElementById('exportSubtitleFile') as HTMLButtonElement).disabled).toBe(false);
+      const translations = document.querySelectorAll<HTMLElement>('.document-translation');
+      expect(translations[0]?.contentEditable).toBe('plaintext-only');
+      translations[0]!.innerHTML = 'Edited first<br>caption.';
+      Object.defineProperty(translations[0], 'innerText', {
+        value: 'Edited first\ncaption.',
+        configurable: true
+      });
+      translations[0]!.dispatchEvent(new Event('input'));
 
       document.getElementById('exportSubtitleFile')!.dispatchEvent(new Event('click'));
       await flushPromises();
@@ -1140,7 +1373,8 @@ describe('document translator page', () => {
       await expect(readBlobText(exportedBlob!)).resolves.toBe([
         '1',
         '00:00:01,000 --> 00:00:03,000',
-        'translated: First caption line.',
+        'Edited first',
+        'caption.',
         '',
         '2',
         '00:00:04,000 --> 00:00:06,000',
@@ -1149,6 +1383,95 @@ describe('document translator page', () => {
       ].join('\n'));
       expect(clickSpy).toHaveBeenCalled();
       expect(revokeObjectURL).toHaveBeenCalledWith('blob:translated-subtitles');
+      expect(document.getElementById('documentMessage')?.textContent).toBe('Exported 2 translated subtitle cues');
+    } finally {
+      clickSpy.mockRestore();
+    }
+  });
+
+  it('translates and edits ASS dialogue text only after explicit actions while preserving the script', async () => {
+    let exportedBlob: Blob | null = null;
+    const createObjectURL = jest.fn((blob: Blob) => {
+      exportedBlob = blob;
+      return 'blob:translated-ass';
+    });
+    const revokeObjectURL = jest.fn();
+    const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    Object.defineProperty(URL, 'createObjectURL', { value: createObjectURL, configurable: true });
+    Object.defineProperty(URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true });
+
+    try {
+      require('../document');
+      document.dispatchEvent(new Event('DOMContentLoaded'));
+      await flushPromises();
+
+      const ass = [
+        '[Script Info]',
+        'ScriptType: v4.00+',
+        '',
+        '[V4+ Styles]',
+        'Format: Name, Fontname, Fontsize',
+        'Style: Default,Arial,24',
+        '',
+        '[Events]',
+        'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+        'Comment: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,Keep this comment',
+        'Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,{\\an8}First caption\\NSecond line',
+        'Dialogue: 0,0:00:04.00,0:00:06.00,Default,,0,0,0,,Another, caption'
+      ].join('\r\n');
+      const file = new File([ass], 'lesson.ass', { type: 'text/plain' });
+      Object.defineProperty(file, 'text', { value: async () => ass, configurable: true });
+      const fileInput = document.getElementById('documentFile') as HTMLInputElement;
+      Object.defineProperty(fileInput, 'files', { value: [file], configurable: true });
+
+      fileInput.dispatchEvent(new Event('change'));
+      await flushPromises();
+      await flushPromises();
+
+      const sendMessage = (global as any).chrome.runtime.sendMessage as jest.Mock;
+      expect(sendMessage.mock.calls.map(call => call[0]).filter(message => message.action === 'translate')).toHaveLength(0);
+      expect((document.getElementById('sourceText') as HTMLTextAreaElement).value).toBe(
+        'First caption\nSecond line\n\nAnother, caption'
+      );
+      expect((document.getElementById('exportSubtitleFile') as HTMLButtonElement).disabled).toBe(true);
+
+      document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      const translationMessages = sendMessage.mock.calls
+        .map(call => call[0])
+        .filter(message => message.action === 'translate');
+      expect(translationMessages.map(message => message.data.text)).toEqual([
+        'First caption\nSecond line',
+        'Another, caption'
+      ]);
+      const translations = document.querySelectorAll<HTMLElement>('.document-translation');
+      translations[0]!.textContent = '\u4eba\u5de5\u7f16\u8f91\n\u7b2c\u4e8c\u884c';
+      translations[0]!.dispatchEvent(new Event('input'));
+
+      document.getElementById('saveDocumentHistory')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+      document.getElementById('clearDocument')!.dispatchEvent(new Event('click'));
+      sendMessage.mockClear();
+      document.querySelector<HTMLElement>('button[data-history-action="open"]')!
+        .dispatchEvent(new Event('click', { bubbles: true }));
+      await flushPromises();
+      await flushPromises();
+
+      expect(sendMessage.mock.calls.some(call => call[0].action === 'translate')).toBe(false);
+      expect((document.getElementById('exportSubtitleFile') as HTMLButtonElement).disabled).toBe(false);
+
+      document.getElementById('exportSubtitleFile')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+
+      expect(exportedBlob).not.toBeNull();
+      await expect(readBlobText(exportedBlob!)).resolves.toBe(ass
+        .replace('{\\an8}First caption\\NSecond line', '{\\an8}\u4eba\u5de5\u7f16\u8f91\\N\u7b2c\u4e8c\u884c')
+        .replace('Another, caption', 'translated: Another, caption'));
+      expect((clickSpy.mock.contexts[0] as HTMLAnchorElement).download).toBe('lesson.translated.ass');
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:translated-ass');
       expect(document.getElementById('documentMessage')?.textContent).toBe('Exported 2 translated subtitle cues');
     } finally {
       clickSpy.mockRestore();

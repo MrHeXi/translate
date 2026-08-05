@@ -1,5 +1,5 @@
 import { TextDecoder, TextEncoder } from 'util';
-import { DocumentTextExtractor } from '../DocumentTextExtractor';
+import { DocumentBlock, DocumentTextExtractor } from '../DocumentTextExtractor';
 
 Object.assign(globalThis, {
   TextDecoder,
@@ -155,6 +155,163 @@ describe('DocumentTextExtractor', () => {
         }
       }
     ]);
+  });
+
+  it('extracts ASS dialogue text and rewrites only Text while preserving script structure', () => {
+    const ass = [
+      '[Script Info]',
+      'ScriptType: v4.00+',
+      '',
+      '[V4+ Styles]',
+      'Format: Name, Fontname, Fontsize, PrimaryColour',
+      'Style: Default,Arial,24,&H00FFFFFF',
+      '',
+      '[Events]',
+      'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+      'Comment: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,Keep this comment',
+      'Dialogue: 0,0:00:01.00,0:00:03.00,Default,Speaker,0000,0000,0000,,{\\an8}Hello, world\\NNext line',
+      'Dialogue: 1,0:00:04.00,0:00:05.00,Sign,,0010,0020,0030,fx,Leave this cue unchanged'
+    ].join('\r\n');
+
+    const blocks = DocumentTextExtractor.extractBlocksFromAssSubtitleText(ass);
+
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toMatchObject({
+      id: 1,
+      originalText: 'Hello, world\nNext line',
+      ass: {
+        format: 'ass',
+        lineIndex: 10,
+        dialogueIndex: 0,
+        textFieldIndex: 9,
+        fields: expect.arrayContaining([
+          { name: 'Layer', value: ' 0' },
+          { name: 'Style', value: 'Default' },
+          { name: 'Name', value: 'Speaker' }
+        ]),
+        inlineTags: [{ offset: 0, value: '{\\an8}' }]
+      }
+    });
+
+    const rewritten = DocumentTextExtractor.rewriteAssWithTranslations(ass, [{
+      block: blocks[0]!,
+      translatedText: '\u4f60\u597d\uff0c\u4e16\u754c\n\u4e0b\u4e00\u884c'
+    }]);
+
+    expect(rewritten).toBe(ass.replace(
+      '{\\an8}Hello, world\\NNext line',
+      '{\\an8}\u4f60\u597d\uff0c\u4e16\u754c\\N\u4e0b\u4e00\u884c'
+    ));
+    expect(rewritten).toContain('Style: Default,Arial,24,&H00FFFFFF\r\n');
+    expect(rewritten).toContain('Comment: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,Keep this comment');
+    expect(rewritten).toContain('Dialogue: 1,0:00:04.00,0:00:05.00,Sign,,0010,0020,0030,fx,Leave this cue unchanged');
+  });
+
+  it('parses SSA with Text in a non-final field and keeps commas inside dialogue text', () => {
+    const ssa = [
+      '[Script Info]',
+      'ScriptType: v4.00',
+      '',
+      '[V4 Styles]',
+      'Format: Name, Fontname, Fontsize',
+      'Style: Default,Arial,24',
+      '',
+      '[Events]',
+      'Format: Text, Marked, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect',
+      'Dialogue: First clause, second clause,Marked=0,0:00:01.00,0:00:03.00,Default,Speaker,0000,0000,0000,'
+    ].join('\n');
+
+    const blocks = DocumentTextExtractor.extractBlocksFromSubtitleText(ssa, 'ssa');
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({
+      originalText: ' First clause, second clause',
+      ass: {
+        format: 'ssa',
+        textFieldIndex: 0,
+        fields: [
+          { name: 'Text', value: ' First clause, second clause' },
+          { name: 'Marked', value: 'Marked=0' },
+          { name: 'Start', value: '0:00:01.00' },
+          { name: 'End', value: '0:00:03.00' },
+          { name: 'Style', value: 'Default' },
+          { name: 'Name', value: 'Speaker' },
+          { name: 'MarginL', value: '0000' },
+          { name: 'MarginR', value: '0000' },
+          { name: 'MarginV', value: '0000' },
+          { name: 'Effect', value: '' }
+        ]
+      }
+    });
+  });
+
+  it('uses the ASS or SSA file extension without translating on file extraction', async () => {
+    const source = [
+      '[Events]',
+      'Format: Marked, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+      'Dialogue: Marked=0,0:00:01.00,0:00:03.00,Default,,0000,0000,0000,,Subtitle text'
+    ].join('\n');
+    const file = new File([source], 'lesson.ssa', { type: 'text/plain' });
+    Object.defineProperty(file, 'text', { value: async () => source });
+
+    const blocks = await DocumentTextExtractor.extractBlocksFromFile(file);
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({
+      originalText: 'Subtitle text',
+      ass: { format: 'ssa' }
+    });
+  });
+
+  it('leaves ASS vector drawing dialogues out of translatable blocks', () => {
+    const ass = [
+      '[Script Info]',
+      'ScriptType: v4.00+',
+      '[Events]',
+      'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+      'Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,{\\p1}m 0 0 l 20 0 20 20 0 20{\\p0}',
+      'Dialogue: 0,0:00:04.00,0:00:06.00,Default,,0,0,0,,Readable caption'
+    ].join('\n');
+
+    const blocks = DocumentTextExtractor.extractBlocksFromAssSubtitleText(ass);
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.originalText).toBe('Readable caption');
+    expect(blocks[0]?.ass?.dialogueIndex).toBe(1);
+  });
+
+  it('restores ASS hard spaces and ignores malformed rewrite metadata safely', () => {
+    const ass = [
+      '[Script Info]',
+      'ScriptType: v4.00+',
+      '[Events]',
+      'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+      'Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,Hello\\hworld'
+    ].join('\n');
+    const blocks = DocumentTextExtractor.extractBlocksFromAssSubtitleText(ass);
+
+    expect(blocks[0]).toMatchObject({
+      originalText: 'Hello world',
+      ass: { hardSpaces: [5] }
+    });
+    expect(DocumentTextExtractor.rewriteAssWithTranslations(ass, [{
+      block: blocks[0]!,
+      translatedText: 'Bonjour monde'
+    }])).toContain('Bonjour\\hmonde');
+
+    const malformedBlock = {
+      id: 99,
+      originalText: 'Hello world',
+      ass: { fields: [], textFieldIndex: 0 }
+    } as unknown as DocumentBlock;
+    expect(() => DocumentTextExtractor.rewriteAssWithTranslations(ass, [{
+      block: malformedBlock,
+      translatedText: 'Should not be used'
+    }])).not.toThrow();
+    expect(DocumentTextExtractor.rewriteAssWithTranslations(ass, [{
+      block: malformedBlock,
+      translatedText: 'Should not be used'
+    }])).toBe(ass);
   });
 
   it('extracts readable text blocks from HTML without scripts or tags', () => {

@@ -206,9 +206,11 @@ Current batch:
 
 ### Batch I: Document Formats, Batch Workflows, and History
 
-- Add MOBI import and ASS/SSA subtitle import/export while preserving structure and timing/style metadata.
+- Done: add ASS/SSA subtitle import/export while preserving script structure, timing, style/comment fields, inline override tags, and comma-bearing dialogue text; leave vector-drawing dialogue untouched.
+- Done: make translated document blocks editable and use the edited values for subtitle, JSON, DOCX, EPUB, PDF, and history exports.
+- Done: add explicit local translation history with source metadata, provider/language identity, reopen/export/delete/clear controls, configurable 10/25/50 retention, bounded storage, and no cloud synchronization or binary source persistence.
+- Remaining: add MOBI import with bounded parsing and deterministic text/spine ordering.
 - Add explicit multi-file batch translation with bounded concurrency, per-file status, cancellation, retry, and deterministic exports.
-- Add local translation history with source metadata, provider/language identity, reopen/export/delete controls, configurable retention, and no default cloud synchronization.
 - Add BabelDOC-compatible PDF workflow guidance and a Zotero-oriented handoff without claiming unsupported third-party integration.
 
 ### Batch J: Video and Site Adapter Parity

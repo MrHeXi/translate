@@ -3,6 +3,7 @@ export interface DocumentBlock {
   originalText: string;
   layout?: DocumentBlockLayout;
   subtitle?: DocumentSubtitleCue;
+  ass?: DocumentAssDialogue;
   json?: DocumentJsonStringValue;
   docx?: DocumentDocxParagraph;
   epub?: DocumentEpubBlock;
@@ -33,6 +34,30 @@ export interface DocumentSubtitleCue {
   textLines: string[];
 }
 
+export interface DocumentAssDialogueField {
+  name: string;
+  value: string;
+}
+
+export interface DocumentAssDialogue {
+  format: 'ass' | 'ssa';
+  lineIndex: number;
+  dialogueIndex: number;
+  formatFields: string[];
+  fields: DocumentAssDialogueField[];
+  textFieldIndex: number;
+  textRange: {
+    start: number;
+    end: number;
+  };
+  inlineTags: Array<{
+    offset: number;
+    value: string;
+  }>;
+  hardSpaces?: number[];
+  plainTextLength: number;
+}
+
 export interface DocumentJsonStringValue {
   path: Array<string | number>;
 }
@@ -57,6 +82,17 @@ interface ZipCentralEntry {
 interface ZipFileData {
   name: string;
   data: Uint8Array;
+}
+
+interface SourceTextLine {
+  content: string;
+  start: number;
+  index: number;
+}
+
+interface AssFieldRange {
+  start: number;
+  end: number;
 }
 
 export class DocumentTextExtractor {
@@ -116,10 +152,20 @@ export class DocumentTextExtractor {
       return this.extractBlocksFromJson(text, maxBlockLength);
     }
 
+    const assFormat = this.getAssFileFormat(file);
+    if (assFormat) {
+      return this.extractBlocksFromAssSubtitleText(text, assFormat);
+    }
+
     return this.splitIntoBlocks(text, maxBlockLength);
   }
 
   static splitIntoBlocks(text: string, maxBlockLength: number = 1200): DocumentBlock[] {
+    const assFormat = this.detectAssSubtitleFormat(text);
+    if (assFormat) {
+      return this.extractBlocksFromAssSubtitleText(text, assFormat);
+    }
+
     const normalizedText = this.normalizeText(text);
     if (!normalizedText) return [];
 
@@ -136,7 +182,19 @@ export class DocumentTextExtractor {
     }));
   }
 
-  static extractBlocksFromSubtitleText(text: string, preferredFormat?: 'srt' | 'vtt'): DocumentBlock[] {
+  static extractBlocksFromSubtitleText(
+    text: string,
+    preferredFormat?: 'srt' | 'vtt' | 'ass' | 'ssa'
+  ): DocumentBlock[] {
+    if (preferredFormat === 'ass' || preferredFormat === 'ssa') {
+      return this.extractBlocksFromAssSubtitleText(text, preferredFormat);
+    }
+
+    if (!preferredFormat) {
+      const assFormat = this.detectAssSubtitleFormat(text);
+      if (assFormat) return this.extractBlocksFromAssSubtitleText(text, assFormat);
+    }
+
     const normalizedText = this.normalizeText(text);
     if (!normalizedText || !/-->/.test(normalizedText)) return [];
 
@@ -179,6 +237,130 @@ export class DocumentTextExtractor {
     }
 
     return documentBlocks;
+  }
+
+  static extractBlocksFromAssSubtitleText(
+    text: string,
+    preferredFormat?: 'ass' | 'ssa'
+  ): DocumentBlock[] {
+    const format = preferredFormat || this.detectAssSubtitleFormat(text);
+    if (!format) return [];
+
+    const documentBlocks: DocumentBlock[] = [];
+    let inEventsSection = false;
+    let formatFields: string[] | null = null;
+    let dialogueIndex = 0;
+
+    for (const line of this.getSourceTextLines(text)) {
+      const trimmedLine = line.content.trim();
+      const sectionMatch = /^\[([^\]]+)\]$/.exec(trimmedLine);
+      if (sectionMatch) {
+        inEventsSection = sectionMatch[1]!.trim().toLowerCase() === 'events';
+        formatFields = null;
+        continue;
+      }
+
+      if (!inEventsSection) continue;
+
+      const formatMatch = /^\s*Format\s*:\s*(.*)$/i.exec(line.content);
+      if (formatMatch) {
+        const candidateFields = (formatMatch[1] || '').split(',').map(field => field.trim());
+        formatFields = candidateFields.some(field => field.toLowerCase() === 'text')
+          ? candidateFields
+          : null;
+        continue;
+      }
+
+      const dialogueMatch = /^\s*Dialogue\s*:(.*)$/i.exec(line.content);
+      if (!dialogueMatch || !formatFields) continue;
+
+      const dialogueData = dialogueMatch[1] || '';
+      const textFieldIndex = formatFields.findIndex(field => field.toLowerCase() === 'text');
+      const fieldRanges = this.parseAssDialogueFieldRanges(
+        dialogueData,
+        formatFields.length,
+        textFieldIndex
+      );
+      if (!fieldRanges) continue;
+
+      const values = fieldRanges.map(range => dialogueData.slice(range.start, range.end));
+      const rawText = values[textFieldIndex] || '';
+      const currentDialogueIndex = dialogueIndex++;
+      if (/\{[^}]*\\p(?:[1-9]\d*)\b[^}]*\}/i.test(rawText)) continue;
+      const parsedText = this.parseAssReadableText(rawText);
+      if (!parsedText.text.trim()) continue;
+
+      const dialogueDataStart = line.start + line.content.length - dialogueData.length;
+      const textRange = fieldRanges[textFieldIndex]!;
+
+      documentBlocks.push({
+        id: documentBlocks.length + 1,
+        originalText: parsedText.text,
+        ass: {
+          format,
+          lineIndex: line.index,
+          dialogueIndex: currentDialogueIndex,
+          formatFields: [...formatFields],
+          fields: formatFields.map((name, index) => ({
+            name,
+            value: values[index] || ''
+          })),
+          textFieldIndex,
+          textRange: {
+            start: dialogueDataStart + textRange.start,
+            end: dialogueDataStart + textRange.end
+          },
+          inlineTags: parsedText.inlineTags,
+          hardSpaces: parsedText.hardSpaces,
+          plainTextLength: Array.from(parsedText.text).length
+        }
+      });
+    }
+
+    return documentBlocks;
+  }
+
+  static rewriteAssWithTranslations(
+    subtitleText: string,
+    results: Array<{ block: DocumentBlock; translatedText: string }>
+  ): string {
+    const replacements = new Map<string, { start: number; end: number; text: string }>();
+
+    results.forEach(result => {
+      const dialogue = result.block.ass;
+      if (!this.isUsableAssDialogue(dialogue) || !result.translatedText.trim()) return;
+
+      const { start, end } = dialogue.textRange;
+      const expectedText = dialogue.fields[dialogue.textFieldIndex]?.value;
+      if (
+        start < 0
+        || end < start
+        || end > subtitleText.length
+        || expectedText === undefined
+        || subtitleText.slice(start, end) !== expectedText
+      ) {
+        return;
+      }
+
+      replacements.set(`${start}:${end}`, {
+        start,
+        end,
+        text: this.restoreAssInlineTags(result.translatedText, dialogue)
+      });
+    });
+
+    return Array.from(replacements.values())
+      .sort((left, right) => right.start - left.start)
+      .reduce((rewritten, replacement) => (
+        `${rewritten.slice(0, replacement.start)}${replacement.text}${rewritten.slice(replacement.end)}`
+      ), subtitleText);
+  }
+
+  static rewriteSubtitleWithTranslations(
+    subtitleText: string,
+    results: Array<{ block: DocumentBlock; translatedText: string }>
+  ): string {
+    return this.rewriteAssWithTranslations(subtitleText, results);
   }
 
   static extractTextFromPdfBytes(bytes: Uint8Array): string {
@@ -382,6 +564,245 @@ export class DocumentTextExtractor {
       .replace(/\r\n?/g, '\n')
       .replace(/[ \t]+\n/g, '\n')
       .trim();
+  }
+
+  private static getSourceTextLines(text: string): SourceTextLine[] {
+    const lines: SourceTextLine[] = [];
+    let start = 0;
+    let index = 0;
+
+    while (start < text.length) {
+      let end = start;
+      while (end < text.length && text[end] !== '\r' && text[end] !== '\n') end++;
+
+      lines.push({ content: text.slice(start, end), start, index: index++ });
+
+      if (end >= text.length) break;
+      start = text[end] === '\r' && text[end + 1] === '\n' ? end + 2 : end + 1;
+    }
+
+    return lines;
+  }
+
+  private static getAssFileFormat(file: File): 'ass' | 'ssa' | null {
+    const lowerName = file.name.toLowerCase();
+    if (lowerName.endsWith('.ass')) return 'ass';
+    if (lowerName.endsWith('.ssa')) return 'ssa';
+    return null;
+  }
+
+  private static detectAssSubtitleFormat(text: string): 'ass' | 'ssa' | null {
+    const normalized = text.replace(/^\uFEFF/, '');
+    let inEventsSection = false;
+    let formatFields: string[] = [];
+    let hasDialogue = false;
+
+    for (const line of this.getSourceTextLines(normalized)) {
+      const sectionMatch = /^\s*\[([^\]]+)\]\s*$/.exec(line.content);
+      if (sectionMatch) {
+        inEventsSection = sectionMatch[1]!.trim().toLowerCase() === 'events';
+        continue;
+      }
+      if (!inEventsSection) continue;
+
+      const formatMatch = /^\s*Format\s*:\s*(.*)$/i.exec(line.content);
+      if (formatMatch) {
+        formatFields = (formatMatch[1] || '')
+          .split(',')
+          .map(field => field.trim().toLowerCase());
+      }
+      if (/^\s*Dialogue\s*:/i.test(line.content)) hasDialogue = true;
+    }
+
+    if (
+      !formatFields.includes('start')
+      || !formatFields.includes('end')
+      || !formatFields.includes('text')
+      || !hasDialogue
+    ) return null;
+
+    if (/^\s*ScriptType\s*:\s*v4\.00\+/im.test(normalized) || /^\s*\[V4\+ Styles\]\s*$/im.test(normalized)) {
+      return 'ass';
+    }
+
+    if (/^\s*ScriptType\s*:\s*v4\.00\b/im.test(normalized) || /^\s*\[V4 Styles\]\s*$/im.test(normalized)) {
+      return 'ssa';
+    }
+
+    return 'ass';
+  }
+
+  private static parseAssDialogueFieldRanges(
+    dialogueData: string,
+    fieldCount: number,
+    textFieldIndex: number
+  ): AssFieldRange[] | null {
+    if (fieldCount < 1 || textFieldIndex < 0 || textFieldIndex >= fieldCount) return null;
+
+    const ranges = new Array<AssFieldRange>(fieldCount);
+    let left = 0;
+    for (let index = 0; index < textFieldIndex; index++) {
+      const comma = dialogueData.indexOf(',', left);
+      if (comma < 0) return null;
+      ranges[index] = { start: left, end: comma };
+      left = comma + 1;
+    }
+
+    let right = dialogueData.length;
+    for (let index = fieldCount - 1; index > textFieldIndex; index--) {
+      const comma = dialogueData.lastIndexOf(',', right - 1);
+      if (comma < left) return null;
+      ranges[index] = { start: comma + 1, end: right };
+      right = comma;
+    }
+
+    ranges[textFieldIndex] = { start: left, end: right };
+    return ranges;
+  }
+
+  private static parseAssReadableText(rawText: string): {
+    text: string;
+    inlineTags: Array<{ offset: number; value: string }>;
+    hardSpaces: number[];
+  } {
+    const inlineTags: Array<{ offset: number; value: string }> = [];
+    const hardSpaces: number[] = [];
+    let text = '';
+    let cursor = 0;
+
+    while (cursor < rawText.length) {
+      if (rawText[cursor] === '{') {
+        const tagEnd = rawText.indexOf('}', cursor + 1);
+        if (tagEnd >= 0) {
+          inlineTags.push({
+            offset: Array.from(text).length,
+            value: rawText.slice(cursor, tagEnd + 1)
+          });
+          cursor = tagEnd + 1;
+          continue;
+        }
+      }
+
+      if (rawText[cursor] === '\\' && cursor + 1 < rawText.length) {
+        const escape = rawText[cursor + 1];
+        if (escape === 'N' || escape === 'n') {
+          text += '\n';
+          cursor += 2;
+          continue;
+        }
+        if (escape === 'h') {
+          hardSpaces.push(Array.from(text).length);
+          text += ' ';
+          cursor += 2;
+          continue;
+        }
+      }
+
+      text += rawText[cursor];
+      cursor++;
+    }
+
+    return { text, inlineTags, hardSpaces };
+  }
+
+  private static restoreAssInlineTags(translatedText: string, dialogue: DocumentAssDialogue): string {
+    const translatedCharacters = Array.from(translatedText.replace(/\r\n?|\n/g, '\n'));
+    const tagsByOffset = new Map<number, string[]>();
+    const originalLength = Math.max(1, dialogue.plainTextLength);
+
+    for (const tag of dialogue.inlineTags) {
+      const offset = Math.min(
+        translatedCharacters.length,
+        Math.max(0, Math.round((tag.offset / originalLength) * translatedCharacters.length))
+      );
+      const tags = tagsByOffset.get(offset) || [];
+      tags.push(tag.value);
+      tagsByOffset.set(offset, tags);
+    }
+
+    const availableWhitespace = translatedCharacters
+      .map((character, index) => ({ character, index }))
+      .filter(candidate => candidate.character === ' ' || candidate.character === '\t')
+      .map(candidate => candidate.index);
+    const usedWhitespace = new Set<number>();
+    const hardSpacesByOffset = new Map<number, number>();
+    for (const originalOffset of dialogue.hardSpaces || []) {
+      const approximateOffset = Math.min(
+        translatedCharacters.length,
+        Math.max(0, Math.round((originalOffset / originalLength) * translatedCharacters.length))
+      );
+      const nearestWhitespace = availableWhitespace
+        .filter(offset => !usedWhitespace.has(offset))
+        .sort((left, right) => (
+          Math.abs(left - approximateOffset) - Math.abs(right - approximateOffset)
+        ))[0];
+      const mappedOffset = nearestWhitespace ?? approximateOffset;
+      if (nearestWhitespace !== undefined) usedWhitespace.add(nearestWhitespace);
+      hardSpacesByOffset.set(mappedOffset, (hardSpacesByOffset.get(mappedOffset) || 0) + 1);
+    }
+
+    let restored = '';
+    for (let index = 0; index <= translatedCharacters.length; index++) {
+      restored += (tagsByOffset.get(index) || []).join('');
+      const hardSpaceCount = hardSpacesByOffset.get(index) || 0;
+      if (hardSpaceCount > 0) restored += '\\h'.repeat(hardSpaceCount);
+      if (index < translatedCharacters.length) {
+        const character = translatedCharacters[index]!;
+        if (hardSpaceCount === 0 || (character !== ' ' && character !== '\t')) {
+          restored += character;
+        }
+      }
+    }
+
+    return restored.replace(/\n/g, '\\N');
+  }
+
+  private static isUsableAssDialogue(value: unknown): value is DocumentAssDialogue {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+    const dialogue = value as Record<string, unknown>;
+    const textRange = dialogue['textRange'];
+    const fields = dialogue['fields'];
+    const inlineTags = dialogue['inlineTags'];
+    const hardSpaces = dialogue['hardSpaces'];
+    const textFieldIndex = dialogue['textFieldIndex'];
+    if (
+      typeof textRange !== 'object'
+      || textRange === null
+      || Array.isArray(textRange)
+      || !Array.isArray(fields)
+      || !Array.isArray(inlineTags)
+      || !Number.isInteger(textFieldIndex)
+      || (textFieldIndex as number) < 0
+      || (textFieldIndex as number) >= fields.length
+      || !Number.isInteger(dialogue['plainTextLength'])
+      || (dialogue['plainTextLength'] as number) < 0
+    ) return false;
+
+    const range = textRange as Record<string, unknown>;
+    if (
+      !Number.isInteger(range['start'])
+      || !Number.isInteger(range['end'])
+      || (range['start'] as number) < 0
+      || (range['end'] as number) < (range['start'] as number)
+    ) return false;
+    if (!fields.every(field => (
+      typeof field === 'object'
+      && field !== null
+      && !Array.isArray(field)
+      && typeof (field as Record<string, unknown>)['value'] === 'string'
+    ))) return false;
+    if (!inlineTags.every(tag => (
+      typeof tag === 'object'
+      && tag !== null
+      && !Array.isArray(tag)
+      && Number.isInteger((tag as Record<string, unknown>)['offset'])
+      && ((tag as Record<string, unknown>)['offset'] as number) >= 0
+      && typeof (tag as Record<string, unknown>)['value'] === 'string'
+    ))) return false;
+    return hardSpaces === undefined || (
+      Array.isArray(hardSpaces)
+      && hardSpaces.every(offset => Number.isInteger(offset) && offset >= 0)
+    );
   }
 
   private static uniqueTextBlocks(textBlocks: string[]): string[] {
