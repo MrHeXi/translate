@@ -38,22 +38,14 @@ describe('MessageManager', () => {
     jest.resetModules();
   });
 
-  it('ignores actions without a registered handler so another listener can respond', () => {
-    const chromeHarness = setupChromeWithCapturedListener();
+  it('does not register a runtime listener before the first handler is registered', () => {
+    setupChromeWithCapturedListener();
 
     jest.isolateModules(() => {
       require('../MessageManager');
     });
 
-    const sendResponse = jest.fn();
-    const keepChannelOpen = chromeHarness.getListener()(
-      { action: 'getReviewItems' },
-      {},
-      sendResponse
-    );
-
-    expect(keepChannelOpen).toBe(false);
-    expect(sendResponse).not.toHaveBeenCalled();
+    expect(chrome.runtime.onMessage.addListener).not.toHaveBeenCalled();
   });
 
   it('responds when a handler is registered for the action', async () => {

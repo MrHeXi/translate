@@ -324,23 +324,56 @@ progress {
 .cue-row {
   padding: 12px 0;
   display: grid;
-  grid-template-columns: 92px minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: 164px minmax(0, 1fr) minmax(0, 1fr);
   gap: 14px;
   border-bottom: 1px solid #e3e7eb;
 }
 
-.cue-time {
+.cue-timing {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-content: start;
+}
+
+.cue-field {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.cue-field > span {
   color: #567061;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cue-time-input,
+.cue-text-input {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid #bcc9c1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #17231c;
+  font: inherit;
+}
+
+.cue-time-input {
+  height: 36px;
+  padding: 0 7px;
   font-family: Consolas, "SFMono-Regular", monospace;
   font-size: 12px;
 }
 
-.cue-original,
-.cue-translation {
+.cue-text-input {
   min-width: 0;
+  min-height: 64px;
+  padding: 8px 10px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.5;
+  resize: vertical;
 }
 
 .cue-translation {
@@ -350,6 +383,7 @@ progress {
 button:focus-visible,
 select:focus,
 input:focus-visible,
+textarea:focus-visible,
 .file-picker:focus-within {
   outline: 2px solid #d97706;
   outline-offset: 2px;
@@ -373,10 +407,10 @@ input:focus-visible,
   }
 
   .cue-row {
-    grid-template-columns: 76px minmax(0, 1fr);
+    grid-template-columns: 164px minmax(0, 1fr);
   }
 
-  .cue-translation {
+  .cue-translation-field {
     grid-column: 2;
   }
 }
@@ -411,7 +445,7 @@ input:focus-visible,
     gap: 5px;
   }
 
-  .cue-translation {
+  .cue-translation-field {
     grid-column: auto;
   }
 }

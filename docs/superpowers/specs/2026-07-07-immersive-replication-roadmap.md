@@ -80,6 +80,8 @@ Current batch:
 - Bundled offline OCR for image-only PDFs and page images in English, Simplified Chinese, Traditional Chinese, Japanese, and Korean.
 - Single-owner content message dispatch with exactly-once image/video/live-caption command execution.
 - Content, image, video-subtitle, and live-caption cache identity includes provider, target language, settings revision, and source text/context.
+- Versioned YouTube standard/Live/Shorts video adapters with active-player selection and manual restart after SPA video navigation.
+- Explicit subtitle generation with provider capability declarations, true request cancellation, source playback-time offsets, editable cue text/timing, and deterministic SRT/VTT export.
 
 ## Planned Batches
 
@@ -217,8 +219,9 @@ Current batch:
 
 ### Batch J: Video and Site Adapter Parity
 
-- Add versioned, testable site adapters for YouTube standard videos, Live, Shorts, and other documented video sites without relying only on generic DOM selectors.
-- Add explicit AI subtitle generation for videos without subtitles, with provider capability checks, progress, cancellation, editable timing, and export.
+- Done: add a side-effect-free versioned adapter registry and YouTube Adapter v1 for standard videos, Live pages, Shorts, and `youtu.be`, with page classification, active-player-scoped selectors, route checks before cue requests/results, DOM caption normalization, same-text timed-cue preservation, bounded cue retention, and immediate Stop when SPA navigation changes videos.
+- Done: expose YouTube-specific manual generator entry points while retaining the explicit second Capture click; declare OpenAI/Groq timed-segment and cancellation capabilities, show indeterminate transcription progress, offset captured cues by the source playback position, allow cue text/start/end editing, abort active translation requests, and export edited bilingual SRT/VTT.
+- Remaining: add verified adapters for the other officially documented video sites, richer YouTube Live incremental/final cue handling, generated-caption playback in the source player, additional speech providers, files above provider limits, and live partial transcription.
 - Keep every subtitle-generation and media-capture path user-triggered; visiting or playing a video never starts capture, OCR, transcription, or translation.
 
 ### Batch K: AI Experts, Prompt Templates, and Privacy
@@ -240,6 +243,7 @@ Current batch:
 - Do not copy Immersive Translate's automatic or per-site automatic translation behavior; this is an intentional user-required parity exception.
 - Do not translate because the document page opens, files are selected, the queue changes, or failed files are queued for retry; only an explicit Translate document or Start batch command may begin document translation.
 - Do not capture tab audio on page load, from Video subtitles, or from Live captions.
+- Do not keep Video subtitles active across a YouTube SPA change to another video; restore the previous track and require another explicit Start.
 - Keep the required tab-audio API unused until Capture current tab; keep recordings local until Stop and generate and discard them on cancel, page close, failure, or limit overflow.
 - Do not weaken existing learning functions.
 - Do not claim a feature in store copy before it is implemented and verified.

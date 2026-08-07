@@ -7,7 +7,11 @@ import { SelectionHandler } from './components/SelectionHandler';
 import { HoverTranslator } from './components/HoverTranslator';
 import { InputBoxTranslator } from './components/InputBoxTranslator';
 import { DocumentPagePrompt } from './components/DocumentPagePrompt';
-import { VideoSubtitleTranslator } from './components/VideoSubtitleTranslator';
+import {
+  VideoSubtitleTranslationRequest,
+  VideoSubtitleTranslator,
+  VideoSubtitleTranslatorState
+} from './components/VideoSubtitleTranslator';
 import {
   LiveCaptionTranscriptExport,
   LiveCaptionTranscriptFormat,
@@ -57,6 +61,8 @@ interface UserSettings {
   siteTranslationRules?: SiteTranslationRule[];
   documentOcrLanguage?: BundledOcrLanguageCode;
 }
+
+type InteractiveTranslationRequest = Partial<VideoSubtitleTranslationRequest>;
 
 class ContentScript {
   private floatingIcon: FloatingIcon;
@@ -196,6 +202,9 @@ class ContentScript {
       'exportVideoSubtitles': async () => {
         return { success: true, data: this.exportVideoSubtitles() };
       },
+      'getVideoPlaybackPosition': async () => {
+        return { success: true, data: this.videoSubtitleTranslator.getPlaybackPosition() };
+      },
       'toggleLiveCaptionTranslation': async () => {
         const state = await this.toggleLiveCaptionTranslation();
         return { success: true, data: state };
@@ -234,12 +243,14 @@ class ContentScript {
         return { success: true, data: pageInfo };
       },
       'getTranslationStatus': async () => {
+        const videoSubtitleStatus = this.videoSubtitleTranslator.getStatus();
         return { 
           success: true, 
           data: { 
             isActive: this.isTranslationMode,
             isLearningMode: this.isLearningMode,
-            isVideoSubtitleMode: this.videoSubtitleTranslator.getStatus().isActive,
+            isVideoSubtitleMode: videoSubtitleStatus.isActive,
+            videoSubtitleStatus,
             isLiveCaptionMode: this.liveCaptionTranslator.getStatus().isActive,
             isImageTranslationMode: this.imageTranslator.getStatus().isActive
           } 
@@ -325,9 +336,9 @@ class ContentScript {
     }
   }
 
-  private async toggleVideoSubtitleTranslation(): Promise<{ isActive: boolean; hasTrack: boolean; message: string }> {
+  private async toggleVideoSubtitleTranslation(): Promise<VideoSubtitleTranslatorState> {
     return this.videoSubtitleTranslator.toggle(
-      (text) => this.translateInteractiveText(text),
+      (text, request) => this.translateInteractiveText(text, undefined, request),
       (text) => this.createTranslationCacheKey(text)
     );
   }
@@ -689,11 +700,16 @@ class ContentScript {
     }
   }
 
-  private async translateInteractiveText(text: string, targetLanguage?: string): Promise<string> {
+  private async translateInteractiveText(
+    text: string,
+    targetLanguage?: string,
+    request: InteractiveTranslationRequest = {}
+  ): Promise<string> {
     const normalizedText = text.trim();
     if (!normalizedText) {
       return '';
     }
+    if (request.signal?.aborted) throw new DOMException('Canceled', 'AbortError');
 
     const cacheKey = this.createTranslationCacheKey(normalizedText, '', targetLanguage);
     const cachedTranslation = this.translationCache.get(cacheKey);
@@ -701,7 +717,8 @@ class ContentScript {
       return cachedTranslation;
     }
 
-    const result = await this.requestTranslation(normalizedText, undefined, targetLanguage);
+    const result = await this.requestTranslation(normalizedText, undefined, targetLanguage, request);
+    if (request.signal?.aborted) throw new DOMException('Canceled', 'AbortError');
     this.translationCache.set(cacheKey, result.translatedText);
     return result.translatedText;
   }
@@ -831,19 +848,41 @@ class ContentScript {
   private async requestTranslation(
     text: string,
     context?: string,
-    targetLanguage?: string
+    targetLanguage?: string,
+    request: InteractiveTranslationRequest = {}
   ): Promise<TranslationResult> {
     const startTime = Date.now();
+    const requestId = request.requestId?.trim();
+    const cancelRequest = (): void => {
+      if (!requestId) return;
+      void messageManager.sendMessage({
+        action: 'cancelTranslationRequest',
+        data: { requestId }
+      }, { retries: 1, timeout: 5000 }).catch(() => undefined);
+    };
+
+    if (request.signal?.aborted) {
+      cancelRequest();
+      throw new DOMException('Canceled', 'AbortError');
+    }
+    request.signal?.addEventListener('abort', cancelRequest, { once: true });
+
     try {
-      const response = await messageManager.sendToBackground({
+      const translationMessage = {
         action: 'translate',
         data: {
           text: text,
           context,
           targetLang: targetLanguage || this.userSettings?.defaultTargetLanguage || 'zh-CN',
-          provider: this.userSettings?.translationProvider || 'google'
+          provider: this.userSettings?.translationProvider || 'google',
+          ...(requestId ? { requestId } : {})
         }
-      });
+      };
+      const response = requestId
+        ? await messageManager.sendMessage(translationMessage, { retries: 1 })
+        : await messageManager.sendToBackground(translationMessage);
+
+      if (request.signal?.aborted) throw new DOMException('Canceled', 'AbortError');
 
       const responseTime = Date.now() - startTime;
       performanceManager.recordRequest(responseTime, response.success);
@@ -857,6 +896,8 @@ class ContentScript {
       const responseTime = Date.now() - startTime;
       performanceManager.recordRequest(responseTime, false);
       throw error;
+    } finally {
+      request.signal?.removeEventListener('abort', cancelRequest);
     }
   }
 
@@ -1063,10 +1104,18 @@ class ContentScript {
   }
 }
 
-// 初始化内容脚本
-const contentScript = new ContentScript();
+interface LexiBridgeContentWindow extends Window {
+  __lexibridgeContentScriptV1?: ContentScript;
+}
 
-// 页面卸载时清理资源
-window.addEventListener('beforeunload', () => {
-  contentScript.cleanup();
-});
+const contentWindow = window as LexiBridgeContentWindow;
+if (!contentWindow.__lexibridgeContentScriptV1) {
+  const contentScript = new ContentScript();
+  contentWindow.__lexibridgeContentScriptV1 = contentScript;
+  window.addEventListener('beforeunload', () => {
+    contentScript.cleanup();
+    if (contentWindow.__lexibridgeContentScriptV1 === contentScript) {
+      delete contentWindow.__lexibridgeContentScriptV1;
+    }
+  }, { once: true });
+}

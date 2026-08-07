@@ -109,6 +109,7 @@ For the multi-file document batch, capture two separate states:
 Capture a regular video page with available text-track or DOM-rendered captions after manually starting Video subtitles from the popup:
 
 - The bilingual subtitle overlay visible.
+- For YouTube, show the popup's Standard video, Live, or Shorts adapter context and keep the active video identifiable; do not imply that navigating to a different video keeps translation enabled.
 - The Export SRT control visible if the current session has translated subtitle cues to demonstrate local subtitle export.
 - Playback controls or the video context visible enough to show this is a video subtitle flow.
 - No claim or visual implication that LexiBridge records audio or transcribes meetings.
@@ -120,8 +121,9 @@ Capture the subtitle generator after an explicit run with:
 - A harmless local media filename and no personal file path.
 - A configured OpenAI or Groq speech service, spoken language, and translation controls visible.
 - The Capture current tab command in its idle state after capture has stopped, without private media titles.
-- Timed original and translated caption text visible.
+- Editable Start/End controls plus original and translated caption text visible.
 - Export SRT and Export VTT controls visible.
+- For a YouTube example, show the source context carried from a standard video, Live page, or Short without implying capture began when the generator opened.
 - No implication that opening the page, selecting a file, or visiting a video page captures audio automatically; capture requires its own click and stops when the generator closes.
 
 If documenting the active capture state, use a separate screenshot with no generated captions or provider progress. Show that declared `tabCapture` access is unused until Capture current tab, and do not imply any upload before Stop and generate. Cancel, stream failure, generator close, or the 25 MB limit must be described as local cleanup without provider submission.

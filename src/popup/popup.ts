@@ -1,6 +1,8 @@
 // Chrome翻译插件弹出窗口脚本
 
 import { openTranslationSidePanel } from '../services/SidePanelManager';
+import { resolveVideoSiteContext } from '../services/VideoSiteAdapterRegistry';
+import type { VideoSiteContext } from '../services/VideoSiteAdapterRegistry';
 
 // 学习统计接口定义
 interface LearningStats {
@@ -20,6 +22,16 @@ interface VocabularyPreview {
   addedDate?: string | Date;
 }
 
+interface PopupVideoSubtitleStatus {
+  adapterId: string;
+  siteLabel: string;
+  pageType: string;
+  adapterVersion: string;
+  hasTrack: boolean | null;
+}
+
+const MAX_SOURCE_TITLE_LENGTH = 160;
+
 class PopupController {
   private isTranslationActive: boolean = false;
   private isVideoSubtitleActive: boolean = false;
@@ -34,6 +46,9 @@ class PopupController {
   private isExportingVideoSubtitles: boolean = false;
   private isExportingLiveCaptionTranscript: boolean = false;
   private isClearingLiveCaptionTranscript: boolean = false;
+  private activeVideoSiteContext: VideoSiteContext | null = null;
+  private videoSubtitleSiteStatus: PopupVideoSubtitleStatus | null = null;
+  private contentScriptInjectionPromises: Map<number, Promise<void>> = new Map();
   private loadingButtonStates: Map<HTMLButtonElement, boolean> = new Map();
 
   constructor() {
@@ -131,6 +146,7 @@ class PopupController {
     try {
       // 查询当前标签页的翻译状态
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      this.setActiveVideoSiteContext(tab?.url);
       if (tab?.id) {
         const response = await this.sendTabMessage(tab.id, { action: 'getTranslationStatus' });
         const isActive = response?.isActive ?? response?.data?.isActive;
@@ -152,6 +168,8 @@ class PopupController {
         if (typeof isImageTranslationMode === 'boolean') {
           this.isImageTranslationActive = isImageTranslationMode;
         }
+
+        this.applyVideoSubtitleSiteStatus(response?.data?.videoSubtitleStatus);
 
         this.updateTranslationStatusUI();
         this.updateVideoSubtitleStatusUI();
@@ -232,6 +250,7 @@ class PopupController {
         if (response?.success) {
           const isActive = response.isActive ?? response.data?.isActive;
           this.isVideoSubtitleActive = Boolean(isActive);
+          this.applyVideoSubtitleSiteStatus(response.data);
           this.updateVideoSubtitleStatusUI();
         } else {
           this.showError(response?.error || 'Could not toggle video subtitles.');
@@ -589,6 +608,7 @@ class PopupController {
 
   private updateVideoSubtitleStatusUI(): void {
     const statusElement = document.getElementById('videoSubtitleStatus');
+    const contextElement = document.getElementById('videoSubtitleContextStatus');
     const toggleBtn = document.getElementById('toggleVideoSubtitles') as HTMLButtonElement;
 
     if (statusElement && toggleBtn) {
@@ -602,6 +622,114 @@ class PopupController {
         toggleBtn.classList.remove('active');
       }
     }
+
+    if (contextElement) {
+      const status = this.videoSubtitleSiteStatus;
+      contextElement.textContent = status
+        ? `${status.siteLabel} / ${this.formatPageType(status.pageType)} / adapter v${status.adapterVersion} / ${this.formatTrackStatus(status.hasTrack)}`
+        : 'No supported video context detected';
+    }
+  }
+
+  private setActiveVideoSiteContext(url?: string): void {
+    this.activeVideoSiteContext = null;
+
+    if (url) {
+      try {
+        this.activeVideoSiteContext = resolveVideoSiteContext(url);
+      } catch (error) {
+        console.warn('Could not resolve the active video site:', error);
+      }
+    }
+
+    this.videoSubtitleSiteStatus = this.createPopupVideoSubtitleStatus(this.activeVideoSiteContext);
+    this.updateSubtitleGeneratorButton();
+    this.updateVideoSubtitleStatusUI();
+  }
+
+  private applyVideoSubtitleSiteStatus(value: unknown): void {
+    const runtimeStatus = this.createPopupVideoSubtitleStatus(value);
+    if (!runtimeStatus) return;
+
+    const fallback = this.videoSubtitleSiteStatus;
+    this.videoSubtitleSiteStatus = {
+      adapterId: runtimeStatus.adapterId || fallback?.adapterId || 'generic',
+      siteLabel: runtimeStatus.siteLabel || fallback?.siteLabel || 'Video',
+      pageType: runtimeStatus.pageType || fallback?.pageType || 'video',
+      adapterVersion: runtimeStatus.adapterVersion || fallback?.adapterVersion || '1',
+      hasTrack: runtimeStatus.hasTrack
+    };
+    this.updateSubtitleGeneratorButton();
+  }
+
+  private createPopupVideoSubtitleStatus(value: unknown): PopupVideoSubtitleStatus | null {
+    if (!value || typeof value !== 'object') return null;
+
+    const source = value as Record<string, unknown>;
+    const adapterId = this.readStatusText(source.adapterId);
+    const siteLabel = this.readStatusText(source.siteLabel);
+    const pageType = this.readStatusText(source.pageType);
+    const adapterVersion = this.readStatusText(source.adapterVersion);
+    if (!adapterId || !siteLabel || !pageType || !adapterVersion) return null;
+
+    return {
+      adapterId,
+      siteLabel,
+      pageType,
+      adapterVersion,
+      hasTrack: typeof source.hasTrack === 'boolean' ? source.hasTrack : null
+    };
+  }
+
+  private readStatusText(value: unknown): string {
+    if (typeof value !== 'string' && typeof value !== 'number') return '';
+    return String(value).trim().slice(0, 80);
+  }
+
+  private formatPageType(pageType: string): string {
+    const normalized = pageType.trim().toLowerCase();
+    if (normalized === 'shorts') return 'Short';
+    if (normalized === 'watch' || normalized === 'standard') return 'Video';
+    if (normalized === 'live') return 'Live';
+    return pageType;
+  }
+
+  private formatTrackStatus(hasTrack: boolean | null): string {
+    if (hasTrack === true) return 'track available';
+    if (hasTrack === false) return 'no track';
+    return 'track unknown';
+  }
+
+  private updateSubtitleGeneratorButton(): void {
+    const button = document.getElementById('openSubtitleGenerator') as HTMLButtonElement;
+    if (!button) return;
+
+    const pageType = this.getYouTubePageType(this.videoSubtitleSiteStatus)
+      || this.getYouTubePageType(this.activeVideoSiteContext);
+    if (pageType === 'live') {
+      button.textContent = 'Generate for this YouTube live';
+    } else if (pageType === 'shorts') {
+      button.textContent = 'Generate for this YouTube short';
+    } else if (pageType === 'standard') {
+      button.textContent = 'Generate for this YouTube video';
+    } else {
+      button.textContent = 'Generate from media';
+    }
+  }
+
+  private getYouTubePageType(value: unknown): 'standard' | 'live' | 'shorts' | null {
+    if (!value || typeof value !== 'object') return null;
+
+    const context = value as Record<string, unknown>;
+    const adapterId = this.readStatusText(context.adapterId).toLowerCase();
+    const siteLabel = this.readStatusText(context.siteLabel).toLowerCase();
+    if (adapterId !== 'youtube' && siteLabel !== 'youtube') return null;
+
+    const pageType = this.readStatusText(context.pageType).toLowerCase();
+    if (pageType === 'live') return 'live';
+    if (pageType === 'short' || pageType === 'shorts') return 'shorts';
+    if (pageType === 'watch' || pageType === 'standard' || pageType === 'video') return 'standard';
+    return null;
   }
 
   private updateLiveCaptionStatusUI(): void {
@@ -789,11 +917,31 @@ class PopupController {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.id && this.canInjectContentScript(tab.url)) {
         generatorUrl.searchParams.set('sourceTabId', String(tab.id));
+
+        const context = tab.url ? resolveVideoSiteContext(tab.url) : null;
+        const pageType = this.getYouTubePageType(this.videoSubtitleSiteStatus)
+          || this.getYouTubePageType(context);
+        if (pageType) {
+          generatorUrl.searchParams.set('sourceSite', context?.siteLabel || 'YouTube');
+          generatorUrl.searchParams.set('sourcePageType', pageType);
+
+          const sourceTitle = this.truncateSourceTitle(tab.title);
+          if (sourceTitle) {
+            generatorUrl.searchParams.set('sourceTitle', sourceTitle);
+          }
+        }
       }
     } catch (error) {
       console.warn('Could not attach the source tab to the subtitle generator:', error);
     }
     chrome.tabs.create({ url: generatorUrl.toString() });
+  }
+
+  private truncateSourceTitle(title?: string): string {
+    if (!title) return '';
+
+    const normalized = title.replace(/\s+/g, ' ').trim();
+    return Array.from(normalized).slice(0, MAX_SOURCE_TITLE_LENGTH).join('');
   }
 
   private async openSidePanel(): Promise<void> {
@@ -859,14 +1007,36 @@ class PopupController {
     try {
       return await this.sendTabMessage(tab.id, message);
     } catch (error) {
+      if (!this.isMissingContentScriptReceiverError(error)) {
+        throw error;
+      }
+
       if (!this.canInjectContentScript(tab.url)) {
         throw new Error('This page does not support page translation. Open a regular web page and try again.');
       }
 
-      await this.injectContentScript(tab.id);
-      await this.waitForContentScript(tab.id);
+      await this.ensureContentScriptInjected(tab.id);
       return await this.sendTabMessage(tab.id, message);
     }
+  }
+
+  private ensureContentScriptInjected(tabId: number): Promise<void> {
+    const pending = this.contentScriptInjectionPromises.get(tabId);
+    if (pending) return pending;
+
+    const injection = (async () => {
+      await this.injectContentScript(tabId);
+      await this.waitForContentScript(tabId);
+    })();
+
+    this.contentScriptInjectionPromises.set(tabId, injection);
+    const clearPendingInjection = (): void => {
+      if (this.contentScriptInjectionPromises.get(tabId) === injection) {
+        this.contentScriptInjectionPromises.delete(tabId);
+      }
+    };
+    void injection.then(clearPendingInjection, clearPendingInjection);
+    return injection;
   }
 
   private canInjectContentScript(url?: string): boolean {

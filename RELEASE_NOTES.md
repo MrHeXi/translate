@@ -31,12 +31,14 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Conservative two-column PDF detection with left-column-then-right-column reading order and translated overlays constrained to inferred column regions.
 - Local standalone-formula detection that preserves likely mathematical expressions, excludes them from direct translation and neighboring AI context, and does not paint over them in translated previews or PDF exports.
 - Video subtitle translation for pages that expose caption/subtitle text tracks or common DOM-rendered caption containers.
+- Versioned YouTube Adapter v1 for standard videos, Live pages, Shorts, and `youtu.be`, with active-player-scoped captions, route checks before every cue request/result, same-text timed-cue preservation, bounded export retention, and immediate Stop instead of automatic translation after SPA video navigation.
 - Video subtitles and Live captions remain text-only modes and never start tab recording.
 - SRT export for translated video subtitle cues from the current session.
 - User-invoked AI subtitle generation for selected local audio/video files up to 25 MB through configured OpenAI or Groq transcription endpoints.
 - Explicit current-tab audio capture from the Capture current tab control while the subtitle generator remains open, using the required permission only after that click, preserving local playback, sending no provider request before Stop and generate, and cleaning up on cancel, page close, failure, or the 25 MB limit. Chrome 116 or newer is required.
 - Ordered 256 KB media upload chunks over a long-lived extension connection, immediate cancellation, abortable provider requests, and in-memory media cleanup after completion, cancellation, provider error, or disconnect.
 - Timestamped transcript normalization, optional caption translation, bilingual preview, and local SRT/VTT export without page-load or background tab-audio capture.
+- Contextual YouTube subtitle-generation entry points that only open the generator; capture still requires its own click, records the source playback offset at recorder start when available, exposes bounded editable cue text/start/end controls, uses indeterminate provider progress, and cancels globally namespaced per-cue translation requests.
 - Live caption translation for caption text already visible in the page DOM, with Google Meet, Zoom, Microsoft Teams, and Webex-style speaker label handling.
 - Timestamped bilingual live-caption transcripts with incremental-caption coalescing, in-memory session retention after Stop, explicit Clear, and local TXT/SRT/VTT/JSON export.
 - Manual image text translation for selected images, canvases, SVGs, dragged image regions, and eligible graphics currently visible in the viewport, using browser OCR first and bundled offline OCR otherwise while retaining separate per-image or OCR-block overlays.
@@ -60,7 +62,7 @@ Verified on 2026-08-07:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 56 test suites and 476 tests.
+- `jest --runInBand --silent`: passed, 60 test suites and 510 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 
@@ -75,7 +77,7 @@ Expected build warnings:
 
 - Unpacked extension folder: `dist`
 - Test package: `chrome-translation-extension.zip`
-- ZIP size: `17,779,884` bytes
-- SHA-256: `3AC6899984C7C026A610A73083774097F2F2ECD43EB4B3B27F1BCF7261AC69F1`
+- ZIP size: `17,789,219` bytes
+- SHA-256: `3DAA7CF508B50758490FEB912273D7B2B104969987D69905022A94BC5840FC2B`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

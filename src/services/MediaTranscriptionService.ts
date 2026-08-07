@@ -7,6 +7,11 @@ export interface MediaTranscriptionProviderDefinition {
   label: string;
   defaultEndpoint: string;
   defaultModel: string;
+  maxBytes: number;
+  supportedMimeTypes: readonly string[];
+  supportsTimedSegments: true;
+  supportsCancellation: true;
+  progressMode: 'indeterminate';
 }
 
 export interface MediaTranscriptionMetadata {
@@ -49,6 +54,9 @@ const MEDIA_TRANSCRIPTION_MIME_TYPES = new Set([
   'video/mp4',
   'video/webm'
 ]);
+export const MEDIA_TRANSCRIPTION_SUPPORTED_MIME_TYPES = Object.freeze(
+  Array.from(MEDIA_TRANSCRIPTION_MIME_TYPES)
+);
 
 export const isSupportedMediaTranscriptionFile = (fileName: string, mimeType: string): boolean => {
   const normalizedMimeType = mimeType.trim().toLowerCase().split(';')[0] || '';
@@ -61,13 +69,23 @@ export const MEDIA_TRANSCRIPTION_PROVIDERS: MediaTranscriptionProviderDefinition
     id: 'openai',
     label: 'OpenAI transcription',
     defaultEndpoint: 'https://api.openai.com/v1/audio/transcriptions',
-    defaultModel: 'whisper-1'
+    defaultModel: 'whisper-1',
+    maxBytes: MEDIA_TRANSCRIPTION_MAX_BYTES,
+    supportedMimeTypes: MEDIA_TRANSCRIPTION_SUPPORTED_MIME_TYPES,
+    supportsTimedSegments: true,
+    supportsCancellation: true,
+    progressMode: 'indeterminate'
   },
   {
     id: 'groq',
     label: 'Groq transcription',
     defaultEndpoint: 'https://api.groq.com/openai/v1/audio/transcriptions',
-    defaultModel: 'whisper-large-v3-turbo'
+    defaultModel: 'whisper-large-v3-turbo',
+    maxBytes: MEDIA_TRANSCRIPTION_MAX_BYTES,
+    supportedMimeTypes: MEDIA_TRANSCRIPTION_SUPPORTED_MIME_TYPES,
+    supportsTimedSegments: true,
+    supportsCancellation: true,
+    progressMode: 'indeterminate'
   }
 ];
 

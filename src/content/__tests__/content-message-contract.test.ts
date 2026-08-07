@@ -23,6 +23,7 @@ describe('Content script MessageManager contract', () => {
 
   beforeEach(() => {
     jest.resetModules();
+    delete (window as any).__lexibridgeContentScriptV1;
     document.body.innerHTML = '<main><p>Hello world for translation.</p></main>';
   });
 
@@ -157,13 +158,13 @@ describe('Content script MessageManager contract', () => {
     const statusResponse = await sendDirectMessage({ action: 'getTranslationStatus' });
     expect(statusResponse).toEqual({
       success: true,
-      data: {
+      data: expect.objectContaining({
         isActive: true,
         isLearningMode: false,
         isVideoSubtitleMode: false,
         isLiveCaptionMode: false,
         isImageTranslationMode: false
-      }
+      })
     });
 
     const settingsResponse = await sendDirectMessage({
@@ -325,13 +326,13 @@ describe('Content script MessageManager contract', () => {
     const statusResponse = await sendDirectMessage({ action: 'getTranslationStatus' });
     expect(statusResponse).toEqual({
       success: true,
-      data: {
+      data: expect.objectContaining({
         isActive: false,
         isLearningMode: false,
         isVideoSubtitleMode: false,
         isLiveCaptionMode: false,
         isImageTranslationMode: false
-      }
+      })
     });
   });
 
@@ -670,13 +671,13 @@ describe('Content script MessageManager contract', () => {
 
     expect(statusResponse).toEqual({
       success: true,
-      data: {
+      data: expect.objectContaining({
         isActive: false,
         isLearningMode: false,
         isVideoSubtitleMode: false,
         isLiveCaptionMode: false,
         isImageTranslationMode: false
-      }
+      })
     });
 
     warnSpy.mockRestore();
@@ -906,33 +907,38 @@ describe('Content script MessageManager contract', () => {
     const startResponse = await sendDirectMessage({ action: 'toggleVideoSubtitleTranslation' });
     expect(startResponse).toEqual({
       success: true,
-      data: {
+      data: expect.objectContaining({
         isActive: true,
         hasTrack: false,
         message: 'No caption track found'
-      }
+      })
     });
 
     const statusResponse = await sendDirectMessage({ action: 'getTranslationStatus' });
     expect(statusResponse).toEqual({
       success: true,
-      data: {
+      data: expect.objectContaining({
         isActive: false,
         isLearningMode: false,
         isVideoSubtitleMode: true,
+        videoSubtitleStatus: expect.objectContaining({
+          isActive: true,
+          hasTrack: false,
+          adapterVersion: 1
+        }),
         isLiveCaptionMode: false,
         isImageTranslationMode: false
-      }
+      })
     });
 
     const stopResponse = await sendDirectMessage({ action: 'toggleVideoSubtitleTranslation' });
     expect(stopResponse).toEqual({
       success: true,
-      data: {
+      data: expect.objectContaining({
         isActive: false,
         hasTrack: false,
         message: 'Video subtitle translation stopped'
-      }
+      })
     });
 
     const emptySubtitleExportResponse = await sendDirectMessage({ action: 'exportVideoSubtitles' });
@@ -997,13 +1003,13 @@ describe('Content script MessageManager contract', () => {
     const liveCaptionStatusResponse = await sendDirectMessage({ action: 'getTranslationStatus' });
     expect(liveCaptionStatusResponse).toEqual({
       success: true,
-      data: {
+      data: expect.objectContaining({
         isActive: false,
         isLearningMode: false,
         isVideoSubtitleMode: false,
         isLiveCaptionMode: true,
         isImageTranslationMode: false
-      }
+      })
     });
 
     const liveCaptionStopResponse = await sendDirectMessage({ action: 'toggleLiveCaptionTranslation' });
@@ -1043,13 +1049,13 @@ describe('Content script MessageManager contract', () => {
     const imageStatusResponse = await sendDirectMessage({ action: 'getTranslationStatus' });
     expect(imageStatusResponse).toEqual({
       success: true,
-      data: {
+      data: expect.objectContaining({
         isActive: false,
         isLearningMode: false,
         isVideoSubtitleMode: false,
         isLiveCaptionMode: false,
         isImageTranslationMode: true
-      }
+      })
     });
 
     const imageStopResponse = await sendDirectMessage({ action: 'toggleImageTranslation' });

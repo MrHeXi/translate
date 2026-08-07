@@ -285,20 +285,33 @@ describe('AI subtitle generator', () => {
           context: 'Hello world',
           sourceLang: 'en',
           targetLang: 'zh-CN',
-          provider: 'google'
+          provider: 'google',
+          requestId: expect.stringMatching(/^subtitle:[A-Za-z0-9:_-]+:1:1$/)
         }
       }, expect.any(Function));
       expect(document.querySelectorAll('.cue-row')).toHaveLength(1);
-      expect(document.getElementById('cueList')?.textContent).toContain('Hello world');
-      expect(document.getElementById('cueList')?.textContent).toContain('你好，世界');
+      const originalInput = document.querySelector('.cue-original') as HTMLTextAreaElement;
+      const translationInput = document.querySelector('.cue-translation') as HTMLTextAreaElement;
+      const timeInputs = Array.from(document.querySelectorAll('.cue-time-input')) as HTMLInputElement[];
+      expect(originalInput.value).toBe('Hello world');
+      expect(translationInput.value).toBe('你好，世界');
       expect(document.getElementById('generationStatus')?.textContent).toBe('Generated 1 captions');
       expect((document.getElementById('generationProgress') as HTMLProgressElement).value).toBe(100);
+
+      timeInputs[0]!.value = '1.250';
+      timeInputs[0]!.dispatchEvent(new Event('change'));
+      timeInputs[1]!.value = '3.750';
+      timeInputs[1]!.dispatchEvent(new Event('change'));
+      originalInput.value = 'Edited source';
+      originalInput.dispatchEvent(new Event('input'));
+      translationInput.value = '编辑后的译文';
+      translationInput.dispatchEvent(new Event('input'));
 
       document.getElementById('exportSrt')!.dispatchEvent(new Event('click'));
       expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
       expect(exportedBlob).not.toBeNull();
       expect(await readBlobText(exportedBlob!)).toBe(
-        '1\n00:00:00,000 --> 00:00:02,400\nHello world\n你好，世界'
+        '1\n00:00:01,250 --> 00:00:03,750\nEdited source\n编辑后的译文'
       );
       expect(revokeObjectURL).toHaveBeenCalledWith('blob:captions');
     } finally {
@@ -339,6 +352,79 @@ describe('AI subtitle generator', () => {
     document.getElementById('cancelGeneration')!.dispatchEvent(new Event('click'));
     expect(harness.postMessage).toHaveBeenCalledWith({ type: 'cancel' });
     expect(harness.disconnect).toHaveBeenCalledTimes(1);
+    expect(document.getElementById('generationStatus')?.textContent).toBe('Canceled');
+    expect((document.getElementById('cancelGeneration') as HTMLButtonElement).hidden).toBe(true);
+  });
+
+  it('cancels the active caption translation request', async () => {
+    const harness = createPortHarness();
+    let pendingTranslationCallback: ((response?: any) => void) | null = null;
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({ success: true, data: [{ providerId: 'groq', configured: true }] });
+        return;
+      }
+      if (message.action === 'getSettings') {
+        callback({ success: true, data: { translationProvider: 'google', defaultTargetLanguage: 'zh-CN' } });
+        return;
+      }
+      if (message.action === 'cancelTranslationRequest') {
+        callback({ success: true, data: { cancelled: true } });
+        return;
+      }
+      if (message.action === 'translate') pendingTranslationCallback = callback;
+    });
+    (global as any).chrome = {
+      runtime: {
+        sendMessage,
+        connect: jest.fn(() => harness.port),
+        lastError: null,
+        openOptionsPage: jest.fn()
+      }
+    };
+
+    require('../subtitles');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+    await flushPromises();
+    setMediaFile(document.getElementById('mediaFile') as HTMLInputElement);
+    document.getElementById('generateSubtitles')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+    harness.emitMessage({ type: 'ready', totalBytes: 3 });
+    await flushPromises();
+    harness.emitMessage({ type: 'chunk-accepted', index: 0, receivedBytes: 3, totalBytes: 3 });
+    await flushPromises();
+    harness.emitMessage({
+      type: 'transcription-complete',
+      result: {
+        text: 'Pending translation',
+        language: 'en',
+        duration: 2,
+        segments: [{ id: 1, start: 0, end: 2, text: 'Pending translation' }]
+      }
+    });
+    await flushPromises();
+
+    document.getElementById('cancelGeneration')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    const translationRequest = sendMessage.mock.calls.find(([message]) => message.action === 'translate');
+    const translationRequestId = translationRequest?.[0]?.data?.requestId;
+    expect(translationRequestId).toEqual(expect.stringMatching(/^subtitle:[A-Za-z0-9:_-]+:1:1$/));
+    expect(sendMessage).toHaveBeenCalledWith({
+      action: 'cancelTranslationRequest',
+      data: { requestId: translationRequestId }
+    }, expect.any(Function));
+    expect(document.getElementById('generationStatus')?.textContent).toBe('Canceled');
+    expect((document.getElementById('cancelGeneration') as HTMLButtonElement).hidden).toBe(true);
+
+    const rejectLateTranslation = pendingTranslationCallback as ((response?: any) => void) | null;
+    expect(rejectLateTranslation).not.toBeNull();
+    (chrome.runtime as any).lastError = { message: 'The translation channel closed.' };
+    rejectLateTranslation?.();
+    (chrome.runtime as any).lastError = null;
+    await flushPromises();
+
     expect(document.getElementById('generationStatus')?.textContent).toBe('Canceled');
     expect((document.getElementById('cancelGeneration') as HTMLButtonElement).hidden).toBe(true);
   });
@@ -423,7 +509,11 @@ describe('AI subtitle generator', () => {
     const mediaStream = {
       getTracks: () => [{ stop: stopTrack }]
     } as unknown as MediaStream;
-    const getUserMedia = jest.fn().mockResolvedValue(mediaStream);
+    const captureOrder: string[] = [];
+    const getUserMedia = jest.fn().mockImplementation(async () => {
+      captureOrder.push('media-stream');
+      return mediaStream;
+    });
     const playbackSource = { connect: jest.fn(), disconnect: jest.fn() };
     const audioContext = {
       destination: {},
@@ -474,7 +564,15 @@ describe('AI subtitle generator', () => {
       value: MockAudioContext
     });
     (global as any).chrome = {
-      runtime: { sendMessage, connect, lastError: null, openOptionsPage: jest.fn() }
+      runtime: { sendMessage, connect, lastError: null, openOptionsPage: jest.fn() },
+      tabs: {
+        sendMessage: jest.fn((_tabId, message, callback) => {
+          if (message.action === 'getVideoPlaybackPosition') {
+            captureOrder.push('playback-position');
+            callback({ success: true, data: { currentTime: 120.5 } });
+          }
+        })
+      }
     };
 
     try {
@@ -509,6 +607,7 @@ describe('AI subtitle generator', () => {
       });
       expect(recorderInstance).not.toBeNull();
       expect(recorderInstance!.start).toHaveBeenCalledWith(1000);
+      expect(captureOrder).toEqual(['media-stream', 'playback-position']);
       expect(captureButton.textContent).toBe('Stop and generate');
       expect(connect).not.toHaveBeenCalled();
 
@@ -537,6 +636,8 @@ describe('AI subtitle generator', () => {
       expect(recorderInstance!.onstop).toBeNull();
 
       harness.emitMessage({ type: 'transcribing' });
+      expect((document.getElementById('generationProgress') as HTMLProgressElement).hasAttribute('value')).toBe(false);
+      expect(document.getElementById('progressText')?.textContent).toBe('Processing');
       harness.emitMessage({
         type: 'transcription-complete',
         result: {
@@ -548,6 +649,9 @@ describe('AI subtitle generator', () => {
       });
       await flushPromises();
       await flushPromises();
+
+      const generatedTimes = Array.from(document.querySelectorAll('.cue-time-input')) as HTMLInputElement[];
+      expect(generatedTimes.map(input => input.value)).toEqual(['120.500', '121.500']);
 
       document.getElementById('generateSubtitles')!.dispatchEvent(new Event('click'));
       await flushPromises();
@@ -608,6 +712,8 @@ describe('AI subtitle generator', () => {
     recorder.ondataavailable?.({
       data: new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/webm' })
     } as BlobEvent);
+    window.dispatchEvent(new Event('pagehide'));
+    await flushPromises();
     window.dispatchEvent(new Event('pagehide'));
     await flushPromises();
 

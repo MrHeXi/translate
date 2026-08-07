@@ -1,4 +1,5 @@
 import { VideoSubtitleTranslator } from '../components/VideoSubtitleTranslator';
+import * as videoSiteRegistry from '../../services/VideoSiteAdapterRegistry';
 
 const flushPromises = async (): Promise<void> => {
   await Promise.resolve();
@@ -97,11 +98,11 @@ describe('VideoSubtitleTranslator', () => {
 
     const state = translator.enable(translateText);
 
-    expect(state).toEqual({
+    expect(state).toEqual(expect.objectContaining({
       isActive: true,
       hasTrack: true,
       message: 'Video subtitle translation started'
-    });
+    }));
     expect(track.mode).toBe('hidden');
     expect(track.addEventListener).toHaveBeenCalledWith('cuechange', expect.any(Function));
 
@@ -110,7 +111,7 @@ describe('VideoSubtitleTranslator', () => {
     await flushPromises();
 
     const overlay = document.getElementById('lexibridge-video-subtitle-overlay');
-    expect(translateText).toHaveBeenCalledWith('Hello from captions.');
+    expect(translateText).toHaveBeenCalledWith('Hello from captions.', expect.any(Object));
     expect(overlay?.textContent).toContain('Hello from captions.');
     expect(overlay?.textContent).toContain('Translated: Hello from captions.');
   });
@@ -157,12 +158,12 @@ describe('VideoSubtitleTranslator', () => {
     const state = translator.enable(translateText);
     await flushPromises();
 
-    expect(state).toEqual({
+    expect(state).toEqual(expect.objectContaining({
       isActive: true,
       hasTrack: true,
       message: 'Video subtitle translation started'
-    });
-    expect(translateText).toHaveBeenCalledWith('Hello from DOM captions.');
+    }));
+    expect(translateText).toHaveBeenCalledWith('Hello from DOM captions.', expect.any(Object));
     const overlay = document.getElementById('lexibridge-video-subtitle-overlay');
     expect(overlay?.textContent).toContain('Hello from DOM captions.');
     expect(overlay?.textContent).toContain('Translated: Hello from DOM captions.');
@@ -196,11 +197,11 @@ describe('VideoSubtitleTranslator', () => {
 
     const state = translator.enable(async (text: string) => `Translated: ${text}`);
 
-    expect(state).toEqual({
+    expect(state).toEqual(expect.objectContaining({
       isActive: true,
       hasTrack: false,
       message: 'No caption track found'
-    });
+    }));
     expect(document.getElementById('lexibridge-video-subtitle-overlay')?.textContent).toBe('No caption track found');
   });
 
@@ -215,12 +216,17 @@ describe('VideoSubtitleTranslator', () => {
     track.fireCueChange();
     await flushPromises();
 
+    track.setActiveCue('<i>Hello from captions.</i>', 4, 5.25);
+    track.fireCueChange();
+    await flushPromises();
+
     const exported = translator.exportSubtitles();
 
-    expect(exported.cueCount).toBe(1);
+    expect(exported.cueCount).toBe(2);
     expect(exported.filename).toBe('Sample-Video-lexibridge.srt');
     expect(exported.content).toContain('1');
     expect(exported.content).toContain('00:00:01,234 --> 00:00:03,500');
+    expect(exported.content).toContain('00:00:04,000 --> 00:00:05,250');
     expect(exported.content).toContain('Hello from captions.');
     expect(exported.content).toContain('Translated: Hello from captions.');
   });
@@ -234,5 +240,205 @@ describe('VideoSubtitleTranslator', () => {
       content: '',
       message: 'No translated subtitles to export yet'
     });
+  });
+
+  it('records a stable DOM caption only once across repeated scans', async () => {
+    jest.useFakeTimers();
+    document.body.innerHTML = [
+      '<video></video>',
+      '<div class="ytp-caption-window-container">',
+      '<span class="ytp-caption-segment">One stable caption.</span>',
+      '</div>'
+    ].join('');
+    const video = document.querySelector('video') as HTMLVideoElement;
+    Object.defineProperty(video, 'currentTime', { value: 8, configurable: true });
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    try {
+      translator.enable(translateText);
+      await Promise.resolve();
+      await Promise.resolve();
+      jest.advanceTimersByTime(1600);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(translateText).toHaveBeenCalledTimes(1);
+      expect(translator.exportSubtitles().cueCount).toBe(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('ignores a stale translation after Stop and a new Start', async () => {
+    const track = createTextTrack('showing');
+    mockVideoTracks([track]);
+    let resolveFirst!: (value: string) => void;
+    const firstResult = new Promise<string>(resolve => {
+      resolveFirst = resolve;
+    });
+    const translateText = jest.fn()
+      .mockImplementationOnce(() => firstResult)
+      .mockResolvedValueOnce('New session translation');
+
+    translator.enable(translateText);
+    track.setActiveText('Session caption');
+    track.fireCueChange();
+    await Promise.resolve();
+
+    translator.disable();
+    expect(translateText.mock.calls[0]![1].signal.aborted).toBe(true);
+    track.setActiveText('');
+    translator.enable(translateText);
+    track.setActiveText('Session caption');
+    track.fireCueChange();
+    await flushPromises();
+    resolveFirst('Stale translation');
+    await flushPromises();
+
+    const exported = translator.exportSubtitles();
+    expect(exported.cueCount).toBe(1);
+    expect(exported.content).toContain('New session translation');
+    expect(exported.content).not.toContain('Stale translation');
+  });
+
+  it('prefers the active Shorts video when multiple players are present', async () => {
+    document.body.innerHTML = [
+      '<video id="preloaded"></video>',
+      '<ytd-reel-video-renderer is-active><video id="active"></video></ytd-reel-video-renderer>'
+    ].join('');
+    const preloadedTrack = createTextTrack('showing');
+    const activeTrack = createTextTrack('showing');
+    const preloadedVideo = document.getElementById('preloaded') as HTMLVideoElement;
+    const activeVideo = document.getElementById('active') as HTMLVideoElement;
+    Object.defineProperty(preloadedVideo, 'textTracks', { value: [preloadedTrack], configurable: true });
+    Object.defineProperty(activeVideo, 'textTracks', { value: [activeTrack], configurable: true });
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    translator.enable(translateText);
+    preloadedTrack.setActiveText('Wrong preloaded short');
+    preloadedTrack.fireCueChange();
+    activeTrack.setActiveText('Active short');
+    activeTrack.fireCueChange();
+    await flushPromises();
+
+    expect(activeTrack.addEventListener).toHaveBeenCalledWith('cuechange', expect.any(Function));
+    expect(preloadedTrack.addEventListener).not.toHaveBeenCalled();
+    expect(translateText).toHaveBeenCalledWith('Active short', expect.any(Object));
+  });
+
+  it('reads the most specific DOM segments without parent-child duplication', async () => {
+    document.body.innerHTML = [
+      '<video></video>',
+      '<div class="ytp-caption-window-container">',
+      '<div><span class="ytp-caption-segment"><span>Hello</span> <span>world</span></span></div>',
+      '</div>'
+    ].join('');
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    translator.enable(translateText);
+    await flushPromises();
+
+    expect(translateText).toHaveBeenCalledTimes(1);
+    expect(translateText).toHaveBeenCalledWith('Hello world', expect.any(Object));
+  });
+
+  it('reads DOM captions only from the active YouTube Shorts player', async () => {
+    const shortsContext = {
+      adapterId: 'youtube', adapterVersion: 1, siteLabel: 'YouTube', pageType: 'shorts' as const,
+      navigationKey: 'youtube:short-1', videoSelectors: ['ytd-reel-video-renderer[is-active] video', 'video'],
+      playerSelectors: ['ytd-reel-video-renderer[is-active] #movie_player', '#movie_player'],
+      captionRootSelectors: ['.ytp-caption-window-container'],
+      captionSegmentSelectors: ['.ytp-caption-segment'], canGenerateFromTab: true
+    };
+    jest.spyOn(videoSiteRegistry, 'resolveVideoSiteContext').mockReturnValue(shortsContext);
+    document.body.innerHTML = [
+      '<ytd-reel-video-renderer aria-hidden="true"><div id="movie_player">',
+      '<video></video><div class="ytp-caption-window-container"><span class="ytp-caption-segment">Inactive short</span></div>',
+      '</div></ytd-reel-video-renderer>',
+      '<ytd-reel-video-renderer is-active><div id="movie_player">',
+      '<video></video><div class="ytp-caption-window-container"><span class="ytp-caption-segment">Active short</span></div>',
+      '</div></ytd-reel-video-renderer>'
+    ].join('');
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    translator.enable(translateText);
+    await flushPromises();
+
+    expect(translateText).toHaveBeenCalledTimes(1);
+    expect(translateText).toHaveBeenCalledWith('Active short', expect.any(Object));
+  });
+
+  it('aborts an old track request before attaching a newly active track', async () => {
+    document.body.innerHTML = '<video id="first"></video><video id="second"></video>';
+    const firstVideo = document.getElementById('first') as HTMLVideoElement;
+    const secondVideo = document.getElementById('second') as HTMLVideoElement;
+    const firstTrack = createTextTrack('showing');
+    const secondTrack = createTextTrack('showing');
+    Object.defineProperty(firstVideo, 'textTracks', { value: [firstTrack], configurable: true });
+    Object.defineProperty(secondVideo, 'textTracks', { value: [secondTrack], configurable: true });
+    Object.defineProperty(firstVideo, 'paused', { value: false, configurable: true });
+    Object.defineProperty(secondVideo, 'paused', { value: true, configurable: true });
+    let resolveFirst!: (value: string) => void;
+    const firstResult = new Promise<string>(resolve => { resolveFirst = resolve; });
+    const translateText = jest.fn()
+      .mockImplementationOnce(() => firstResult)
+      .mockResolvedValueOnce('New track translation');
+
+    translator.enable(translateText);
+    firstTrack.setActiveCue('Repeated line', 1, 2);
+    firstTrack.fireCueChange();
+    await Promise.resolve();
+    const firstSignal = translateText.mock.calls[0]![1].signal as AbortSignal;
+
+    Object.defineProperty(firstVideo, 'paused', { value: true, configurable: true });
+    Object.defineProperty(secondVideo, 'paused', { value: false, configurable: true });
+    (translator as any).scanForSubtitleSource();
+    expect(firstSignal.aborted).toBe(true);
+
+    secondTrack.setActiveCue('Repeated line', 3, 4);
+    secondTrack.fireCueChange();
+    await flushPromises();
+    resolveFirst('Stale track translation');
+    await flushPromises();
+
+    const exported = translator.exportSubtitles();
+    expect(exported.cueCount).toBe(1);
+    expect(exported.content).toContain('New track translation');
+    expect(exported.content).not.toContain('Stale track translation');
+  });
+
+  it('stops before translating a cue from a new YouTube SPA video', async () => {
+    translator.cleanup();
+    const contexts = [
+      {
+        adapterId: 'youtube', adapterVersion: 1, siteLabel: 'YouTube', pageType: 'standard' as const,
+        navigationKey: 'youtube:first', videoSelectors: ['video'], playerSelectors: [],
+        captionRootSelectors: [], captionSegmentSelectors: [], canGenerateFromTab: true
+      },
+      {
+        adapterId: 'youtube', adapterVersion: 1, siteLabel: 'YouTube', pageType: 'shorts' as const,
+        navigationKey: 'youtube:second', videoSelectors: ['video'], playerSelectors: [],
+        captionRootSelectors: [], captionSegmentSelectors: [], canGenerateFromTab: true
+      }
+    ];
+    const resolveContext = jest.spyOn(videoSiteRegistry, 'resolveVideoSiteContext');
+    resolveContext.mockReturnValue(contexts[0]);
+    translator = new VideoSubtitleTranslator();
+    const track = createTextTrack('showing');
+    mockVideoTracks([track]);
+    const translateText = jest.fn(async (text: string) => text);
+    translator.enable(translateText);
+
+    resolveContext.mockReturnValue(contexts[1]);
+    track.setActiveCue('Cue from the next video', 1, 2);
+    track.fireCueChange();
+    await flushPromises();
+
+    expect(translator.getStatus()).toEqual(expect.objectContaining({
+      isActive: false,
+      message: 'Video changed; start video subtitles again'
+    }));
+    expect(translateText).not.toHaveBeenCalled();
+    expect(document.getElementById('lexibridge-video-subtitle-overlay')).toBeNull();
   });
 });

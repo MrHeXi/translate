@@ -98,15 +98,19 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 ### Video Subtitle Translation
 
 - Start or stop video subtitle translation manually from the popup.
+- Use the versioned YouTube adapter on standard videos, Live pages, and Shorts; it prioritizes the active player and stops when YouTube SPA navigation changes to another video, requiring another explicit Start.
 - Translate active caption or subtitle cues when the current video exposes browser text tracks or common DOM-rendered captions.
 - Render a bilingual subtitle overlay without recording audio or blocking playback.
 - Export translated subtitle cues from the current session as an `.srt` file.
+- Keep video subtitle sessions isolated with abortable translation requests, bounded cue retention, DOM caption deduplication, and native text-track restoration on Stop.
 - Open the subtitle generator from the popup to select a local `.mp3`, `.mp4`, `.mpeg`, `.mpga`, `.m4a`, `.wav`, or `.webm` file up to 25 MB.
-- From a regular media page, explicitly click Capture current tab, keep the generator open, and click Stop and generate when enough audio has played.
+- On YouTube standard, Live, or Shorts pages, use the contextual Generate button to open the generator without starting capture, then explicitly click Capture current tab and Stop and generate.
+- From another regular media page, explicitly click Capture current tab, keep the generator open, and click Stop and generate when enough audio has played.
 - Generate timestamped captions through a configured OpenAI or Groq transcription service, optionally translate them with any configured translation provider, and export bilingual SRT or VTT.
+- Edit each generated cue's start time, end time, original text, and translated text before export. Current-tab captures begin at the source video's playback position when the page exposes it.
 - Keep selected local media idle until Generate subtitles is clicked; current-tab audio remains local until Stop and generate. Stream submitted media to the background in bounded chunks and clear buffers after completion, cancellation, provider errors, or disconnection.
-- Use the declared `tabCapture` permission only after the explicit capture button; cancel, page close, stream failure, or the 25 MB limit stops and discards the temporary recording. This workflow requires Chrome 116 or newer.
-- Deeper site-specific video support, more speech providers, files above provider limits, and richer timing controls remain later work.
+- Use the declared `tabCapture` permission only after the explicit capture button; cancel also aborts active per-cue translation, while page close, stream failure, or the 25 MB limit stops and discards the temporary recording. This workflow requires Chrome 116 or newer.
+- YouTube Live translation still requires captions exposed by YouTube. Other site-specific adapters, generated-caption playback in the source player, more speech providers, files above provider limits, and live partial transcription remain later work.
 
 ### Live Caption Translation
 

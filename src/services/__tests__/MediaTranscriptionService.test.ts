@@ -1,4 +1,6 @@
 import {
+  MEDIA_TRANSCRIPTION_MAX_BYTES,
+  MEDIA_TRANSCRIPTION_PROVIDERS,
   MediaTranscriptionService,
   MediaTranscriptionUpload
 } from '../MediaTranscriptionService';
@@ -26,6 +28,21 @@ describe('MediaTranscriptionService', () => {
   afterEach(() => {
     if (originalFetch) global.fetch = originalFetch;
     else delete (global as any).fetch;
+  });
+
+  it('declares bounded timed-segment and cancellation capabilities for every provider', () => {
+    expect(MEDIA_TRANSCRIPTION_PROVIDERS).toHaveLength(2);
+    MEDIA_TRANSCRIPTION_PROVIDERS.forEach(provider => {
+      expect(provider).toEqual(expect.objectContaining({
+        maxBytes: MEDIA_TRANSCRIPTION_MAX_BYTES,
+        supportsTimedSegments: true,
+        supportsCancellation: true,
+        progressMode: 'indeterminate'
+      }));
+      expect(provider.defaultModel).toBeTruthy();
+      expect(provider.supportedMimeTypes).toContain('audio/webm');
+      expect(provider.supportedMimeTypes).toContain('video/mp4');
+    });
   });
 
   it('accepts ordered chunks, enforces the declared size, and clears buffered media', () => {

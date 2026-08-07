@@ -36,8 +36,9 @@
           <button id="toggleVideoSubtitles" class="toggle-btn">Start</button>
           <button id="exportVideoSubtitles" class="export-btn">Export SRT</button>
         </div>
-        <button id="openSubtitleGenerator" class="media-subtitle-btn" type="button">Generate from media</button>
-        <p class="helper-text">Start uses exposed captions. Generate accepts a file or an explicit current-tab capture.</p>
+        <p id="videoSubtitleContextStatus" class="video-site-status" aria-live="polite">No supported video context detected</p>
+        <button id="openSubtitleGenerator" class="media-subtitle-btn" type="button" aria-describedby="videoSubtitleGeneratorHelp">Generate from media</button>
+        <p id="videoSubtitleGeneratorHelp" class="helper-text">Start uses exposed captions. Generate opens the media tool; capture still starts only after your next click.</p>
       </section>
 
       <section class="live-caption-status">

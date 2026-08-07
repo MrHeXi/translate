@@ -1,7 +1,19 @@
+import {
+  VideoPageType,
+  VideoSiteContext,
+  resolveVideoSiteContext
+} from '../../services/VideoSiteAdapterRegistry';
+import { createTranslationRequestNamespace } from '../../services/TranslationRequestId';
+
 export interface VideoSubtitleTranslatorState {
   isActive: boolean;
   hasTrack: boolean;
   message: string;
+  adapterId: string;
+  adapterVersion: number;
+  siteLabel: string;
+  pageType: VideoPageType;
+  canGenerateFromTab: boolean;
 }
 
 export interface VideoSubtitleExport {
@@ -11,7 +23,22 @@ export interface VideoSubtitleExport {
   message: string;
 }
 
-type TranslateText = (text: string) => Promise<string>;
+export interface VideoSubtitleTranslationRequest {
+  requestId: string;
+  signal: AbortSignal;
+}
+
+export interface VideoPlaybackPosition {
+  currentTime: number;
+  duration: number | null;
+  paused: boolean;
+  adapterId: string;
+  adapterVersion: number;
+  siteLabel: string;
+  pageType: VideoPageType;
+}
+
+type TranslateText = (text: string, request: VideoSubtitleTranslationRequest) => Promise<string>;
 type CreateTranslationCacheKey = (text: string) => string;
 
 interface ActiveSubtitleCue {
@@ -28,6 +55,8 @@ interface TranslatedSubtitleCue {
 }
 
 export class VideoSubtitleTranslator {
+  private static readonly MAX_EXPORTED_CUES = 5000;
+  private readonly requestNamespace = createTranslationRequestNamespace('video-subtitle');
   private isActive = false;
   private translateText: TranslateText | null = null;
   private createTranslationCacheKey: CreateTranslationCacheKey = text => text;
@@ -37,10 +66,17 @@ export class VideoSubtitleTranslator {
   private previousTrackMode: TextTrackMode | null = null;
   private scanTimer: number | null = null;
   private lastCueText = '';
+  private lastCueIdentity = '';
   private hasDomSubtitleSource = false;
   private translationCache: Map<string, string> = new Map();
   private translatedCues: TranslatedSubtitleCue[] = [];
   private translatedCueKeys: Set<string> = new Set();
+  private siteContext: VideoSiteContext = resolveVideoSiteContext(window.location.href, document);
+  private enabledNavigationKey: string | null = null;
+  private runId = 0;
+  private requestSequence = 0;
+  private activeRequestControllers = new Set<AbortController>();
+  private statusMessage = 'Video subtitle translation stopped';
   private boundHandleCueChange = (): void => {
     void this.handleCueChange();
   };
@@ -51,11 +87,7 @@ export class VideoSubtitleTranslator {
   ): Promise<VideoSubtitleTranslatorState> {
     if (this.isActive) {
       this.disable();
-      return {
-        isActive: false,
-        hasTrack: false,
-        message: 'Video subtitle translation stopped'
-      };
+      return this.getStatus();
     }
 
     return this.enable(translateText, createTranslationCacheKey);
@@ -65,11 +97,21 @@ export class VideoSubtitleTranslator {
     translateText: TranslateText,
     createTranslationCacheKey: CreateTranslationCacheKey = text => text
   ): VideoSubtitleTranslatorState {
+    this.abortActiveRequests();
+    this.runId++;
+    this.translationCache.clear();
+    this.translatedCues = [];
+    this.translatedCueKeys.clear();
+    this.lastCueText = '';
+    this.lastCueIdentity = '';
+    this.siteContext = resolveVideoSiteContext(window.location.href, document);
+    this.enabledNavigationKey = this.siteContext.navigationKey;
     this.isActive = true;
     this.translateText = translateText;
     this.createTranslationCacheKey = createTranslationCacheKey;
     this.createOverlay();
     const hasTrack = this.scanForSubtitleSource();
+    this.statusMessage = hasTrack ? 'Video subtitle translation started' : 'No caption track found';
 
     if (!this.scanTimer) {
       this.scanTimer = window.setInterval(() => {
@@ -79,15 +121,14 @@ export class VideoSubtitleTranslator {
       }, 500);
     }
 
-    return {
-      isActive: true,
-      hasTrack,
-      message: hasTrack ? 'Video subtitle translation started' : 'No caption track found'
-    };
+    return this.createState(hasTrack);
   }
 
-  disable(): void {
+  disable(message: string = 'Video subtitle translation stopped'): void {
+    this.runId++;
     this.isActive = false;
+    this.statusMessage = message;
+    this.abortActiveRequests();
     this.detachTrack();
 
     if (this.scanTimer !== null) {
@@ -99,15 +140,15 @@ export class VideoSubtitleTranslator {
     this.overlayElement = null;
     this.currentVideo = null;
     this.lastCueText = '';
+    this.lastCueIdentity = '';
     this.hasDomSubtitleSource = false;
+    this.enabledNavigationKey = null;
+    this.translateText = null;
   }
 
   getStatus(): VideoSubtitleTranslatorState {
-    return {
-      isActive: this.isActive,
-      hasTrack: Boolean(this.currentTrack) || this.hasDomSubtitleSource,
-      message: this.isActive ? 'Video subtitle translation active' : 'Video subtitle translation stopped'
-    };
+    this.siteContext = resolveVideoSiteContext(window.location.href, document);
+    return this.createState(Boolean(this.currentTrack) || this.hasDomSubtitleSource);
   }
 
   cleanup(): void {
@@ -115,6 +156,35 @@ export class VideoSubtitleTranslator {
     this.translationCache.clear();
     this.translatedCues = [];
     this.translatedCueKeys.clear();
+  }
+
+  getPlaybackPosition(): VideoPlaybackPosition | null {
+    this.siteContext = resolveVideoSiteContext(window.location.href, document);
+    const video = this.currentVideo || this.getRankedVideos()[0];
+    if (!video || !Number.isFinite(video.currentTime)) return null;
+
+    return {
+      currentTime: Math.max(0, video.currentTime),
+      duration: Number.isFinite(video.duration) ? Math.max(0, video.duration) : null,
+      paused: video.paused,
+      adapterId: this.siteContext.adapterId,
+      adapterVersion: this.siteContext.adapterVersion,
+      siteLabel: this.siteContext.siteLabel,
+      pageType: this.siteContext.pageType
+    };
+  }
+
+  private createState(hasTrack: boolean): VideoSubtitleTranslatorState {
+    return {
+      isActive: this.isActive,
+      hasTrack,
+      message: this.statusMessage,
+      adapterId: this.siteContext.adapterId,
+      adapterVersion: this.siteContext.adapterVersion,
+      siteLabel: this.siteContext.siteLabel,
+      pageType: this.siteContext.pageType,
+      canGenerateFromTab: this.siteContext.canGenerateFromTab
+    };
   }
 
   exportSubtitles(): VideoSubtitleExport {
@@ -138,7 +208,10 @@ export class VideoSubtitleTranslator {
   private attachToBestTrack(): boolean {
     const trackInfo = this.findBestTrack();
     if (!trackInfo) {
-      this.detachTrack();
+      if (this.currentTrack) {
+        this.invalidateCurrentSource();
+        this.detachTrack();
+      }
       return false;
     }
 
@@ -146,6 +219,9 @@ export class VideoSubtitleTranslator {
       return true;
     }
 
+    if (this.currentTrack || this.hasDomSubtitleSource) {
+      this.invalidateCurrentSource();
+    }
     this.detachTrack();
     this.currentVideo = trackInfo.video;
     this.currentTrack = trackInfo.track;
@@ -157,6 +233,8 @@ export class VideoSubtitleTranslator {
   }
 
   private scanForSubtitleSource(): boolean {
+    if (!this.refreshSiteContext()) return false;
+
     const hasTrack = this.attachToBestTrack();
     if (hasTrack) {
       this.hasDomSubtitleSource = false;
@@ -169,6 +247,8 @@ export class VideoSubtitleTranslator {
       return true;
     }
 
+    this.lastCueText = '';
+    this.lastCueIdentity = '';
     this.showStatus('No caption track found');
     return false;
   }
@@ -184,12 +264,35 @@ export class VideoSubtitleTranslator {
     this.currentVideo = null;
     this.previousTrackMode = null;
     this.lastCueText = '';
+    this.lastCueIdentity = '';
+  }
+
+  private refreshSiteContext(): boolean {
+    const nextContext = resolveVideoSiteContext(window.location.href, document);
+    if (
+      this.isActive
+      && this.enabledNavigationKey
+      && this.siteContext.adapterId !== 'generic'
+      && nextContext.navigationKey !== this.enabledNavigationKey
+    ) {
+      this.disable('Video changed; start video subtitles again');
+      return false;
+    }
+
+    this.siteContext = nextContext;
+    this.applyOverlayContext();
+    return true;
+  }
+
+  private invalidateCurrentSource(): void {
+    this.runId++;
+    this.abortActiveRequests();
+    this.lastCueText = '';
+    this.lastCueIdentity = '';
   }
 
   private findBestTrack(): { video: HTMLVideoElement; track: TextTrack } | null {
-    const videos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
-
-    for (const video of videos) {
+    for (const video of this.getRankedVideos()) {
       const tracks = Array.from(video.textTracks || []);
       const showingTrack = tracks.find(track => this.isCaptionTrack(track) && track.mode === 'showing');
       const hiddenTrack = tracks.find(track => this.isCaptionTrack(track) && track.mode === 'hidden');
@@ -204,40 +307,91 @@ export class VideoSubtitleTranslator {
     return null;
   }
 
+  private getRankedVideos(): HTMLVideoElement[] {
+    const videos: HTMLVideoElement[] = [];
+    const seen = new Set<HTMLVideoElement>();
+    const selectors = [...this.siteContext.videoSelectors, 'video'];
+
+    for (const selector of selectors) {
+      document.querySelectorAll<HTMLVideoElement>(selector).forEach(video => {
+        if (seen.has(video)) return;
+        seen.add(video);
+        videos.push(video);
+      });
+    }
+
+    return videos
+      .map((video, index) => ({ video, index, score: this.scoreVideo(video) }))
+      .sort((first, second) => second.score - first.score || first.index - second.index)
+      .map(item => item.video);
+  }
+
+  private scoreVideo(video: HTMLVideoElement): number {
+    let score = 0;
+    if (video === this.currentVideo) score += 200;
+    if (!video.paused && !video.ended) score += 1000;
+    if (document.pictureInPictureElement === video) score += 1500;
+    if (typeof video.closest === 'function'
+      && video.closest('ytd-reel-video-renderer[is-active], ytd-reel-video-renderer[active]')) {
+      score += 1200;
+    }
+    if (!video.hidden && (typeof video.getAttribute !== 'function' || video.getAttribute('aria-hidden') !== 'true')) {
+      score += 100;
+    }
+
+    try {
+      const style = window.getComputedStyle(video);
+      if (style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0') score += 100;
+    } catch {
+      // Lightweight test doubles may not be DOM Elements.
+    }
+    if (typeof video.getBoundingClientRect === 'function') {
+      const bounds = video.getBoundingClientRect();
+      if (bounds.width > 0 && bounds.height > 0) {
+        score += Math.min(500, (bounds.width * bounds.height) / 1000);
+      }
+    }
+    return score;
+  }
+
   private isCaptionTrack(track: TextTrack): boolean {
     return track.kind === 'subtitles' || track.kind === 'captions';
   }
 
   private async handleCueChange(): Promise<void> {
     if (!this.isActive || !this.currentTrack || !this.translateText) return;
+    if (!this.refreshSiteContext()) return;
+    const runId = this.runId;
 
     const activeCue = this.getActiveCue(this.currentTrack);
     if (!activeCue) {
       this.showStatus('Waiting for subtitles...');
       this.lastCueText = '';
+      this.lastCueIdentity = '';
       return;
     }
 
     const cueText = activeCue.text;
-    if (cueText === this.lastCueText) return;
+    const cueIdentity = this.createCueIdentity(activeCue);
+    if (cueIdentity === this.lastCueIdentity) return;
 
     this.lastCueText = cueText;
+    this.lastCueIdentity = cueIdentity;
     this.renderSubtitle(cueText, 'Translating...');
 
     try {
-      const cacheKey = this.createTranslationCacheKey(cueText);
-      let translatedText = this.translationCache.get(cacheKey);
-      if (!translatedText) {
-        translatedText = await this.translateText(cueText);
-        this.translationCache.set(cacheKey, translatedText);
-      }
+      const translatedText = await this.translateCueText(cueText, runId);
 
-      if (this.isActive && this.lastCueText === cueText) {
+      if (
+        this.isCurrentRun(runId)
+        && this.refreshSiteContext()
+        && this.lastCueIdentity === cueIdentity
+      ) {
         this.recordTranslatedCue(activeCue, translatedText);
         this.renderSubtitle(cueText, translatedText);
       }
-    } catch (error) {
-      if (this.isActive && this.lastCueText === cueText) {
+    } catch {
+      if (this.isCurrentRun(runId) && this.lastCueIdentity === cueIdentity) {
         this.renderSubtitle(cueText, 'Subtitle translation failed');
       }
     }
@@ -245,37 +399,76 @@ export class VideoSubtitleTranslator {
 
   private async handleDomCueChange(): Promise<void> {
     if (!this.isActive || this.currentTrack || !this.translateText) return;
+    if (!this.refreshSiteContext()) return;
+    const runId = this.runId;
 
     const activeCue = this.getActiveDomCue();
     if (!activeCue) {
       this.showStatus('Waiting for subtitles...');
       this.lastCueText = '';
+      this.lastCueIdentity = '';
       return;
     }
 
     const cueText = activeCue.text;
-    if (cueText === this.lastCueText) return;
+    const cueIdentity = cueText;
+    if (cueIdentity === this.lastCueIdentity) return;
 
     this.lastCueText = cueText;
+    this.lastCueIdentity = cueIdentity;
     this.renderSubtitle(cueText, 'Translating...');
 
     try {
-      const cacheKey = this.createTranslationCacheKey(cueText);
-      let translatedText = this.translationCache.get(cacheKey);
-      if (!translatedText) {
-        translatedText = await this.translateText(cueText);
-        this.translationCache.set(cacheKey, translatedText);
-      }
+      const translatedText = await this.translateCueText(cueText, runId);
 
-      if (this.isActive && !this.currentTrack && this.lastCueText === cueText) {
+      if (
+        this.isCurrentRun(runId)
+        && this.refreshSiteContext()
+        && !this.currentTrack
+        && this.lastCueIdentity === cueIdentity
+      ) {
         this.recordTranslatedCue(activeCue, translatedText);
         this.renderSubtitle(cueText, translatedText);
       }
     } catch {
-      if (this.isActive && !this.currentTrack && this.lastCueText === cueText) {
+      if (this.isCurrentRun(runId) && !this.currentTrack && this.lastCueIdentity === cueIdentity) {
         this.renderSubtitle(cueText, 'Subtitle translation failed');
       }
     }
+  }
+
+  private async translateCueText(cueText: string, runId: number): Promise<string> {
+    const cacheKey = this.createTranslationCacheKey(cueText);
+    const cached = this.translationCache.get(cacheKey);
+    if (cached) return cached;
+    if (!this.translateText || !this.isCurrentRun(runId)) throw new DOMException('Canceled', 'AbortError');
+
+    const controller = new AbortController();
+    const requestId = `${this.requestNamespace}:${runId}:${++this.requestSequence}`;
+    this.activeRequestControllers.add(controller);
+
+    try {
+      const translatedText = await this.translateText(cueText, {
+        requestId,
+        signal: controller.signal
+      });
+      if (controller.signal.aborted || !this.isCurrentRun(runId)) {
+        throw new DOMException('Canceled', 'AbortError');
+      }
+      this.translationCache.set(cacheKey, translatedText);
+      return translatedText;
+    } finally {
+      this.activeRequestControllers.delete(controller);
+    }
+  }
+
+  private isCurrentRun(runId: number): boolean {
+    return this.isActive && this.runId === runId;
+  }
+
+  private abortActiveRequests(): void {
+    this.activeRequestControllers.forEach(controller => controller.abort());
+    this.activeRequestControllers.clear();
   }
 
   private getActiveCue(track: TextTrack): ActiveSubtitleCue | null {
@@ -297,6 +490,12 @@ export class VideoSubtitleTranslator {
       : undefined;
 
     return { text, startTime, endTime };
+  }
+
+  private createCueIdentity(cue: ActiveSubtitleCue): string {
+    const start = Number.isFinite(cue.startTime) ? Math.round(cue.startTime! * 1000) : '';
+    const end = Number.isFinite(cue.endTime) ? Math.round(cue.endTime! * 1000) : '';
+    return [cue.text, start, end].join('|');
   }
 
   private getActiveDomCue(): ActiveSubtitleCue | null {
@@ -334,6 +533,7 @@ export class VideoSubtitleTranslator {
       '.player-timedtext',
       '.player-timedtext-text-container',
       '[data-testid="captions-container"]',
+      ...this.siteContext.captionRootSelectors,
       '[aria-live="polite"][class*="caption"]',
       '[aria-live="assertive"][class*="caption"]',
       '[class*="subtitle"], [class*="Subtitle"], [class*="caption"], [class*="Caption"]'
@@ -351,7 +551,28 @@ export class VideoSubtitleTranslator {
       });
     }
 
+    const activeVideo = this.getRankedVideos()[0];
+    const activePlayer = activeVideo ? this.getPlayerContainer(activeVideo) : null;
+    if (activePlayer) {
+      const scopedRoots = roots.filter(root => activePlayer.contains(root));
+      if (scopedRoots.length > 0 || this.siteContext.adapterId === 'youtube') {
+        return scopedRoots;
+      }
+    }
+
     return roots;
+  }
+
+  private getPlayerContainer(video: HTMLVideoElement): Element | null {
+    for (const selector of this.siteContext.playerSelectors) {
+      try {
+        const player = video.closest(selector);
+        if (player) return player;
+      } catch {
+        // Ignore a stale or site-supplied selector and continue with the next one.
+      }
+    }
+    return null;
   }
 
   private readDomSubtitleText(root: HTMLElement): string {
@@ -359,23 +580,25 @@ export class VideoSubtitleTranslator {
       '.ytp-caption-segment',
       '.caption-visual-line',
       '[data-testid="caption-segment"]',
+      ...this.siteContext.captionSegmentSelectors,
       'span',
       'div'
     ];
-    const segments: HTMLElement[] = [];
-    const seen = new Set<HTMLElement>();
-
     for (const selector of segmentSelectors) {
-      root.querySelectorAll<HTMLElement>(selector).forEach(element => {
-        if (seen.has(element) || this.isExtensionNode(element) || !this.isPotentialCaptionElement(element)) return;
-
-        seen.add(element);
-        segments.push(element);
-      });
+      const candidates = Array.from(root.querySelectorAll<HTMLElement>(selector))
+        .filter(element => !this.isExtensionNode(element) && this.isPotentialCaptionElement(element));
+      const leaves = candidates.filter(element => !candidates.some(
+        other => other !== element && element.contains(other)
+      ));
+      const text = this.joinUniqueSubtitleText(leaves);
+      if (text) return text;
     }
 
-    const textSources = segments.length > 0 ? segments : [root];
-    return textSources
+    return this.joinUniqueSubtitleText([root]);
+  }
+
+  private joinUniqueSubtitleText(elements: HTMLElement[]): string {
+    return elements
       .map(element => (element.textContent || '').replace(/\s+/g, ' ').trim())
       .filter(Boolean)
       .filter((text, index, allText) => allText.indexOf(text) === index)
@@ -385,10 +608,16 @@ export class VideoSubtitleTranslator {
 
   private isPotentialCaptionElement(element: HTMLElement): boolean {
     if (element.closest('#lexibridge-video-subtitle-overlay')) return false;
-    if (element.getAttribute('aria-hidden') === 'true') return false;
-
-    const style = window.getComputedStyle(element);
-    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+    let current: HTMLElement | null = element;
+    while (current) {
+      if (current.hidden || current.getAttribute('aria-hidden') === 'true') return false;
+      const style = window.getComputedStyle(current);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+        return false;
+      }
+      current = current.parentElement;
+    }
+    return true;
   }
 
   private isExtensionNode(element: Element): boolean {
@@ -404,9 +633,12 @@ export class VideoSubtitleTranslator {
   }
 
   private getActiveVideoTime(): number | undefined {
-    const videos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
-    const activeVideo = videos.find(video => !video.paused && Number.isFinite(video.currentTime)) ||
-      videos.find(video => Number.isFinite(video.currentTime));
+    const videos = this.getRankedVideos();
+    const activeVideo = (this.currentVideo && Number.isFinite(this.currentVideo.currentTime)
+      ? this.currentVideo
+      : null)
+      || videos.find(video => !video.paused && Number.isFinite(video.currentTime))
+      || videos.find(video => Number.isFinite(video.currentTime));
 
     return activeVideo ? activeVideo.currentTime : undefined;
   }
@@ -437,6 +669,16 @@ export class VideoSubtitleTranslator {
 
     document.body.appendChild(overlay);
     this.overlayElement = overlay;
+    this.applyOverlayContext();
+  }
+
+  private applyOverlayContext(): void {
+    if (!this.overlayElement) return;
+    this.overlayElement.dataset.videoAdapter = this.siteContext.adapterId;
+    this.overlayElement.dataset.videoAdapterVersion = String(this.siteContext.adapterVersion);
+    this.overlayElement.dataset.videoPageType = this.siteContext.pageType;
+    this.overlayElement.style.width = this.siteContext.pageType === 'shorts' ? '420px' : '760px';
+    this.overlayElement.style.bottom = this.siteContext.pageType === 'shorts' ? '96px' : '72px';
   }
 
   private showStatus(message: string): void {
@@ -471,15 +713,21 @@ export class VideoSubtitleTranslator {
     const startTime = Number.isFinite(activeCue.startTime) ? activeCue.startTime! : fallbackStartTime;
     const rawEndTime = Number.isFinite(activeCue.endTime) ? activeCue.endTime! : startTime + 2;
     const endTime = rawEndTime > startTime ? rawEndTime : startTime + 2;
-    const key = [
-      activeCue.text,
-      translatedText,
-      Math.round(startTime * 1000),
-      Math.round(endTime * 1000)
-    ].join('|');
+    const key = this.createTranslatedCueKey(activeCue.text, translatedText, startTime, endTime);
 
     if (this.translatedCueKeys.has(key)) return;
 
+    if (this.translatedCues.length >= VideoSubtitleTranslator.MAX_EXPORTED_CUES) {
+      const removed = this.translatedCues.shift();
+      if (removed) {
+        this.translatedCueKeys.delete(this.createTranslatedCueKey(
+          removed.originalText,
+          removed.translatedText,
+          removed.startTime,
+          removed.endTime
+        ));
+      }
+    }
     this.translatedCueKeys.add(key);
     this.translatedCues.push({
       originalText: activeCue.text,
@@ -487,6 +735,20 @@ export class VideoSubtitleTranslator {
       startTime,
       endTime
     });
+  }
+
+  private createTranslatedCueKey(
+    originalText: string,
+    translatedText: string,
+    startTime: number,
+    endTime: number
+  ): string {
+    return [
+      originalText,
+      translatedText,
+      Math.round(startTime * 1000),
+      Math.round(endTime * 1000)
+    ].join('|');
   }
 
   private renderSrt(cues: TranslatedSubtitleCue[]): string {

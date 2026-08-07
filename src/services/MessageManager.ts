@@ -31,10 +31,6 @@ export class MessageManager {
   private readonly REQUEST_TIMEOUT = 30000; // 30秒超时
   private isInitialized: boolean = false;
 
-  constructor() {
-    this.initialize();
-  }
-
   private initialize(): void {
     if (this.isInitialized) return;
 
@@ -53,6 +49,7 @@ export class MessageManager {
 
   // 注册消息处理器
   registerHandler(action: string, handler: MessageHandler): void {
+    this.initialize();
     this.handlers.set(action, handler);
   }
 

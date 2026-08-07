@@ -12,6 +12,13 @@ import {
   MediaTranscriptionSegment,
   isSupportedMediaTranscriptionFile
 } from '../services/MediaTranscriptionService';
+import {
+  GeneratedSubtitleCue,
+  normalizeGeneratedSubtitleCue,
+  serializeGeneratedSubtitles,
+  updateGeneratedSubtitleCue
+} from '../services/GeneratedSubtitleDocument';
+import { createTranslationRequestNamespace } from '../services/TranslationRequestId';
 
 interface SubtitleGeneratorSettings {
   defaultTargetLanguage?: string;
@@ -23,17 +30,10 @@ interface ProviderConfigSummary {
   configured: boolean;
 }
 
-interface GeneratedCue {
-  id: number;
-  start: number;
-  end: number;
-  originalText: string;
-  translatedText: string;
-}
-
 type TabCapturePhase = 'idle' | 'starting' | 'recording' | 'stopping';
 
 class SubtitleGeneratorController {
+  private readonly requestNamespace = createTranslationRequestNamespace('subtitle');
   private fileInput: HTMLInputElement | null = null;
   private transcriptionProvider: HTMLSelectElement | null = null;
   private sourceLanguage: HTMLSelectElement | null = null;
@@ -60,8 +60,14 @@ class SubtitleGeneratorController {
   private uploadChunkIndex = 0;
   private runId = 0;
   private isWorking = false;
-  private cues: GeneratedCue[] = [];
+  private cues: GeneratedSubtitleCue[] = [];
   private sourceTabId: number | null = null;
+  private sourceSite = '';
+  private sourcePageType = '';
+  private sourceTitle = '';
+  private generationTimeOffsetSeconds = 0;
+  private activeTranslationRequestId: string | null = null;
+  private resultDurationSeconds = 0;
   private tabCapturePhase: TabCapturePhase = 'idle';
   private tabCaptureRunId = 0;
   private tabCaptureStream: MediaStream | null = null;
@@ -100,9 +106,11 @@ class SubtitleGeneratorController {
     this.resultSummary = document.getElementById('resultSummary');
     this.cueList = document.getElementById('cueList');
     this.sourceTabId = this.readSourceTabId();
+    this.readSourceContext();
 
     this.populateControls();
     this.bindEvents();
+    this.applySourceContextSummary();
     await this.loadProviderConfigurations();
     await this.loadSettings();
     this.updateTranslationControls();
@@ -167,7 +175,7 @@ class SubtitleGeneratorController {
     document.getElementById('exportVtt')?.addEventListener('click', () => this.exportCaptions('vtt'));
     document.getElementById('clearResult')?.addEventListener('click', () => this.clearResult());
     document.getElementById('openSettings')?.addEventListener('click', () => chrome.runtime.openOptionsPage());
-    window.addEventListener('pagehide', () => this.releaseTabCaptureForPageClose(), { once: true });
+    window.addEventListener('pagehide', () => this.releaseTabCaptureForPageClose());
   }
 
   private async loadProviderConfigurations(): Promise<void> {
@@ -244,13 +252,14 @@ class SubtitleGeneratorController {
   private handleFileSelection(): void {
     this.selectedFile = this.fileInput?.files?.[0] || null;
     this.selectedFileIsTabCapture = false;
+    this.generationTimeOffsetSeconds = 0;
     this.clearResult();
     this.setProgress(0);
     const name = document.getElementById('fileName');
     const details = document.getElementById('fileDetails');
     if (!this.selectedFile) {
       if (name) name.textContent = 'No media selected';
-      if (details) details.textContent = 'Local audio/video or current tab, up to 25 MB';
+      this.applySourceContextSummary();
       this.showStatus('Ready');
       this.updateGenerateAvailability();
       return;
@@ -308,6 +317,55 @@ class SubtitleGeneratorController {
   private readSourceTabId(): number | null {
     const value = Number(new URL(window.location.href).searchParams.get('sourceTabId'));
     return Number.isInteger(value) && value > 0 ? value : null;
+  }
+
+  private readSourceContext(): void {
+    const params = new URL(window.location.href).searchParams;
+    const readBounded = (name: string, maxLength: number): string => Array.from(params.get(name) || '')
+      .filter(character => {
+        const codePoint = character.codePointAt(0) || 0;
+        return codePoint > 0x1f && codePoint !== 0x7f;
+      })
+      .join('')
+      .trim()
+      .slice(0, maxLength);
+    this.sourceSite = readBounded('sourceSite', 80);
+    this.sourcePageType = readBounded('sourcePageType', 24);
+    this.sourceTitle = readBounded('sourceTitle', 160);
+  }
+
+  private applySourceContextSummary(): void {
+    if (this.selectedFile) return;
+    const name = document.getElementById('fileName');
+    const details = document.getElementById('fileDetails');
+    if (name) name.textContent = this.sourceTitle || 'No media selected';
+    if (details) {
+      const sourceLabel = [this.sourceSite, this.sourcePageType]
+        .filter(Boolean)
+        .join(' ');
+      details.textContent = sourceLabel
+        ? `${sourceLabel} · current-tab source available · up to 25 MB`
+        : 'Local audio/video or current tab, up to 25 MB';
+    }
+  }
+
+  private async readSourcePlaybackOffset(): Promise<number> {
+    if (!this.sourceTabId || !chrome.tabs?.sendMessage) return 0;
+
+    return new Promise(resolve => {
+      try {
+        chrome.tabs.sendMessage(this.sourceTabId!, { action: 'getVideoPlaybackPosition' }, response => {
+          if (chrome.runtime.lastError || !response?.success) {
+            resolve(0);
+            return;
+          }
+          const currentTime = Number(response.data?.currentTime);
+          resolve(Number.isFinite(currentTime) ? Math.max(0, currentTime) : 0);
+        });
+      } catch {
+        resolve(0);
+      }
+    });
   }
 
   private async startTabCapture(): Promise<void> {
@@ -384,6 +442,8 @@ class SubtitleGeneratorController {
         audioBitsPerSecond: 128000
       });
       this.tabCaptureRecorder = recorder;
+      this.generationTimeOffsetSeconds = await this.readSourcePlaybackOffset();
+      if (captureRunId !== this.tabCaptureRunId || this.tabCapturePhase !== 'starting') return;
       this.tabCaptureStartedAt = Date.now();
       recorder.ondataavailable = event => this.handleTabCaptureData(event, captureRunId);
       recorder.onerror = event => {
@@ -501,7 +561,10 @@ class SubtitleGeneratorController {
     }
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    this.selectedFile = new File(chunks, `tab-audio-${timestamp}.webm`, { type: mimeType });
+    const sourceBaseName = this.sourceTitle
+      ? this.createResultFileBaseName(this.sourceTitle)
+      : `tab-audio-${timestamp}`;
+    this.selectedFile = new File(chunks, `${sourceBaseName}.webm`, { type: mimeType });
     this.selectedFileIsTabCapture = true;
     const name = document.getElementById('fileName');
     const details = document.getElementById('fileDetails');
@@ -595,6 +658,7 @@ class SubtitleGeneratorController {
   }
 
   private releaseTabCaptureForPageClose(): void {
+    if (this.isWorking) this.cancelGeneration();
     this.tabCaptureRunId++;
     this.tabCaptureShouldGenerate = false;
     try {
@@ -674,7 +738,7 @@ class SubtitleGeneratorController {
         break;
       case 'transcribing':
         this.releaseCapturedFile();
-        this.setProgress(68);
+        this.setProgressIndeterminate();
         this.showStatus('Generating timed transcript');
         break;
       case 'transcription-complete':
@@ -721,13 +785,13 @@ class SubtitleGeneratorController {
     try {
       const normalizedSegments = this.mergeSegments(result.segments || []);
       if (normalizedSegments.length === 0) throw new Error('The speech service returned no timed captions.');
-      this.cues = normalizedSegments.map((segment, index) => ({
+      this.cues = normalizedSegments.map((segment, index) => normalizeGeneratedSubtitleCue({
         id: index + 1,
-        start: segment.start,
-        end: segment.end,
+        start: segment.start + this.generationTimeOffsetSeconds,
+        end: segment.end + this.generationTimeOffsetSeconds,
         originalText: segment.text,
         translatedText: ''
-      }));
+      }, index));
 
       if (this.translateCaptions?.checked) {
         this.showStatus('Translating captions');
@@ -738,16 +802,27 @@ class SubtitleGeneratorController {
             .slice(Math.max(0, index - 1), Math.min(this.cues.length, index + 2))
             .map(item => item.originalText)
             .join('\n');
-          const response = await this.sendMessage({
-            action: 'translate',
-            data: {
-              text: cue.originalText,
-              context,
-              sourceLang: result.language || 'auto',
-              targetLang: this.targetLanguage?.value || 'zh-CN',
-              provider: this.translationProvider?.value || 'google'
+          const requestId = `${this.requestNamespace}:${runId}:${cue.id}`;
+          this.activeTranslationRequestId = requestId;
+          let response: any;
+          try {
+            response = await this.sendMessage({
+              action: 'translate',
+              data: {
+                text: cue.originalText,
+                context,
+                sourceLang: result.language || 'auto',
+                targetLang: this.targetLanguage?.value || 'zh-CN',
+                provider: this.translationProvider?.value || 'google',
+                requestId
+              }
+            });
+          } finally {
+            if (this.activeTranslationRequestId === requestId) {
+              this.activeTranslationRequestId = null;
             }
-          });
+          }
+          if (runId !== this.runId) return;
           if (!response?.success) {
             throw new Error(response?.error || `Could not translate caption ${index + 1}.`);
           }
@@ -758,11 +833,12 @@ class SubtitleGeneratorController {
       }
 
       if (runId !== this.runId) return;
-      this.renderCues(result.duration);
+      this.renderCues(result.duration + this.generationTimeOffsetSeconds);
       this.setProgress(100);
       this.showStatus(`Generated ${this.cues.length} captions`);
       this.setWorking(false);
     } catch (error) {
+      if (runId !== this.runId) return;
       if (this.cues.length > 0) this.renderCues(result.duration);
       this.failGeneration(error instanceof Error ? error.message : 'Could not prepare captions.');
     }
@@ -798,31 +874,100 @@ class SubtitleGeneratorController {
 
   private renderCues(duration: number): void {
     if (!this.cueList || !this.resultSection) return;
-    this.cueList.replaceChildren(...this.cues.map(cue => {
+    this.resultDurationSeconds = Math.max(
+      duration,
+      ...this.cues.map(cue => cue.end)
+    );
+    this.cueList.replaceChildren(...this.cues.map((cue, index) => {
       const row = document.createElement('article');
       row.className = 'cue-row';
-      const time = document.createElement('time');
-      time.className = 'cue-time';
-      time.textContent = `${this.formatClock(cue.start)} – ${this.formatClock(cue.end)}`;
-      const original = document.createElement('div');
-      original.className = 'cue-original';
-      original.textContent = cue.originalText;
-      const translation = document.createElement('div');
-      translation.className = 'cue-translation';
-      translation.textContent = cue.translatedText;
-      if (!cue.translatedText) translation.hidden = true;
-      row.append(time, original, translation);
+      row.dataset.cueId = String(cue.id);
+
+      const timing = document.createElement('div');
+      timing.className = 'cue-timing';
+      const startInput = this.createCueTimeInput(cue.start, `Caption ${cue.id} start time`);
+      const endInput = this.createCueTimeInput(cue.end, `Caption ${cue.id} end time`);
+      timing.append(
+        this.createCueFieldLabel('Start', startInput),
+        this.createCueFieldLabel('End', endInput)
+      );
+
+      const originalInput = this.createCueTextInput(
+        cue.originalText,
+        `Caption ${cue.id} original text`,
+        'cue-original'
+      );
+      const translationInput = this.createCueTextInput(
+        cue.translatedText,
+        `Caption ${cue.id} translated text`,
+        'cue-translation'
+      );
+      const commitCue = (patch: Partial<GeneratedSubtitleCue>): void => {
+        const updated = updateGeneratedSubtitleCue(this.cues[index]!, patch);
+        this.cues[index] = updated;
+        startInput.value = updated.start.toFixed(3);
+        endInput.value = updated.end.toFixed(3);
+        if (originalInput.value !== updated.originalText) originalInput.value = updated.originalText;
+        if (translationInput.value !== updated.translatedText) translationInput.value = updated.translatedText;
+        this.updateResultSummary();
+      };
+      startInput.addEventListener('change', () => commitCue({ start: Number(startInput.value) }));
+      endInput.addEventListener('change', () => commitCue({ end: Number(endInput.value) }));
+      originalInput.addEventListener('input', () => commitCue({ originalText: originalInput.value }));
+      translationInput.addEventListener('input', () => commitCue({ translatedText: translationInput.value }));
+
+      const originalField = this.createCueFieldLabel('Original', originalInput);
+      originalField.classList.add('cue-original-field');
+      const translationField = this.createCueFieldLabel('Translation', translationInput);
+      translationField.classList.add('cue-translation-field');
+      row.append(timing, originalField, translationField);
       return row;
     }));
-    if (this.resultSummary) {
-      this.resultSummary.textContent = `${this.cues.length} captions · ${this.formatClock(duration)}`;
-    }
+    this.updateResultSummary();
     this.resultSection.hidden = false;
+  }
+
+  private createCueTimeInput(value: number, ariaLabel: string): HTMLInputElement {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.className = 'cue-time-input';
+    input.min = '0';
+    input.step = '0.001';
+    input.value = value.toFixed(3);
+    input.setAttribute('aria-label', ariaLabel);
+    return input;
+  }
+
+  private createCueTextInput(value: string, ariaLabel: string, className: string): HTMLTextAreaElement {
+    const input = document.createElement('textarea');
+    input.className = `cue-text-input ${className}`;
+    input.rows = 2;
+    input.maxLength = 8000;
+    input.value = value;
+    input.setAttribute('aria-label', ariaLabel);
+    return input;
+  }
+
+  private createCueFieldLabel(labelText: string, control: HTMLElement): HTMLLabelElement {
+    const label = document.createElement('label');
+    label.className = 'cue-field';
+    const caption = document.createElement('span');
+    caption.textContent = labelText;
+    label.append(caption, control);
+    return label;
+  }
+
+  private updateResultSummary(): void {
+    if (!this.resultSummary) return;
+    const finalEnd = this.cues.reduce((maximum, cue) => Math.max(maximum, cue.end), 0);
+    this.resultDurationSeconds = Math.max(this.resultDurationSeconds, finalEnd);
+    this.resultSummary.textContent = `${this.cues.length} captions · ${this.formatClock(this.resultDurationSeconds)}`;
   }
 
   private cancelGeneration(): void {
     if (!this.isWorking) return;
     this.runId++;
+    this.cancelActiveTranslationRequest();
     const port = this.port;
     this.port = null;
     if (port) {
@@ -835,6 +980,16 @@ class SubtitleGeneratorController {
     this.finishCanceled();
   }
 
+  private cancelActiveTranslationRequest(): void {
+    const requestId = this.activeTranslationRequestId;
+    this.activeTranslationRequestId = null;
+    if (!requestId) return;
+    void this.sendMessage({
+      action: 'cancelTranslationRequest',
+      data: { requestId }
+    }).catch(() => undefined);
+  }
+
   private finishCanceled(): void {
     this.releaseCapturedFile();
     this.setWorking(false);
@@ -843,6 +998,7 @@ class SubtitleGeneratorController {
   }
 
   private failGeneration(message: string): void {
+    this.cancelActiveTranslationRequest();
     const port = this.port;
     this.port = null;
     if (port) {
@@ -864,6 +1020,7 @@ class SubtitleGeneratorController {
 
   private clearResult(): void {
     this.cues = [];
+    this.resultDurationSeconds = 0;
     this.cueList?.replaceChildren();
     if (this.resultSection) this.resultSection.hidden = true;
     if (this.resultSummary) this.resultSummary.textContent = '';
@@ -871,7 +1028,7 @@ class SubtitleGeneratorController {
 
   private exportCaptions(format: 'srt' | 'vtt'): void {
     if (this.cues.length === 0) return;
-    const content = format === 'srt' ? this.createSrt() : this.createVtt();
+    const content = serializeGeneratedSubtitles(this.cues, format);
     const baseName = this.resultFileBaseName;
     this.downloadTextFile(
       content,
@@ -893,24 +1050,6 @@ class SubtitleGeneratorController {
     this.selectedFileIsTabCapture = false;
   }
 
-  private createSrt(): string {
-    return this.cues.map((cue, index) => [
-      String(index + 1),
-      `${this.formatTimestamp(cue.start, ',')} --> ${this.formatTimestamp(cue.end, ',')}`,
-      cue.originalText,
-      ...(cue.translatedText ? [cue.translatedText] : [])
-    ].join('\n')).join('\n\n');
-  }
-
-  private createVtt(): string {
-    const cues = this.cues.map(cue => [
-      `${this.formatTimestamp(cue.start, '.')} --> ${this.formatTimestamp(cue.end, '.')}`,
-      cue.originalText,
-      ...(cue.translatedText ? [cue.translatedText] : [])
-    ].join('\n')).join('\n\n');
-    return `WEBVTT\n\n${cues}`;
-  }
-
   private setWorking(working: boolean): void {
     this.isWorking = working;
     if (this.transcriptionProvider) this.transcriptionProvider.disabled = working;
@@ -926,6 +1065,11 @@ class SubtitleGeneratorController {
     const normalized = Math.max(0, Math.min(100, value));
     if (this.progress) this.progress.value = normalized;
     if (this.progressText) this.progressText.textContent = `${Math.round(normalized)}%`;
+  }
+
+  private setProgressIndeterminate(): void {
+    this.progress?.removeAttribute('value');
+    if (this.progressText) this.progressText.textContent = 'Processing';
   }
 
   private showStatus(message: string, error: boolean = false): void {
@@ -948,17 +1092,6 @@ class SubtitleGeneratorController {
       binary += String.fromCharCode(...bytes.subarray(offset, Math.min(bytes.length, offset + 0x8000)));
     }
     return btoa(binary);
-  }
-
-  private formatTimestamp(secondsValue: number, separator: ',' | '.'): string {
-    const totalMilliseconds = Math.max(0, Math.round(secondsValue * 1000));
-    const milliseconds = totalMilliseconds % 1000;
-    const totalSeconds = Math.floor(totalMilliseconds / 1000);
-    const seconds = totalSeconds % 60;
-    const totalMinutes = Math.floor(totalSeconds / 60);
-    const minutes = totalMinutes % 60;
-    const hours = Math.floor(totalMinutes / 60);
-    return `${this.pad(hours, 2)}:${this.pad(minutes, 2)}:${this.pad(seconds, 2)}${separator}${this.pad(milliseconds, 3)}`;
   }
 
   private formatClock(secondsValue: number): string {

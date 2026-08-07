@@ -293,9 +293,9 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('56 test suites and 476 tests');
-    expect(releaseNotes).toContain('17,779,884');
-    expect(releaseNotes).toContain('3AC6899984C7C026A610A73083774097F2F2ECD43EB4B3B27F1BCF7261AC69F1');
+    expect(releaseNotes).toContain('60 test suites and 510 tests');
+    expect(releaseNotes).toContain('17,789,219');
+    expect(releaseNotes).toContain('3DAA7CF508B50758490FEB912273D7B2B104969987D69905022A94BC5840FC2B');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -310,6 +310,9 @@ describe('product packaging contract', () => {
     expect(releaseNotes).toContain('Structure-preserving SRT/VTT batch translation');
     expect(releaseNotes).toContain('Explicit versioned document history in local Chrome storage');
     expect(releaseNotes).toContain('language prefixes such as `/en`, `/zh`, and `/zh-CN`');
+    expect(releaseNotes).toContain('YouTube Adapter v1');
+    expect(releaseNotes).toContain('Contextual YouTube subtitle-generation entry points');
+    expect(releaseNotes).toContain('globally namespaced per-cue translation requests');
 
     expect(screenshotGuide).toContain('Popup Overview');
     expect(screenshotGuide).toContain('Floating Button');
@@ -336,8 +339,10 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('left/right column boundaries');
     expect(screenshotGuide).toContain('preserved standalone formula');
     expect(screenshotGuide).toContain('Video Subtitles');
+    expect(screenshotGuide).toContain("YouTube, show the popup's Standard video, Live, or Shorts adapter context");
     expect(screenshotGuide).toContain('Export SRT');
     expect(screenshotGuide).toContain('Local Media Subtitle Generator');
+    expect(screenshotGuide).toContain('show the source context carried from a standard video, Live page, or Short');
     expect(screenshotGuide).toContain('use a separate screenshot with no generated captions or provider progress');
     expect(screenshotGuide).toContain('do not imply any upload before Stop and generate');
     expect(screenshotGuide).toContain('Export VTT');
@@ -431,7 +436,9 @@ describe('product packaging contract', () => {
     );
     expect(roadmap).not.toContain('Remaining: add MOBI import');
     expect(roadmap).toContain('explicit local translation history');
-    expect(roadmap).toContain('YouTube standard videos, Live, Shorts');
+    expect(roadmap).toContain('Versioned YouTube standard/Live/Shorts video adapters');
+    expect(roadmap).toContain('Done: add a side-effect-free versioned adapter registry and YouTube Adapter v1');
+    expect(roadmap).toContain('Remaining: add verified adapters for the other officially documented video sites');
     expect(roadmap).toContain('installable AI expert definitions');
     expect(roadmap).toContain('sensitive-data masking before provider requests');
     expect(roadmap).toContain('Firefox packaging and compatibility checks');
@@ -502,6 +509,14 @@ describe('product packaging contract', () => {
     expect(webpackConfig).toContain("subtitles: './src/subtitles/subtitles.ts'");
     expect(webpackConfig).toContain("from: 'src/subtitles/subtitles.html'");
     const subtitlesHtml = readProjectFile('src/subtitles/subtitles.html');
+    const subtitlesScript = readProjectFile('src/subtitles/subtitles.ts');
+    const subtitlesStyles = readProjectFile('src/subtitles/subtitles.css');
+    const contentScript = readProjectFile('src/content/content.ts');
+    const messageManager = readProjectFile('src/services/MessageManager.ts');
+    const transcriptionService = readProjectFile('src/services/MediaTranscriptionService.ts');
+    const videoSiteRegistry = readProjectFile('src/services/VideoSiteAdapterRegistry.ts');
+    const generatedSubtitleDocument = readProjectFile('src/services/GeneratedSubtitleDocument.ts');
+    const translationRequestId = readProjectFile('src/services/TranslationRequestId.ts');
     expect(subtitlesHtml).toContain('id="mediaFile"');
     expect(subtitlesHtml).toMatch(
       /<button[^>]*id="toggleTabCapture"[^>]*>Capture current tab<\/button>/
@@ -509,7 +524,26 @@ describe('product packaging contract', () => {
     expect(subtitlesHtml).toContain('id="generateSubtitles"');
     expect(subtitlesHtml).toContain('id="exportSrt"');
     expect(subtitlesHtml).toContain('id="exportVtt"');
+    expect(subtitlesScript).toContain("action: 'getVideoPlaybackPosition'");
+    expect(subtitlesScript).toContain("action: 'cancelTranslationRequest'");
+    expect(subtitlesScript).toContain('updateGeneratedSubtitleCue');
+    expect(subtitlesStyles).toContain('.cue-time-input');
+    expect(subtitlesStyles).toContain('.cue-translation-field');
+    expect(contentScript).toContain('__lexibridgeContentScriptV1');
+    expect(contentScript).toContain("'getVideoPlaybackPosition'");
+    expect(messageManager).toContain('private initialize(): void');
+    expect(messageManager).toContain('registerHandler(action: string, handler: MessageHandler): void');
+    expect(messageManager).toMatch(/registerHandler[\s\S]*?this\.initialize\(\);/);
+    expect(transcriptionService).toContain("progressMode: 'indeterminate'");
+    expect(transcriptionService).toContain('supportsTimedSegments: true');
+    expect(videoSiteRegistry).toContain('VIDEO_SITE_ADAPTER_SCHEMA_VERSION = 1');
+    expect(videoSiteRegistry).toContain("pageType: 'shorts'");
+    expect(generatedSubtitleDocument).toContain('GENERATED_SUBTITLE_MIN_DURATION_SECONDS');
+    expect(generatedSubtitleDocument).toContain('GENERATED_SUBTITLE_MAX_TIME_SECONDS');
+    expect(generatedSubtitleDocument).toContain("format: 'srt' | 'vtt'");
+    expect(translationRequestId).toContain('createTranslationRequestNamespace');
     expect(readProjectFile('src/popup/popup.html')).toContain('id="openSubtitleGenerator"');
+    expect(readProjectFile('src/popup/popup.html')).toContain('id="videoSubtitleContextStatus"');
     expect(readProjectFile('src/popup/popup.html')).toContain('id="openSidePanelBtn"');
   });
 });
