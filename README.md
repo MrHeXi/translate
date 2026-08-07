@@ -133,10 +133,12 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Click Translate visible images to process eligible images, canvases, and SVGs currently intersecting the viewport.
 - Skip hidden, offscreen, tiny, and extension-owned graphics during a visible-image batch, and stop the batch as soon as image mode is turned off.
 - Use browser `TextDetector` OCR when available, then fall back to bundled offline Tesseract OCR for English, Simplified Chinese, Traditional Chinese, Japanese, or Korean.
-- Render separate translation overlays for detected OCR text blocks when either OCR engine provides bounding boxes.
+- Bound each image OCR surface to 3 megapixels, retain at most 200 distinct OCR blocks, and send no more than four image-text provider requests concurrently.
+- For regular comic bubbles with reliable OCR geometry and locally readable pixels, detect panel gutters and bubble regions, mask the source glyphs, apply bounded flat/smooth-background repair, and fit translated text back into a temporary canvas overlay.
+- Keep the source image untouched. Reconstruction is limited to 1.5 megapixels and 64 positioned blocks; canvas elements, cross-origin-tainted pixels, whole-image OCR fallback boxes, CSS-transformed or non-fill images, oversized images, complex artwork, and translations that cannot fit safely use the separate DOM text-block overlay instead.
 - Scope content, image, video-subtitle, and live-caption translation caches to the current provider, target language, settings revision, source text, and context.
 - Keep every OCR action explicit; opening or scrolling a page never starts image translation.
-- Automatic manga panel segmentation, source-text removal, and in-place image reconstruction are planned for later batches.
+- Whole-chapter site adapters, upload/paste image entry points, manual Apply/Undo, retranslate/feedback, and Download PNG remain planned for later batches.
 
 ### Vocabulary Learning
 

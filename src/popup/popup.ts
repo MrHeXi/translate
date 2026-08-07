@@ -33,6 +33,7 @@ interface PopupVideoSubtitleStatus {
 const MAX_SOURCE_TITLE_LENGTH = 160;
 
 class PopupController {
+  private readonly rootControl = document.getElementById('toggleTranslation');
   private isTranslationActive: boolean = false;
   private isVideoSubtitleActive: boolean = false;
   private isLiveCaptionActive: boolean = false;
@@ -43,6 +44,9 @@ class PopupController {
   private isTogglingLiveCaptions: boolean = false;
   private isTogglingImageTranslation: boolean = false;
   private isTranslatingVisibleImages: boolean = false;
+  private imageModeRevision: number = 0;
+  private visibleImageInvocation: number = 0;
+  private imageBatchStatusTimer: number | null = null;
   private isExportingVideoSubtitles: boolean = false;
   private isExportingLiveCaptionTranscript: boolean = false;
   private isClearingLiveCaptionTranscript: boolean = false;
@@ -99,6 +103,7 @@ class PopupController {
 
     const translateVisibleImages = document.getElementById('translateVisibleImages') as HTMLButtonElement;
     translateVisibleImages?.addEventListener('click', () => this.translateVisibleImages());
+    window.addEventListener('pagehide', () => this.cleanup());
 
     // 快速翻译
     const translateBtn = document.getElementById('translateBtn') as HTMLButtonElement;
@@ -168,6 +173,7 @@ class PopupController {
         if (typeof isImageTranslationMode === 'boolean') {
           this.isImageTranslationActive = isImageTranslationMode;
         }
+        this.applyImageTranslationTaskStatus(response?.imageTranslationStatus ?? response?.data?.imageTranslationStatus);
 
         this.applyVideoSubtitleSiteStatus(response?.data?.videoSubtitleStatus);
 
@@ -411,6 +417,11 @@ class PopupController {
           const state = response.data || response;
           const isActive = state.isActive;
           this.isImageTranslationActive = Boolean(isActive);
+          this.imageModeRevision += 1;
+          if (!this.isImageTranslationActive) {
+            this.isTranslatingVisibleImages = false;
+            this.visibleImageInvocation += 1;
+          }
           this.updateImageTranslationStatusUI();
           this.setImageTranslationMessage(state.message || (isActive ? 'Image translation started' : 'Image translation stopped'));
         } else {
@@ -436,6 +447,8 @@ class PopupController {
     }
 
     this.setVisibleImageTranslationBusy(true);
+    const invocation = ++this.visibleImageInvocation;
+    const modeRevision = this.imageModeRevision;
 
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -446,6 +459,10 @@ class PopupController {
 
       const response = await this.sendMessageToTabWithInjection(tab, { action: 'translateVisibleImages' });
       const result = response?.data || response;
+
+      if (invocation !== this.visibleImageInvocation || modeRevision !== this.imageModeRevision) {
+        return;
+      }
 
       if (!response?.success) {
         this.showError(response?.error || 'Could not translate visible images.');
@@ -462,7 +479,9 @@ class PopupController {
       console.error('Could not translate visible images:', error);
       this.showError(error instanceof Error ? error.message : 'Could not translate visible images.');
     } finally {
-      this.setVisibleImageTranslationBusy(false);
+      if (invocation === this.visibleImageInvocation) {
+        this.setVisibleImageTranslationBusy(false);
+      }
     }
   }
 
@@ -803,6 +822,67 @@ class PopupController {
 
     if (translateVisibleBtn) {
       translateVisibleBtn.disabled = !this.isImageTranslationActive || this.isTranslatingVisibleImages;
+      translateVisibleBtn.textContent = this.isTranslatingVisibleImages
+        ? 'Translating...'
+        : 'Translate visible images';
+    }
+  }
+
+  private applyImageTranslationTaskStatus(status: any): void {
+    if (!status || typeof status !== 'object') return;
+    if (typeof status.isActive === 'boolean') {
+      this.isImageTranslationActive = status.isActive;
+    }
+    if (typeof status.isBatchRunning === 'boolean') {
+      this.isTranslatingVisibleImages = status.isBatchRunning;
+    }
+    if (typeof status.message === 'string' && status.message) {
+      this.setImageTranslationMessage(status.message);
+    }
+    this.scheduleImageBatchStatusPoll();
+  }
+
+  private scheduleImageBatchStatusPoll(): void {
+    this.clearImageBatchStatusPoll();
+    if (!this.isTranslatingVisibleImages) return;
+
+    this.imageBatchStatusTimer = window.setTimeout(() => {
+      this.imageBatchStatusTimer = null;
+      void this.refreshImageTranslationTaskStatus();
+    }, 500);
+  }
+
+  private clearImageBatchStatusPoll(): void {
+    if (this.imageBatchStatusTimer === null) return;
+    window.clearTimeout(this.imageBatchStatusTimer);
+    this.imageBatchStatusTimer = null;
+  }
+
+  private cleanup(): void {
+    this.clearImageBatchStatusPoll();
+    const popupWindow = window as PopupControllerWindow;
+    if (popupWindow.__lexibridgePopupControllerV1 === this) {
+      delete popupWindow.__lexibridgePopupControllerV1;
+    }
+  }
+
+  isBoundToCurrentDocument(): boolean {
+    return this.rootControl !== null
+      && this.rootControl === document.getElementById('toggleTranslation');
+  }
+
+  private async refreshImageTranslationTaskStatus(): Promise<void> {
+    const modeRevision = this.imageModeRevision;
+    const invocation = this.visibleImageInvocation;
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) return;
+      const response = await this.sendTabMessage(tab.id, { action: 'getTranslationStatus' });
+      if (modeRevision !== this.imageModeRevision || invocation !== this.visibleImageInvocation) return;
+      this.applyImageTranslationTaskStatus(response?.imageTranslationStatus ?? response?.data?.imageTranslationStatus);
+      this.updateImageTranslationStatusUI();
+    } catch {
+      this.imageBatchStatusTimer = null;
     }
   }
 
@@ -1067,8 +1147,8 @@ class PopupController {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         const response = await this.sendTabMessage(tabId, { action: 'getTranslationStatus' });
-        const isActive = response?.isActive ?? response?.data?.isActive;
-        if (response?.success && typeof isActive === 'boolean') {
+        const isInitialized = response?.isInitialized ?? response?.data?.isInitialized;
+        if (response?.success && isInitialized === true) {
           return;
         }
       } catch {
@@ -1149,6 +1229,8 @@ class PopupController {
 
   private setVisibleImageTranslationBusy(isBusy: boolean): void {
     this.isTranslatingVisibleImages = isBusy;
+    if (isBusy) this.scheduleImageBatchStatusPoll();
+    else this.clearImageBatchStatusPoll();
 
     const button = document.getElementById('translateVisibleImages') as HTMLButtonElement;
     if (button) {
@@ -1219,6 +1301,13 @@ class PopupController {
 }
 
 // 初始化弹出窗口
+interface PopupControllerWindow extends Window {
+  __lexibridgePopupControllerV1?: PopupController;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-  new PopupController();
+  const popupWindow = window as PopupControllerWindow;
+  if (!popupWindow.__lexibridgePopupControllerV1?.isBoundToCurrentDocument()) {
+    popupWindow.__lexibridgePopupControllerV1 = new PopupController();
+  }
 });

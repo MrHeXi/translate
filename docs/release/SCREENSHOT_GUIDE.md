@@ -141,8 +141,8 @@ Capture a safe sample page where captions are already visible after manually sta
 
 Capture a safe sample page after manually starting Image text from the popup and clicking an image, dragging over a region, or clicking Translate visible images:
 
-- The Translate visible images command visible in the popup, or multiple image text translation overlays visible after that explicit command.
-- If either local OCR engine provides bounding boxes, separate region overlays visible on detected text blocks.
+- The Translate visible images command visible in the popup, or multiple image text results visible after that explicit command.
+- For a safe same-origin regular comic sample with positioned OCR, the temporary reconstructed canvas may show source text removed and translated text fitted inside the bubble. For unsafe/unsupported samples, show the non-destructive region overlay fallback instead.
 - The source images, canvases, or SVGs visible enough to show the user-triggered targets.
 - No hidden, offscreen, tiny, or extension-owned graphic presented as a translated batch result.
 - No claim that every scanned document, manga page, or image can be recognized accurately or translated automatically.
@@ -183,7 +183,7 @@ Capture the options page with:
 - Any claim that translation starts automatically.
 - Private intranet domains or personal site-rule entries.
 - Unsupported claims beyond the verified feature boundaries in `STORE_LISTING.md` and `RELEASE_NOTES.md`.
-- Claims for guaranteed scanned PDF OCR, editable PDF text reflow, or automatic manga segmentation. Exported translated PDFs are flattened visual pages.
+- Claims for guaranteed scanned PDF OCR, editable PDF text reflow, page-load/whole-chapter manga translation, or guaranteed reconstruction of textured/tainted images. Exported translated PDFs are flattened visual pages.
 - Claims for layout-perfect Office/eBook conversion.
 - Claims for automatic tab-audio capture, meeting transcription, files above the documented provider limit, or guaranteed support for every speech/video provider.
 - Console errors, developer tools, or local file explorer windows.

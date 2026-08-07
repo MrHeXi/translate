@@ -18,7 +18,11 @@ import {
   LiveCaptionTranscriptStatus,
   LiveCaptionTranslator
 } from './components/LiveCaptionTranslator';
-import { ImageTranslator, VisibleImageTranslationResult } from './components/ImageTranslator';
+import {
+  ImageTranslator,
+  ImageTranslatorState,
+  VisibleImageTranslationResult
+} from './components/ImageTranslator';
 import { messageManager } from '../services/MessageManager';
 import { performanceManager } from '../services/PerformanceManager';
 import { errorHandler, ErrorType, ErrorSeverity } from '../services/ErrorHandler';
@@ -231,6 +235,10 @@ class ContentScript {
         this.translationSettingsRevision++;
         this.translationCache.clear();
         this.selectionSourceLanguageCache.clear();
+        this.imageTranslator.invalidateForSettingsChange();
+        if (request.data?.documentOcrLanguage) {
+          this.imageTranslator.updateOcrLanguage(request.data.documentOcrLanguage);
+        }
         await this.applySettingsChanges();
         return { success: true };
       },
@@ -252,7 +260,9 @@ class ContentScript {
             isVideoSubtitleMode: videoSubtitleStatus.isActive,
             videoSubtitleStatus,
             isLiveCaptionMode: this.liveCaptionTranslator.getStatus().isActive,
-            isImageTranslationMode: this.imageTranslator.getStatus().isActive
+            isImageTranslationMode: this.imageTranslator.getStatus().isActive,
+            imageTranslationStatus: this.imageTranslator.getStatus(),
+            isInitialized: this.isInitialized
           } 
         };
       }
@@ -376,9 +386,20 @@ class ContentScript {
     return this.liveCaptionTranslator.clearTranscript();
   }
 
-  private async toggleImageTranslation(): Promise<{ isActive: boolean; hasImage: boolean; message: string }> {
+  private async toggleImageTranslation(): Promise<ImageTranslatorState> {
+    if (!this.isInitialized) {
+      return {
+        isActive: false,
+        hasImage: false,
+        isBatchRunning: false,
+        operationId: null,
+        processedImageCount: 0,
+        totalImageCount: 0,
+        message: 'Image translation is still initializing'
+      };
+    }
     return this.imageTranslator.toggle(
-      (text) => this.translateInteractiveText(text),
+      (text, request) => this.translateInteractiveText(text, undefined, request),
       this.userSettings?.documentOcrLanguage || 'eng',
       (text) => this.createTranslationCacheKey(text)
     );

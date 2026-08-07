@@ -887,9 +887,10 @@ describe('Content script MessageManager contract', () => {
         isActive: false,
         visibleImageCount: 0,
         translatedImageCount: 0,
-        unreadableImageCount: 0,
-        failedImageCount: 0,
-        message: 'Start image translation first'
+          unreadableImageCount: 0,
+          failedImageCount: 0,
+          operationId: null,
+          message: 'Start image translation first'
       }
     });
     await expect(registeredHandlers.getLiveCaptionTranscriptStatus()).resolves.toEqual({
@@ -1029,6 +1030,10 @@ describe('Content script MessageManager contract', () => {
       data: {
         isActive: true,
         hasImage: false,
+        isBatchRunning: false,
+        operationId: null,
+        processedImageCount: 0,
+        totalImageCount: 0,
         message: 'No image found'
       }
     });
@@ -1042,6 +1047,7 @@ describe('Content script MessageManager contract', () => {
         translatedImageCount: 0,
         unreadableImageCount: 0,
         failedImageCount: 0,
+        operationId: expect.stringMatching(/^image-batch:[A-Za-z0-9:_-]+$/),
         message: 'No visible images found'
       }
     });
@@ -1064,6 +1070,10 @@ describe('Content script MessageManager contract', () => {
       data: {
         isActive: false,
         hasImage: false,
+        isBatchRunning: false,
+        operationId: null,
+        processedImageCount: 0,
+        totalImageCount: 0,
         message: 'Image translation stopped'
       }
     });

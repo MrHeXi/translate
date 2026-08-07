@@ -1,4 +1,4 @@
-import { ImageTranslator } from '../components/ImageTranslator';
+import { ImageTranslationRequest, ImageTranslator } from '../components/ImageTranslator';
 import { BundledOcrService } from '../../services/BundledOcrService';
 
 const flushPromises = async (): Promise<void> => {
@@ -21,6 +21,11 @@ const mouse = (target: EventTarget, type: string, clientX: number, clientY: numb
   }));
 };
 
+const expectImageTranslationRequest = (): any => expect.objectContaining({
+  requestId: expect.stringMatching(/^image-text:[A-Za-z0-9:_-]+$/),
+  signal: expect.objectContaining({ aborted: false })
+});
+
 const setRect = (
   element: Element,
   left: number,
@@ -42,6 +47,31 @@ const setRect = (
     }),
     configurable: true
   });
+};
+
+const createPixelBuffer = (
+  width: number,
+  height: number,
+  color: readonly [number, number, number, number]
+): Uint8ClampedArray => {
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let index = 0; index < width * height; index += 1) {
+    data.set(color, index * 4);
+  }
+  return data;
+};
+
+const paintPixelRect = (
+  data: Uint8ClampedArray,
+  imageWidth: number,
+  rect: { x: number; y: number; width: number; height: number },
+  color: readonly [number, number, number, number]
+): void => {
+  for (let y = rect.y; y < rect.y + rect.height; y += 1) {
+    for (let x = rect.x; x < rect.x + rect.width; x += 1) {
+      data.set(color, (y * imageWidth + x) * 4);
+    }
+  }
 };
 
 describe('ImageTranslator', () => {
@@ -98,6 +128,7 @@ describe('ImageTranslator', () => {
       translatedImageCount: 0,
       unreadableImageCount: 0,
       failedImageCount: 0,
+      operationId: null,
       message: 'Start image translation first'
     });
   });
@@ -128,10 +159,11 @@ describe('ImageTranslator', () => {
       translatedImageCount: 1,
       unreadableImageCount: 0,
       failedImageCount: 0,
+      operationId: expect.stringMatching(/^image-batch:[A-Za-z0-9:_-]+$/),
       message: 'Translated 1 visible image'
     });
     expect(translateText).toHaveBeenCalledTimes(1);
-    expect(translateText).toHaveBeenCalledWith('Visible image text');
+    expect(translateText).toHaveBeenCalledWith('Visible image text', expectImageTranslationRequest());
     expect(document.querySelectorAll('.lexibridge-image-translation-overlay')).toHaveLength(1);
     expect(document.body.textContent).not.toContain('Translated: Offscreen image text');
     expect(document.body.textContent).not.toContain('Translated: Hidden image text');
@@ -205,14 +237,17 @@ describe('ImageTranslator', () => {
     const firstTranslation = new Promise<string>(resolve => {
       resolveFirstTranslation = resolve;
     });
-    const translateText = jest.fn(() => firstTranslation);
+    const translateText = jest.fn((_text: string, _request: ImageTranslationRequest) => firstTranslation);
     translator.enable(translateText);
 
     const pendingBatch = translator.translateVisibleImages();
     await flushPromises();
-    expect(translateText).toHaveBeenCalledWith('First image text');
+    expect(translateText).toHaveBeenCalledWith('First image text', expectImageTranslationRequest());
+
+    const activeRequest = translateText.mock.calls[0]![1];
 
     translator.disable();
+    expect(activeRequest.signal.aborted).toBe(true);
     resolveFirstTranslation('Translated: First image text');
 
     const result = await pendingBatch;
@@ -221,8 +256,98 @@ describe('ImageTranslator', () => {
     expect(result.translatedImageCount).toBe(0);
     expect(result.message).toBe('Image translation stopped');
     expect(translateText).toHaveBeenCalledTimes(1);
-    expect(translateText).not.toHaveBeenCalledWith('Second image text');
+    expect(translateText).not.toHaveBeenCalledWith('Second image text', expect.anything());
     expect(document.querySelectorAll('.lexibridge-image-translation-overlay')).toHaveLength(0);
+  });
+
+  it('does not let a stopped old batch overwrite a newly completed batch status', async () => {
+    document.body.innerHTML = '<img id="target" alt="Batch text">';
+    setRect(document.getElementById('target')!, 20, 20, 180, 90);
+    let resolveOldTranslation!: (value: string) => void;
+    const oldTranslation = new Promise<string>(resolve => {
+      resolveOldTranslation = resolve;
+    });
+    const oldTranslate = jest.fn(() => oldTranslation);
+    translator.enable(oldTranslate);
+    const oldBatch = translator.translateVisibleImages();
+    await flushPromises();
+
+    translator.disable();
+    const newTranslate = jest.fn(async () => 'Fresh translation');
+    translator.enable(newTranslate);
+    const newResult = await translator.translateVisibleImages();
+    expect(newResult.message).toBe('Translated 1 visible image');
+
+    resolveOldTranslation('Stale translation');
+    await oldBatch;
+
+    expect(translator.getStatus()).toEqual(expect.objectContaining({
+      isActive: true,
+      isBatchRunning: false,
+      message: 'Translated 1 visible image'
+    }));
+    expect(document.querySelector('.lexibridge-image-translation-result')?.textContent)
+      .toBe('Fresh translation');
+  });
+
+  it('invalidates pending image translation when settings change without turning mode off', async () => {
+    document.body.innerHTML = '<img id="target" alt="Old settings text">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    let resolveTranslation!: (value: string) => void;
+    const pendingTranslation = new Promise<string>(resolve => {
+      resolveTranslation = resolve;
+    });
+    const translateText = jest.fn((_text: string, _request: ImageTranslationRequest) => pendingTranslation);
+    translator.enable(translateText);
+    click(image);
+    await flushPromises();
+    const request = translateText.mock.calls[0][1] as ImageTranslationRequest;
+
+    translator.invalidateForSettingsChange();
+    expect(request.signal.aborted).toBe(true);
+    resolveTranslation('Stale settings translation');
+    await flushPromises();
+
+    expect(translator.getStatus()).toEqual(expect.objectContaining({
+      isActive: true,
+      message: 'Image translation settings updated'
+    }));
+    expect(document.querySelector('.lexibridge-image-translation-overlay')).toBeNull();
+  });
+
+  it('coalesces concurrent visible-image commands into one operation owned by the content script', async () => {
+    document.body.innerHTML = '<img id="target" alt="One batch only">';
+    setRect(document.getElementById('target')!, 20, 20, 180, 90);
+
+    let resolveTranslation!: (value: string) => void;
+    const translation = new Promise<string>(resolve => {
+      resolveTranslation = resolve;
+    });
+    const translateText = jest.fn((_text: string, _request: ImageTranslationRequest) => translation);
+    translator.enable(translateText);
+
+    const first = translator.translateVisibleImages();
+    const second = translator.translateVisibleImages();
+    expect(second).toBe(first);
+    await flushPromises();
+    expect(translator.getStatus()).toEqual(expect.objectContaining({
+      isBatchRunning: true,
+      operationId: expect.stringMatching(/^image-batch:[A-Za-z0-9:_-]+$/),
+      processedImageCount: 0,
+      totalImageCount: 1
+    }));
+    expect(translateText).toHaveBeenCalledTimes(1);
+
+    resolveTranslation('Translated once');
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    expect(secondResult).toEqual(firstResult);
+    expect(firstResult.operationId).toMatch(/^image-batch:[A-Za-z0-9:_-]+$/);
+    expect(translateText).toHaveBeenCalledTimes(1);
+    expect(translator.getStatus()).toEqual(expect.objectContaining({
+      isBatchRunning: false,
+      message: 'Translated 1 visible image'
+    }));
   });
 
   it('reports an empty visible-image batch without making translation requests', async () => {
@@ -252,9 +377,13 @@ describe('ImageTranslator', () => {
     expect(state).toEqual({
       isActive: true,
       hasImage: true,
+      isBatchRunning: false,
+      operationId: null,
+      processedImageCount: 0,
+      totalImageCount: 0,
       message: 'Image translation started'
     });
-    expect(translateText).toHaveBeenCalledWith('Sale ends tonight');
+    expect(translateText).toHaveBeenCalledWith('Sale ends tonight', expectImageTranslationRequest());
     expect(overlay?.textContent).toContain('Sale ends tonight');
     expect(overlay?.textContent).toContain('Translated: Sale ends tonight');
   });
@@ -273,7 +402,7 @@ describe('ImageTranslator', () => {
     await flushPromises();
 
     const overlay = document.getElementById('lexibridge-image-translation-overlay');
-    expect(translateText).toHaveBeenCalledWith('Speech bubble text');
+    expect(translateText).toHaveBeenCalledWith('Speech bubble text', expectImageTranslationRequest());
     expect(overlay?.textContent).toContain('Speech bubble text');
     expect(overlay?.textContent).toContain('Translated: Speech bubble text');
   });
@@ -299,12 +428,120 @@ describe('ImageTranslator', () => {
     await flushPromises();
 
     const overlay = document.getElementById('lexibridge-image-translation-overlay');
-    expect(createImageBitmap).toHaveBeenCalledWith(image);
+    expect(createImageBitmap).toHaveBeenCalledWith(image, {
+      resizeWidth: 1,
+      resizeHeight: 1,
+      resizeQuality: 'high'
+    });
     expect(detect).toHaveBeenCalled();
     expect(close).toHaveBeenCalled();
-    expect(translateText).toHaveBeenCalledWith('OCR detected line');
+    expect(translateText).toHaveBeenCalledWith('OCR detected line', expectImageTranslationRequest());
     expect(overlay?.textContent).toContain('OCR detected line');
     expect(overlay?.textContent).toContain('Translated: OCR detected line');
+  });
+
+  it('bounds browser and bundled OCR inputs before allocating recognition surfaces', async () => {
+    document.body.innerHTML = '<img id="target" src="huge-comic.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 12_000, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 8_000, configurable: true });
+    setRect(image, 10, 20, 300, 200);
+    const createImageBitmap = jest.fn(async (_source: ImageBitmapSource, _options?: ImageBitmapOptions) => ({
+      close: jest.fn()
+    }));
+    Object.defineProperty(window, 'createImageBitmap', { value: createImageBitmap, configurable: true });
+    (window as any).TextDetector = jest.fn(() => ({
+      detect: jest.fn(async () => [{ rawValue: 'Bounded browser OCR' }])
+    }));
+
+    translator.enable(async text => `Translated: ${text}`);
+    click(image);
+    await flushPromises();
+
+    const bitmapOptions = createImageBitmap.mock.calls[0][1]!;
+    expect((bitmapOptions.resizeWidth || Infinity) * (bitmapOptions.resizeHeight || Infinity))
+      .toBeLessThanOrEqual(3_000_000);
+
+    translator.disable();
+    delete (window as any).TextDetector;
+    delete (window as any).createImageBitmap;
+    translator.enable(async text => `Translated: ${text}`);
+    click(image);
+    await flushPromises();
+
+    const ocrCanvas = recognize.mock.calls[0][0] as HTMLCanvasElement;
+    expect(ocrCanvas.width * ocrCanvas.height).toBeLessThanOrEqual(3_000_000);
+  });
+
+  it('invalidates OCR started by an older image-mode epoch after Stop and Start', async () => {
+    document.body.innerHTML = '<img id="target" src="comic.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 100, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 40, configurable: true });
+    setRect(image, 10, 20, 100, 40);
+    let resolveOcr!: (value: any[]) => void;
+    const detect = jest.fn(() => new Promise<any[]>(resolve => {
+      resolveOcr = resolve;
+    }));
+    Object.defineProperty(window, 'createImageBitmap', {
+      value: jest.fn(async () => ({ close: jest.fn() })),
+      configurable: true
+    });
+    (window as any).TextDetector = jest.fn(() => ({ detect }));
+    const oldTranslate = jest.fn(async text => `Old: ${text}`);
+    const newTranslate = jest.fn(async text => `New: ${text}`);
+
+    translator.enable(oldTranslate);
+    click(image);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(detect).toHaveBeenCalledTimes(1);
+    translator.disable();
+    translator.enable(newTranslate);
+    resolveOcr([{ rawValue: 'STALE', boundingBox: { x: 10, y: 10, width: 20, height: 8 } }]);
+    await flushPromises();
+
+    expect(oldTranslate).not.toHaveBeenCalled();
+    expect(newTranslate).not.toHaveBeenCalled();
+    expect(document.querySelector('.lexibridge-image-translation-overlay')).toBeNull();
+    expect(document.querySelector('.lexibridge-image-region-translation')).toBeNull();
+  });
+
+  it('caps OCR blocks and translates them with at most four concurrent requests', async () => {
+    document.body.innerHTML = '<img id="target" src="comic.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 500, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 500, configurable: true });
+    setRect(image, 10, 20, 500, 500);
+    Object.defineProperty(window, 'createImageBitmap', {
+      value: jest.fn(async () => ({ close: jest.fn() })),
+      configurable: true
+    });
+    (window as any).TextDetector = jest.fn(() => ({
+      detect: jest.fn(async () => Array.from({ length: 205 }, (_item, index) => ({
+        rawValue: `Block ${index}`,
+        boundingBox: { x: (index % 20) * 20, y: Math.floor(index / 20) * 20, width: 12, height: 8 }
+      })))
+    }));
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const translateText = jest.fn(async (text: string) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await Promise.resolve();
+      inFlight -= 1;
+      return `Translated: ${text}`;
+    });
+
+    translator.enable(translateText);
+    click(image);
+    await flushPromises();
+
+    expect(translateText).toHaveBeenCalledTimes(200);
+    expect(maxInFlight).toBeLessThanOrEqual(4);
   });
 
   it('uses bundled OCR with positioned blocks and terminates its worker on stop', async () => {
@@ -347,8 +584,8 @@ describe('ImageTranslator', () => {
     }));
     expect(setParameters).toHaveBeenCalled();
     expect(drawImage).toHaveBeenCalledWith(image, 0, 0, 400, 200, 0, 0, 400, 200);
-    expect(translateText).toHaveBeenCalledWith('First local line');
-    expect(translateText).toHaveBeenCalledWith('Second local line');
+    expect(translateText).toHaveBeenCalledWith('First local line', expectImageTranslationRequest());
+    expect(translateText).toHaveBeenCalledWith('Second local line', expectImageTranslationRequest());
     expect(regionOverlays).toHaveLength(2);
     expect((regionOverlays[0] as HTMLElement).style.left).toBe('20px');
     expect((regionOverlays[0] as HTMLElement).style.top).toBe('25px');
@@ -407,8 +644,8 @@ describe('ImageTranslator', () => {
     const regionOverlays = document.querySelectorAll('.lexibridge-image-region-translation');
     expect(regionOverlays).toHaveLength(2);
     expect(document.getElementById('lexibridge-image-translation-overlay')).toBeNull();
-    expect(translateText).toHaveBeenCalledWith('First bubble');
-    expect(translateText).toHaveBeenCalledWith('Second bubble');
+    expect(translateText).toHaveBeenCalledWith('First bubble', expectImageTranslationRequest());
+    expect(translateText).toHaveBeenCalledWith('Second bubble', expectImageTranslationRequest());
     expect(regionOverlays[0].textContent).toContain('Translated: First bubble');
     expect(regionOverlays[1].textContent).toContain('Translated: Second bubble');
     expect((regionOverlays[0] as HTMLElement).style.left).toBe('20px');
@@ -506,12 +743,212 @@ describe('ImageTranslator', () => {
     await flushPromises();
 
     const overlay = document.getElementById('lexibridge-image-translation-overlay');
-    expect(createImageBitmap).toHaveBeenCalledWith(image, 40, 40, 120, 80);
+    expect(createImageBitmap).toHaveBeenCalledWith(image, 40, 40, 120, 80, {
+      resizeWidth: 120,
+      resizeHeight: 80,
+      resizeQuality: 'high'
+    });
     expect(detect).toHaveBeenCalled();
     expect(close).toHaveBeenCalled();
-    expect(translateText).toHaveBeenCalledWith('Selected bubble text');
+    expect(translateText).toHaveBeenCalledWith('Selected bubble text', expectImageTranslationRequest());
     expect(overlay?.textContent).toContain('Selected bubble text');
     expect(overlay?.textContent).toContain('Translated: Selected bubble text');
+  });
+
+  it('reconstructs a safe comic bubble, removes source pixels, and typesets inside the image', async () => {
+    document.body.innerHTML = '<img id="target" src="comic.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    const width = 100;
+    const height = 40;
+    const pixels = createPixelBuffer(width, height, [120, 120, 120, 255]);
+    paintPixelRect(pixels, width, { x: 5, y: 5, width: 35, height: 28 }, [248, 248, 248, 255]);
+    paintPixelRect(pixels, width, { x: 14, y: 15, width: 10, height: 5 }, [5, 5, 5, 255]);
+
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: width, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: height, configurable: true });
+    setRect(image, 10, 20, width, height);
+
+    const close = jest.fn();
+    Object.defineProperty(window, 'createImageBitmap', {
+      value: jest.fn(async () => ({ close })),
+      configurable: true
+    });
+    (window as any).TextDetector = jest.fn(() => ({
+      detect: jest.fn(async () => [{
+        rawValue: 'YES',
+        boundingBox: { x: 14, y: 15, width: 10, height: 5 }
+      }])
+    }));
+
+    const captureContext = {
+      drawImage: jest.fn(),
+      getImageData: jest.fn(() => ({ data: new Uint8ClampedArray(pixels) }))
+    };
+    const putImageData = jest.fn();
+    const fillText = jest.fn();
+    const outputContext = {
+      createImageData: jest.fn((canvasWidth: number, canvasHeight: number) => ({
+        data: new Uint8ClampedArray(canvasWidth * canvasHeight * 4)
+      })),
+      putImageData,
+      measureText: jest.fn((text: string) => ({ width: Array.from(text).length * 5 })),
+      fillText,
+      save: jest.fn(),
+      restore: jest.fn(),
+      beginPath: jest.fn(),
+      rect: jest.fn(),
+      clip: jest.fn(),
+      font: '',
+      fillStyle: '',
+      direction: 'ltr',
+      textAlign: 'left',
+      textBaseline: 'alphabetic'
+    };
+    getContext.mockImplementation((_contextId: string, options?: CanvasRenderingContext2DSettings) => (
+      options?.alpha === true ? captureContext : outputContext
+    ) as unknown as CanvasRenderingContext2D);
+
+    translator.enable(async () => 'JA');
+    click(image);
+    await flushPromises();
+    await flushPromises();
+
+    const comicOverlay = document.querySelector('.lexibridge-image-comic-overlay') as HTMLCanvasElement | null;
+    expect(comicOverlay).not.toBeNull();
+    expect(comicOverlay?.getAttribute('data-lexibridge-owned')).toBe('true');
+    expect(comicOverlay?.width).toBe(width);
+    expect(comicOverlay?.height).toBe(height);
+    expect(comicOverlay?.style.left).toBe('10px');
+    expect(comicOverlay?.style.top).toBe('20px');
+    expect(document.querySelector('.lexibridge-image-region-translation')).toBeNull();
+    expect(putImageData).toHaveBeenCalledTimes(1);
+    const renderedPixels = putImageData.mock.calls[0][0].data as Uint8ClampedArray;
+    expect(renderedPixels[(17 * width + 18) * 4]).toBeGreaterThan(240);
+    expect(fillText).toHaveBeenCalledWith('JA', expect.any(Number), expect.any(Number));
+    expect(fillText.mock.calls[0][1]).toBeGreaterThanOrEqual(5);
+    expect(fillText.mock.calls[0][1]).toBeLessThanOrEqual(40);
+    expect(fillText.mock.calls[0][2]).toBeGreaterThanOrEqual(5);
+    expect(fillText.mock.calls[0][2]).toBeLessThanOrEqual(33);
+    expect(outputContext.clip).toHaveBeenCalledTimes(1);
+    expect(outputContext.rect).toHaveBeenCalledWith(5, 5, 35, 28);
+  });
+
+  it('falls back to positioned DOM translation when source pixels are cross-origin tainted', async () => {
+    document.body.innerHTML = '<img id="target" src="https://example.test/comic.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 100, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 40, configurable: true });
+    setRect(image, 10, 20, 100, 40);
+    Object.defineProperty(window, 'createImageBitmap', {
+      value: jest.fn(async () => ({ close: jest.fn() })),
+      configurable: true
+    });
+    (window as any).TextDetector = jest.fn(() => ({
+      detect: jest.fn(async () => [{
+        rawValue: 'TAINTED',
+        boundingBox: { x: 14, y: 15, width: 10, height: 5 }
+      }])
+    }));
+    getContext.mockReturnValue({
+      drawImage: jest.fn(),
+      getImageData: jest.fn(() => {
+        throw new DOMException('Tainted canvases may not be exported', 'SecurityError');
+      })
+    } as unknown as CanvasRenderingContext2D);
+
+    translator.enable(async text => `Translated: ${text}`);
+    click(image);
+    await flushPromises();
+
+    expect(document.querySelector('.lexibridge-image-comic-overlay')).toBeNull();
+    expect(document.querySelector('.lexibridge-image-region-result')?.textContent).toBe('Translated: TAINTED');
+  });
+
+  it('never reconstructs or erases from a near-whole-image OCR fallback box', async () => {
+    document.body.innerHTML = '<img id="target" src="comic.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 100, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 40, configurable: true });
+    setRect(image, 10, 20, 100, 40);
+    Object.defineProperty(window, 'createImageBitmap', {
+      value: jest.fn(async () => ({ close: jest.fn() })),
+      configurable: true
+    });
+    (window as any).TextDetector = jest.fn(() => ({
+      detect: jest.fn(async () => [{
+        rawValue: 'WHOLE PAGE',
+        boundingBox: { x: 2, y: 1, width: 96, height: 38 }
+      }])
+    }));
+    const pixelRead = jest.fn();
+    getContext.mockReturnValue({ drawImage: jest.fn(), getImageData: pixelRead } as unknown as CanvasRenderingContext2D);
+
+    translator.enable(async text => `Translated: ${text}`);
+    click(image);
+    await flushPromises();
+
+    expect(pixelRead).not.toHaveBeenCalled();
+    expect(document.querySelector('.lexibridge-image-comic-overlay')).toBeNull();
+    expect(document.querySelector('.lexibridge-image-region-result')?.textContent).toBe('Translated: WHOLE PAGE');
+  });
+
+  it('does not commit a reconstructed canvas after Stop while the image commit is pending', async () => {
+    document.body.innerHTML = '<img id="target" src="comic.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    const pixels = createPixelBuffer(100, 40, [248, 248, 248, 255]);
+    paintPixelRect(pixels, 100, { x: 14, y: 15, width: 10, height: 5 }, [5, 5, 5, 255]);
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 100, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 40, configurable: true });
+    setRect(image, 10, 20, 100, 40);
+    Object.defineProperty(window, 'createImageBitmap', {
+      value: jest.fn(async () => ({ close: jest.fn() })),
+      configurable: true
+    });
+    (window as any).TextDetector = jest.fn(() => ({
+      detect: jest.fn(async () => [{
+        rawValue: 'WAIT',
+        boundingBox: { x: 14, y: 15, width: 10, height: 5 }
+      }])
+    }));
+    const captureContext = {
+      drawImage: jest.fn(),
+      getImageData: jest.fn(() => ({ data: new Uint8ClampedArray(pixels) }))
+    };
+    const outputContext = {
+      createImageData: jest.fn(() => ({ data: new Uint8ClampedArray(100 * 40 * 4) })),
+      putImageData: jest.fn(),
+      measureText: jest.fn(() => ({ width: 10 })),
+      fillText: jest.fn(),
+      save: jest.fn(),
+      restore: jest.fn(),
+      beginPath: jest.fn(),
+      rect: jest.fn(),
+      clip: jest.fn()
+    };
+    getContext.mockImplementation((_contextId: string, options?: CanvasRenderingContext2DSettings) => (
+      options?.alpha === true ? captureContext : outputContext
+    ) as unknown as CanvasRenderingContext2D);
+    let releaseCommit!: () => void;
+    const pendingCommit = new Promise<void>(resolve => {
+      releaseCommit = resolve;
+    });
+    (translator as any).yieldForImageCommit = () => pendingCommit;
+
+    translator.enable(async () => 'STOPPED');
+    click(image);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    translator.disable();
+    releaseCommit();
+    await flushPromises();
+
+    expect(document.querySelector('.lexibridge-image-comic-overlay')).toBeNull();
+    expect(document.querySelector('.lexibridge-image-region-translation')).toBeNull();
   });
 
   it('removes image mode styling and overlay when disabled', async () => {

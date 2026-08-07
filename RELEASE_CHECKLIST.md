@@ -24,7 +24,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Short description explains web translation plus vocabulary review.
 - [ ] Detailed description mentions manual page translation, selection translation, built-in dictionaries, vocabulary notebook, review, import/export, and Chrome storage sync.
 - [ ] Site-rule and translation-style claims remain limited to manual page translation; do not imply page-load auto translation.
-- [ ] Claim only verified, bounded document, explicit document-batch, video subtitle, explicit local-media/current-tab transcription, live caption, and image text features; describe MOBI/AZW3 as bounded text import rather than eBook rewriting, PDF output as flattened, bundled OCR as local but accuracy-dependent, and do not claim editable PDF reflow, guaranteed scanned-PDF OCR, automatic manga translation, image inpainting, background or automatic tab-audio capture, meeting bots, or account cloud sync.
+- [ ] Claim only verified, bounded document, explicit document-batch, video subtitle, explicit local-media/current-tab transcription, live caption, and image text features; describe MOBI/AZW3 as bounded text import rather than eBook rewriting, PDF output as flattened, bundled OCR as local but accuracy-dependent, and comic reconstruction as limited to safe regular bubbles after explicit action. Do not claim editable PDF reflow, guaranteed scanned-PDF OCR, automatic/page-load manga translation, guaranteed image inpainting, whole-chapter adapters, background or automatic tab-audio capture, meeting bots, or account cloud sync.
 - [ ] Include support contact or repository issue link.
 
 ## Screenshots
@@ -106,6 +106,10 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Configure each credentialed provider with a test key or mock endpoint, verify masked-key display, and verify Remove configuration.
 - [ ] Save Ollama without an API key, confirm Chrome requests `http://localhost/*`, and verify settings cannot activate it before provider configuration is saved.
 - [ ] Confirm Image text stays idle until Start plus a click, drag, or Translate visible images action; confirm Stop cancels the remaining visible-image batch and clears overlays.
+- [ ] Confirm image OCR surfaces stay at or below 3 megapixels, no more than 200 distinct blocks are retained, no more than four image-text provider requests run concurrently, and reconstruction falls back above 1.5 megapixels or 64 positioned blocks.
+- [ ] On a same-origin regular comic bubble with positioned OCR, confirm local source-glyph masking, flat/smooth repair, and translated text fitting appear in a temporary canvas without changing the source image.
+- [ ] Confirm tainted cross-origin images, whole-image OCR fallbacks, CSS transforms/non-fill object fitting, oversized images, textured artwork, unsafe masks, and overflowing translations retain the source image and use DOM overlays.
+- [ ] Close and reopen the popup during Translate visible images; confirm progress is restored, duplicate commands coalesce, and Stop aborts provider/reconstruction work and prevents late canvas commits.
 - [ ] Confirm repeated image text is reused only within the same provider, target language, settings revision, and context; changing settings while Image text remains enabled makes a fresh provider request.
 - [ ] Confirm repeated Video subtitle and Live caption text also makes a fresh request after provider, target language, or translation settings change.
 - [ ] Confirm Video subtitles consumes only exposed text-track/DOM caption text after Start and never requests tab audio capture.

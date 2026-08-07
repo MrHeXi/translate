@@ -182,8 +182,12 @@ Current batch:
 - Done: terminate the local image OCR session immediately when Image text mode stops.
 - Done: converge production content initialization on the MessageManager listener and add exactly-once behavioral coverage for image commands while retaining all media actions.
 - Done: isolate content, image, video-subtitle, and live-caption translation caches by provider, target language, settings revision, source text, and context.
-- Remaining: retain source-pixel polygons and OCR confidence; infer panels, bubbles, and reading order; group lines before translation; remove source text with masks and inpainting; fit translated typography in place; and provide Apply, Undo, Download PNG, and overlay fallback controls.
-- Stop must abort OCR, translation, reconstruction, and visible-image queues immediately and restore the untouched source image.
+- Done: retain bounded source-pixel rectangles and OCR confidence, infer deterministic whitespace panels and seeded white/black bubble regions, group adjacent OCR lines, and keep whole-image OCR fallbacks out of source removal.
+- Done: bound OCR surfaces to 3 megapixels, retain at most 200 distinct blocks, limit image-text provider concurrency to four, and restrict synchronous comic reconstruction to 1.5 megapixels and 64 positioned blocks.
+- Done: reconstruct regular flat or smooth bubbles locally with contrast masks, bounded solid/diffusion repair, clipped CJK/word/RTL-aware line fitting, and a temporary translated canvas that never mutates the source image.
+- Done: fall back to non-destructive DOM overlays for cross-origin-tainted pixels, CSS transforms/non-fill object fitting, oversized sources, page-level OCR geometry, textured artwork, unsafe masks, or translations that cannot fit.
+- Done: make visible-image batch state content-owned and recoverable after popup closure, coalesce duplicate commands, abort provider/reconstruction work on Stop, terminate OCR, and reject late canvas commits by run ID and source fingerprint.
+- Remaining: source polygons beyond rectangles, vertical typesetting, hover/right-click/`Z` region entry points, upload/paste workflow, whole-chapter site adapters, per-image retranslate/quality feedback, and Apply, Undo, Download PNG controls.
 
 ### Batch G: Meeting Subtitle Translation
 

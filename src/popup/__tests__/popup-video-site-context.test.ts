@@ -73,6 +73,7 @@ const installChromeMock = (options: ChromeMockOptions = {}) => {
       callback({
         success: true,
         data: {
+          isInitialized: true,
           isActive: false,
           isVideoSubtitleMode: false,
           isLiveCaptionMode: false,
