@@ -44,6 +44,8 @@ class SidePanelController {
   private characterCount: HTMLElement | null = null;
   private configuredProviderIds = new Set<string>();
   private isTranslating = false;
+  private activeRequestId: string | null = null;
+  private requestSequence = 0;
   private mode: SidePanelMode = 'translate';
   private preferredTranslationProvider = 'google';
   private preferredAiProvider = '';
@@ -123,7 +125,13 @@ class SidePanelController {
   }
 
   private bindEvents(): void {
-    this.translateButton?.addEventListener('click', () => void this.submit());
+    this.translateButton?.addEventListener('click', () => {
+      if (this.activeRequestId) {
+        this.stopActiveRequest();
+      } else {
+        void this.submit();
+      }
+    });
     this.copyButton?.addEventListener('click', () => void this.copyTranslation());
     this.useResultButton?.addEventListener('click', () => this.useResultAsInput());
     this.sourceText?.addEventListener('input', () => this.updateCharacterCount());
@@ -147,6 +155,7 @@ class SidePanelController {
       });
     });
     document.getElementById('clearText')?.addEventListener('click', () => this.clear());
+    window.addEventListener('pagehide', () => this.stopActiveRequest());
     document.getElementById('openSettings')?.addEventListener('click', () => chrome.runtime.openOptionsPage());
   }
 
@@ -336,6 +345,8 @@ class SidePanelController {
       return;
     }
 
+    const requestId = this.createRequestId(submittedMode);
+    this.activeRequestId = requestId;
     this.setBusy(true);
     this.showStatus(this.getProgressLabel(submittedMode));
     try {
@@ -344,6 +355,7 @@ class SidePanelController {
         ? await this.sendMessage({
           action: 'translate',
           data: {
+            requestId,
             text,
             sourceLang: 'auto',
             targetLang: this.targetLanguageSelect.value,
@@ -353,6 +365,7 @@ class SidePanelController {
         : await this.sendMessage({
           action: 'processAiText',
           data: {
+            requestId,
             text,
             targetLang: this.targetLanguageSelect.value,
             provider: providerId,
@@ -364,6 +377,7 @@ class SidePanelController {
             }
           }
         });
+      if (this.activeRequestId !== requestId) return;
       if (!response?.success) throw new Error(response?.error || 'Text processing failed.');
 
       const outputText = submittedMode === 'translate'
@@ -380,10 +394,52 @@ class SidePanelController {
       if (this.useResultButton) this.useResultButton.disabled = false;
       this.showStatus(`${this.getCompletionLabel(submittedMode)} with ${getTranslationProvider(providerId)?.label || 'provider'}.`);
     } catch (error) {
-      this.showStatus(error instanceof Error ? error.message : 'Text processing failed.', true);
+      if (this.activeRequestId === requestId) {
+        this.showStatus(error instanceof Error ? error.message : 'Text processing failed.', true);
+      }
     } finally {
-      this.setBusy(false);
+      if (this.activeRequestId === requestId) {
+        this.activeRequestId = null;
+        this.setBusy(false);
+      }
     }
+  }
+
+  private createRequestId(mode: SidePanelMode): string {
+    this.requestSequence += 1;
+    const entropy = typeof globalThis.crypto?.randomUUID === 'function'
+      ? globalThis.crypto.randomUUID().replace(/-/g, '')
+      : Math.random().toString(36).slice(2, 14);
+    const requestType = mode === 'translate' ? 'translate' : 'ai';
+    return `sidepanel-${requestType}:${Date.now().toString(36)}:${this.requestSequence.toString(36)}:${entropy}`;
+  }
+
+  private stopActiveRequest(): void {
+    const requestId = this.activeRequestId;
+    if (!requestId) return;
+    const requestSequence = this.requestSequence;
+
+    const cancellation = this.sendMessage({
+      action: 'cancelTranslationRequest',
+      data: { requestId }
+    });
+    this.activeRequestId = null;
+    this.setBusy(false);
+    this.showStatus('Stopped.');
+
+    void cancellation
+      .then(response => {
+        if (!response?.success
+          && !this.activeRequestId
+          && this.requestSequence === requestSequence) {
+          this.showStatus(response?.error || 'Could not stop text processing.', true);
+        }
+      })
+      .catch(error => {
+        if (!this.activeRequestId && this.requestSequence === requestSequence) {
+          this.showStatus(error instanceof Error ? error.message : 'Could not stop text processing.', true);
+        }
+      });
   }
 
   private async copyTranslation(): Promise<void> {
@@ -408,6 +464,7 @@ class SidePanelController {
   }
 
   private clear(): void {
+    this.stopActiveRequest();
     if (this.sourceText) this.sourceText.value = '';
     if (this.resultText) this.resultText.textContent = '';
     if (this.resultSection) this.resultSection.hidden = true;
@@ -458,6 +515,10 @@ class SidePanelController {
 
   private updateSubmitAvailability(): void {
     if (!this.translateButton) return;
+    if (this.activeRequestId) {
+      this.translateButton.disabled = false;
+      return;
+    }
     const selectedProvider = this.providerSelect?.selectedOptions[0];
     this.translateButton.disabled = this.isTranslating
       || !selectedProvider
@@ -467,7 +528,9 @@ class SidePanelController {
   private setBusy(isBusy: boolean): void {
     this.isTranslating = isBusy;
     if (this.translateButton) {
-      this.translateButton.textContent = isBusy ? this.getProgressLabel(this.mode) : this.getSubmitLabel();
+      this.translateButton.textContent = isBusy
+        ? this.activeRequestId ? 'Stop' : this.getProgressLabel(this.mode)
+        : this.getSubmitLabel();
     }
     document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(button => {
       button.disabled = isBusy;

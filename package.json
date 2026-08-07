@@ -16,7 +16,8 @@
     "quality": "npm run lint && npm run type-check && npm run test",
     "clean": "rimraf dist",
     "prebuild": "npm run clean",
-    "package": "npm run build && cd dist && powershell Compress-Archive -Path * -DestinationPath ../chrome-translation-extension.zip -Force",
+    "verify:package": "jest --runInBand --silent src/test/__tests__/product-packaging.test.ts",
+    "package": "npm run build && npm run verify:package && cd dist && powershell Compress-Archive -Path * -DestinationPath ../chrome-translation-extension.zip -Force",
     "release": "npm run quality && npm run package"
   },
   "keywords": [
@@ -55,6 +56,7 @@
     "@tesseract.js-data/eng": "^1.0.0",
     "@tesseract.js-data/jpn": "^1.0.0",
     "@tesseract.js-data/kor": "^1.0.0",
+    "js-yaml": "^4.1.1",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^3.11.174",
     "tesseract.js": "^5.1.1",

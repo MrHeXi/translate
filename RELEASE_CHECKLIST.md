@@ -14,6 +14,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Run `npm run lint`.
 - [ ] Run `npm test -- --runInBand --silent`.
 - [ ] Run `npm run build`.
+- [ ] Run `npm run verify:package` and confirm the runtime source fingerprint matches `dist/build-meta.json`.
 - [ ] Regenerate `chrome-translation-extension.zip` from `dist`.
 
 ## Chrome Web Store Listing
@@ -50,6 +51,12 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Confirm AI neighboring context is off by default, is sent only for manual page/document translation when enabled, and is bounded before provider requests.
 - [ ] Confirm AI-capable provider requests include the selected domain, normalized glossary, and custom instructions while keeping source/context in a separate untrusted-data message.
 - [ ] Confirm changing AI translation settings clears the background translation cache and different contexts cannot share a cached result.
+- [ ] Import a valid versioned AI expert JSON file, inspect its full instruction text, verify attribution and enable/disable state survive a service-worker restart, reject duplicate/unknown fields, downgrades, and built-in replacement, and confirm disabling or removing the selected custom expert falls back to an enabled expert without translating.
+- [ ] Import and export a prompt template through structured YAML, confirm deterministic round-trip output, reject aliases/unknown fields/undeclared or page-content variables, enforce required variable/output limits, round-trip multiline JSON variable values, preview locally without a provider request, and return to the built-in default.
+- [ ] Inspect mock AI-provider requests and verify imported expert/template content appears only in the user message while the extension-owned system message remains fixed and contains no imported instruction text.
+- [ ] Enable sensitive-data masking and inspect a mock provider request: supported source, context, glossary, expert, template, variable, and AI-writing values must contain placeholders instead of originals; valid output must restore locally.
+- [ ] Make the mock provider omit, duplicate, mutate, or invent a placeholder and confirm the result is discarded with a visible error. Repeat with masking disabled and document that pattern matching can have false negatives.
+- [ ] Open settings, import files, switch experts/templates, and render prompt previews; confirm none of those actions sends `translate` or `processAiText`.
 - [ ] State that there is no default telemetry.
 - [ ] Confirm the listing privacy fields match the policy.
 

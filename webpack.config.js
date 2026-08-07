@@ -1,10 +1,39 @@
 const path = require('path');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
+const { calculateBuildInputDigest } = require('./scripts/build-integrity');
 const pdfjsRoot = path.dirname(require.resolve('pdfjs-dist/package.json'));
 const tesseractRoot = path.dirname(require.resolve('tesseract.js/package.json'));
 const tesseractCoreRoot = path.dirname(require.resolve('tesseract.js-core/package.json'));
 const ocrLanguagePackages = ['eng', 'chi_sim', 'chi_tra', 'jpn', 'kor'];
+
+class BuildIntegrityPlugin {
+  constructor(mode) {
+    this.mode = mode;
+  }
+
+  apply(compiler) {
+    compiler.hooks.thisCompilation.tap('BuildIntegrityPlugin', compilation => {
+      compilation.hooks.processAssets.tap(
+        {
+          name: 'BuildIntegrityPlugin',
+          stage: compiler.webpack.Compilation.PROCESS_ASSETS_STAGE_ADDITIONAL
+        },
+        () => {
+          const metadata = {
+            schemaVersion: 1,
+            mode: this.mode,
+            sourceSha256: calculateBuildInputDigest(__dirname)
+          };
+          compilation.emitAsset(
+            'build-meta.json',
+            new compiler.webpack.sources.RawSource(`${JSON.stringify(metadata, null, 2)}\n`)
+          );
+        }
+      );
+    });
+  }
+}
 
 module.exports = (env, argv) => {
   const isProduction = argv.mode === 'production';
@@ -56,6 +85,7 @@ module.exports = (env, argv) => {
     },
     
     plugins: [
+      new BuildIntegrityPlugin(isProduction ? 'production' : 'development'),
       new MiniCssExtractPlugin({
         filename: '[name].css'
       }),

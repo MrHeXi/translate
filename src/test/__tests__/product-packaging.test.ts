@@ -1,12 +1,33 @@
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
 
+const { calculateBuildInputDigest } = require('../../../scripts/build-integrity') as {
+  calculateBuildInputDigest: (rootDir: string) => string;
+};
+
 const rootDir = path.resolve(__dirname, '..', '..', '..');
 
 const readProjectFile = (relativePath: string): string =>
   readFileSync(path.join(rootDir, relativePath), 'utf8');
 
 describe('product packaging contract', () => {
+  it('rejects stale build artifacts using the runtime source fingerprint', () => {
+    const webpackConfig = readProjectFile('webpack.config.js');
+    expect(webpackConfig).toContain('BuildIntegrityPlugin');
+    expect(webpackConfig).toContain("'build-meta.json'");
+
+    const buildMetadataPath = path.join(rootDir, 'dist', 'build-meta.json');
+    if (!existsSync(path.join(rootDir, 'dist'))) return;
+
+    expect(existsSync(buildMetadataPath)).toBe(true);
+    const metadata = JSON.parse(readFileSync(buildMetadataPath, 'utf8'));
+    expect(metadata).toEqual({
+      schemaVersion: 1,
+      mode: 'production',
+      sourceSha256: calculateBuildInputDigest(rootDir)
+    });
+  });
+
   it('uses promotable extension metadata without mojibake or overclaimed features', () => {
     const manifest = JSON.parse(readProjectFile('manifest.json'));
 
@@ -263,7 +284,9 @@ describe('product packaging contract', () => {
     expect(listing).toContain('100+ target language choices');
     expect(listing).toContain('29 implemented provider adapters');
     expect(listing).toContain('AI-capable providers');
-    expect(listing).toContain('nine domain experts');
+    expect(listing).toContain('nine trusted built-in experts');
+    expect(listing).toContain('validated YAML prompt templates');
+    expect(listing).toContain('Opt-in local masking');
     expect(listing).toContain('Neighboring context is off by default');
     expect(listing).toContain('Provider API keys, client/application IDs, and temporary session tokens stay in local Chrome storage');
     expect(listing).toContain('Vocabulary notebook');
@@ -293,9 +316,10 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('60 test suites and 510 tests');
-    expect(releaseNotes).toContain('17,789,219');
-    expect(releaseNotes).toContain('3DAA7CF508B50758490FEB912273D7B2B104969987D69905022A94BC5840FC2B');
+    expect(releaseNotes).toContain('64 test suites and 586 tests');
+    expect(releaseNotes).toContain('17,831,049');
+    expect(releaseNotes).toContain('5FD1C08F6DFB0308690007BA19000168358279E0A6E3F10146046228FA6300A3');
+    expect(releaseNotes).toContain('0681519DED440ADB3BCCEBF47F5DEAE1B0E71F7CDD9B6C02F152E6769B00BC04');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -313,6 +337,10 @@ describe('product packaging contract', () => {
     expect(releaseNotes).toContain('YouTube Adapter v1');
     expect(releaseNotes).toContain('Contextual YouTube subtitle-generation entry points');
     expect(releaseNotes).toContain('globally namespaced per-cue translation requests');
+    expect(releaseNotes).toContain('Strict duplicate-key-safe JSON installation');
+    expect(releaseNotes).toContain('Fixed extension-owned AI system requirements');
+    expect(releaseNotes).toContain('real Run/Stop toggle');
+    expect(releaseNotes).toContain('Sync-failure user-data fallback');
 
     expect(screenshotGuide).toContain('Popup Overview');
     expect(screenshotGuide).toContain('Floating Button');
@@ -439,8 +467,8 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('Versioned YouTube standard/Live/Shorts video adapters');
     expect(roadmap).toContain('Done: add a side-effect-free versioned adapter registry and YouTube Adapter v1');
     expect(roadmap).toContain('Remaining: add verified adapters for the other officially documented video sites');
-    expect(roadmap).toContain('installable AI expert definitions');
-    expect(roadmap).toContain('sensitive-data masking before provider requests');
+    expect(roadmap).toContain('installable Schema v1 AI expert definitions');
+    expect(roadmap).toContain('request-scoped masking for supported emails');
     expect(roadmap).toContain('Firefox packaging and compatibility checks');
     expect(roadmap).toContain('Safari, userscript, Zotero, iOS, and Android');
     expect(roadmap).toContain('Do not auto-translate a page on load');

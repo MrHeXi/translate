@@ -226,10 +226,11 @@ Current batch:
 
 ### Batch K: AI Experts, Prompt Templates, and Privacy
 
-- Add installable AI expert definitions with schema validation, source attribution, versioning, enable/disable controls, and safe removal.
-- Add full prompt templates with structured YAML import/export, bounded variables, preview, validation, and rollback to defaults.
-- Add opt-in sensitive-data masking before provider requests, local placeholder restoration, leak-focused tests, and a visible warning when restoration is ambiguous.
-- Treat webpage, document, subtitle, OCR, and neighboring-context content as untrusted data that cannot override system instructions.
+- Done: add installable Schema v1 AI expert definitions with strict validation, HTTPS source attribution, semantic version upgrade protection, immutable trusted built-ins, enable/disable controls, local-only persistence, and safe selected-expert fallback on disable/removal.
+- Done: add structured `js-yaml` prompt-template import/export with aliases and unsafe tags disabled, deterministic output, schema/complexity/variable/render limits, local preview, selected-template removal fallback, and rollback to the built-in default.
+- Done: add opt-in request-scoped masking for supported emails, phone numbers, Luhn-valid cards, IPv4 addresses, valid IBANs, and sensitive URL query values across source/context/prompt fields; restore required source placeholders locally and discard ambiguous provider output visibly.
+- Done: keep webpage, document, subtitle, OCR, neighboring context, installed experts, YAML templates, glossary entries, and custom preferences in the untrusted user-message channel; reject page-content template variables; and keep the extension-owned source-isolation and exact-placeholder requirements fixed in a separate system message.
+- Remaining: broaden sensitive-pattern coverage with carefully measured false-positive/false-negative tests, add a curated expert/template discovery channel without executing remote content, and complete real-provider prompt-adherence smoke tests.
 
 ### Batch L: Cross-Platform Distribution
 

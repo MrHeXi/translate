@@ -348,7 +348,8 @@ export class TranslationService {
       userMessage: buildAiTranslationUserMessage(
         request.text,
         request.context,
-        request.aiPreferences
+        request.aiPreferences,
+        { sourceLanguage, targetLanguage }
       ),
       temperature: 0
     };

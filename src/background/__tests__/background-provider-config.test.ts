@@ -54,6 +54,46 @@ describe('BackgroundService provider configuration messages', () => {
       confidence: 0.9,
       alternatives: []
     };
+    const experts = [
+      {
+        definition: {
+          schemaVersion: 1,
+          id: 'general',
+          name: 'General',
+          version: '1.0.0',
+          description: 'General translation.',
+          instruction: 'Use natural, neutral language.',
+          source: { name: 'LexiBridge' }
+        },
+        enabled: true,
+        builtIn: true
+      },
+      {
+        definition: {
+          schemaVersion: 1,
+          id: 'legal',
+          name: 'Legal',
+          version: '1.0.0',
+          description: 'Legal translation.',
+          instruction: 'Preserve legal meaning.',
+          source: { name: 'LexiBridge' }
+        },
+        enabled: true,
+        builtIn: true
+      }
+    ];
+    const promptTemplates = [{
+      template: {
+        schemaVersion: 1,
+        id: 'lexibridge-default',
+        name: 'LexiBridge Default Translation',
+        version: 1,
+        source: 'built-in:lexibridge',
+        systemPrompt: '{{domainInstruction}}',
+        variables: []
+      },
+      builtIn: true
+    }];
 
     const mockTranslationService = {
       translate: jest.fn().mockResolvedValue(translationResult),
@@ -76,8 +116,16 @@ describe('BackgroundService provider configuration messages', () => {
         aiContextEnabled: true,
         aiTranslationDomain: 'legal',
         translationGlossary: [{ source: 'agreement', target: 'accord' }],
-        aiCustomPrompt: 'Keep clause numbers.'
+        aiCustomPrompt: 'Keep clause numbers.',
+        sensitiveDataMaskingEnabled: false
       }),
+      getAiExperts: jest.fn().mockResolvedValue(experts),
+      installAiExpert: jest.fn().mockResolvedValue(experts[1]),
+      setAiExpertEnabled: jest.fn().mockResolvedValue({ ...experts[1], enabled: false }),
+      removeAiExpert: jest.fn().mockResolvedValue(true),
+      getPromptTemplates: jest.fn().mockResolvedValue(promptTemplates),
+      installPromptTemplate: jest.fn().mockResolvedValue(promptTemplates[0]),
+      removePromptTemplate: jest.fn().mockResolvedValue(true),
       getTranslationProviderConfig: jest.fn().mockResolvedValue(providerConfig),
       getTranslationProviderConfigSummaries: jest.fn().mockResolvedValue([providerSummary]),
       saveTranslationProviderConfig: jest.fn().mockResolvedValue(providerSummary),
@@ -210,7 +258,10 @@ describe('BackgroundService provider configuration messages', () => {
         contextEnabled: true,
         domain: 'legal',
         glossary: [{ source: 'agreement', target: 'accord' }],
-        customPrompt: 'Keep clause numbers.'
+        customPrompt: 'Keep clause numbers.',
+        expertInstruction: 'Preserve legal meaning.',
+        promptTemplate: promptTemplates[0].template,
+        promptVariables: {}
       },
       providerConfig
     });
@@ -235,7 +286,10 @@ describe('BackgroundService provider configuration messages', () => {
         requestId: 'document-batch:task-1:block-1'
       }
     });
-    await flushPromises();
+    for (let attempt = 0; attempt < 10 && mockTranslationService.translate.mock.calls.length < 2; attempt++) {
+      await flushPromises();
+    }
+    expect(mockTranslationService.translate).toHaveBeenCalledTimes(2);
 
     const cancelResponse = await send({
       action: 'cancelTranslationRequest',
@@ -257,7 +311,8 @@ describe('BackgroundService provider configuration messages', () => {
       aiContextEnabled: false,
       aiTranslationDomain: 'general',
       translationGlossary: [],
-      aiCustomPrompt: ''
+      aiCustomPrompt: '',
+      sensitiveDataMaskingEnabled: false
     });
     await send({
       action: 'translate',
@@ -275,13 +330,125 @@ describe('BackgroundService provider configuration messages', () => {
         contextEnabled: false,
         domain: 'general',
         glossary: [],
-        customPrompt: ''
+        customPrompt: '',
+        expertInstruction: 'Use natural, neutral language.',
+        promptTemplate: promptTemplates[0].template,
+        promptVariables: {}
       }
     }));
+
+    mockStorageManager.getSettings.mockResolvedValue({
+      aiContextEnabled: false,
+      aiTranslationDomain: 'general',
+      translationGlossary: [],
+      aiCustomPrompt: '',
+      sensitiveDataMaskingEnabled: true
+    });
+    mockTranslationService.translate.mockImplementationOnce((translationRequest: any) => {
+      expect(translationRequest.text).not.toContain('alice@example.com');
+      const placeholder = translationRequest.text.match(/\[\[LEXIBRIDGE_MASK_[A-Z0-9]+_[A-Z0-9]+\]\]/)?.[0];
+      expect(placeholder).toBeDefined();
+      return Promise.resolve({
+        ...translationResult,
+        originalText: translationRequest.text,
+        translatedText: `Email: ${placeholder}`,
+        alternatives: []
+      });
+    });
+    const maskedResponse = await send({
+      action: 'translate',
+      data: {
+        text: 'Email alice@example.com',
+        targetLang: 'fr',
+        provider: 'openai'
+      }
+    });
+    expect(maskedResponse).toEqual({
+      success: true,
+      data: expect.objectContaining({
+        originalText: 'Email alice@example.com',
+        translatedText: 'Email: alice@example.com'
+      })
+    });
+    expect(JSON.stringify(mockTranslationService.translate.mock.calls.at(-1))).not.toContain(
+      'alice@example.com'
+    );
+
+    mockTranslationService.translate.mockResolvedValueOnce({
+      ...translationResult,
+      originalText: 'masked',
+      translatedText: 'Provider removed the placeholder.',
+      alternatives: []
+    });
+    const ambiguousResponse = await send({
+      action: 'translate',
+      data: {
+        text: 'Email bob@example.com',
+        targetLang: 'fr',
+        provider: 'openai'
+      }
+    });
+    expect(ambiguousResponse).toEqual({
+      success: false,
+      error: expect.stringContaining('could not be restored safely')
+    });
+    expect(JSON.stringify(mockTranslationService.translate.mock.calls.at(-1))).not.toContain(
+      'bob@example.com'
+    );
+
+    mockStorageManager.getSettings.mockResolvedValue({
+      aiContextEnabled: false,
+      aiTranslationDomain: 'general',
+      translationGlossary: [],
+      aiCustomPrompt: '',
+      sensitiveDataMaskingEnabled: false
+    });
+
+    const callsBeforeInvalidWritingRequests = mockTranslationService.translate.mock.calls.length;
+    await expect(send({
+      action: 'processAiText',
+      data: {
+        text: 'Write this',
+        targetLang: 'same',
+        provider: 'openai',
+        task: { action: 'compose' }
+      }
+    })).resolves.toEqual({
+      success: false,
+      error: 'AI writing request ID is required.'
+    });
+    await expect(send({
+      action: 'processAiText',
+      data: {
+        requestId: ' sidepanel-ai:invalid ',
+        text: 'Write this',
+        targetLang: 'same',
+        provider: 'openai',
+        task: { action: 'compose' }
+      }
+    })).resolves.toEqual({
+      success: false,
+      error: 'Invalid AI writing request ID.'
+    });
+    await expect(send({
+      action: 'processAiText',
+      data: {
+        requestId: 42,
+        text: 'Write this',
+        targetLang: 'same',
+        provider: 'openai',
+        task: { action: 'compose' }
+      }
+    })).resolves.toEqual({
+      success: false,
+      error: 'Invalid AI writing request ID.'
+    });
+    expect(mockTranslationService.translate).toHaveBeenCalledTimes(callsBeforeInvalidWritingRequests);
 
     const writingResponse = await send({
       action: 'processAiText',
       data: {
+        requestId: 'sidepanel-ai:reply-1',
         text: 'Can you meet tomorrow?',
         targetLang: 'same',
         provider: 'openai',
@@ -305,7 +472,8 @@ describe('BackgroundService provider configuration messages', () => {
         tone: 'professional',
         length: 'shorter',
         instruction: 'Suggest next Tuesday.'
-      }
+      },
+      signal: expect.objectContaining({ aborted: false })
     });
     expect(writingResponse).toEqual({
       success: true,
@@ -317,10 +485,152 @@ describe('BackgroundService provider configuration messages', () => {
     });
     expect(JSON.stringify(writingResponse)).not.toContain('server-side-secret');
 
+    const settingsGate = deferred<any>();
+    mockStorageManager.getSettings.mockImplementationOnce(() => settingsGate.promise);
+    const translationCallsBeforeSettingsCancellation = mockTranslationService.translate.mock.calls.length;
+    const settingsPendingWriting = send({
+      action: 'processAiText',
+      data: {
+        requestId: 'sidepanel-ai:settings-pending',
+        text: 'Do not send this to the provider',
+        targetLang: 'same',
+        provider: 'openai',
+        task: { action: 'polish' }
+      }
+    });
+    await flushPromises();
+    await expect(send({
+      action: 'cancelTranslationRequest',
+      data: { requestId: 'sidepanel-ai:settings-pending' }
+    })).resolves.toEqual({ success: true, data: { cancelled: true } });
+    settingsGate.resolve({
+      aiContextEnabled: false,
+      aiTranslationDomain: 'general',
+      translationGlossary: [],
+      aiCustomPrompt: '',
+      sensitiveDataMaskingEnabled: false
+    });
+    await expect(settingsPendingWriting).resolves.toEqual({
+      success: false,
+      error: 'Translation request was cancelled'
+    });
+    expect(mockTranslationService.translate).toHaveBeenCalledTimes(
+      translationCallsBeforeSettingsCancellation
+    );
+
+    mockTranslationService.translate.mockImplementationOnce((translationRequest: any) => (
+      new Promise((_resolve, reject) => {
+        translationRequest.signal.addEventListener('abort', () => {
+          const error = new Error('cancelled');
+          error.name = 'AbortError';
+          reject(error);
+        }, { once: true });
+      })
+    ));
+    const callsBeforeActiveWritingCancellation = mockTranslationService.translate.mock.calls.length;
+    const activeWriting = send({
+      action: 'processAiText',
+      data: {
+        requestId: 'sidepanel-ai:active-writing',
+        text: 'A long writing request',
+        targetLang: 'same',
+        provider: 'openai',
+        task: { action: 'rewrite' }
+      }
+    });
+    for (
+      let attempt = 0;
+      attempt < 10 && mockTranslationService.translate.mock.calls.length === callsBeforeActiveWritingCancellation;
+      attempt++
+    ) {
+      await flushPromises();
+    }
+    expect(mockTranslationService.translate).toHaveBeenCalledTimes(
+      callsBeforeActiveWritingCancellation + 1
+    );
+    await expect(send({
+      action: 'processAiText',
+      data: {
+        requestId: 'sidepanel-ai:active-writing',
+        text: 'A duplicate writing request',
+        targetLang: 'same',
+        provider: 'openai',
+        task: { action: 'rewrite' }
+      }
+    })).resolves.toEqual({
+      success: false,
+      error: 'AI writing request ID is already active.'
+    });
+    expect(mockTranslationService.translate).toHaveBeenCalledTimes(
+      callsBeforeActiveWritingCancellation + 1
+    );
+    await expect(send({
+      action: 'cancelTranslationRequest',
+      data: { requestId: 'sidepanel-ai:active-writing' }
+    })).resolves.toEqual({ success: true, data: { cancelled: true } });
+    expect(mockTranslationService.translate).toHaveBeenLastCalledWith(expect.objectContaining({
+      signal: expect.objectContaining({ aborted: true })
+    }));
+    await expect(activeWriting).resolves.toEqual({ success: false, error: 'cancelled' });
+    mockTranslationService.translate.mockResolvedValue(translationResult);
+
+    mockStorageManager.getSettings.mockResolvedValue({
+      aiContextEnabled: false,
+      aiTranslationDomain: 'general',
+      translationGlossary: [],
+      aiCustomPrompt: '',
+      sensitiveDataMaskingEnabled: true
+    });
+    mockTranslationService.translate.mockImplementationOnce((translationRequest: any) => {
+      const serialized = JSON.stringify(translationRequest);
+      expect(serialized).not.toContain('writer@example.com');
+      expect(serialized).not.toContain('+1 415 555 2671');
+      const placeholder = translationRequest.text.match(
+        /\[\[LEXIBRIDGE_MASK_[A-Z0-9]+_[A-Z0-9]+\]\]/
+      )?.[0];
+      return Promise.resolve({
+        ...translationResult,
+        originalText: translationRequest.text,
+        translatedText: `Reply to ${placeholder}`,
+        alternatives: []
+      });
+    });
+    const maskedWritingResponse = await send({
+      action: 'processAiText',
+      data: {
+        requestId: 'sidepanel-ai:masked-writing',
+        text: 'Contact writer@example.com',
+        targetLang: 'same',
+        provider: 'openai',
+        task: {
+          action: 'reply',
+          tone: 'professional',
+          length: 'shorter',
+          instruction: 'Call +1 415 555 2671.'
+        }
+      }
+    });
+    expect(maskedWritingResponse).toEqual({
+      success: true,
+      data: expect.objectContaining({
+        originalText: 'Contact writer@example.com',
+        outputText: 'Reply to writer@example.com'
+      })
+    });
+
+    mockStorageManager.getSettings.mockResolvedValue({
+      aiContextEnabled: false,
+      aiTranslationDomain: 'general',
+      translationGlossary: [],
+      aiCustomPrompt: '',
+      sensitiveDataMaskingEnabled: false
+    });
+
     const callsBeforeRejectedWritingRequest = mockTranslationService.translate.mock.calls.length;
     const rejectedWritingResponse = await send({
       action: 'processAiText',
       data: {
+        requestId: 'sidepanel-ai:rejected-provider',
         text: 'Write this',
         targetLang: 'en',
         provider: 'google',
@@ -387,5 +697,43 @@ describe('BackgroundService provider configuration messages', () => {
       autoTranslate: false
     }));
     expect(resetAllResponse).toEqual({ success: true });
+
+    const translationCallsBeforeLibraryManagement = mockTranslationService.translate.mock.calls.length;
+    await expect(send({ action: 'getAiExperts' })).resolves.toEqual({
+      success: true,
+      data: experts
+    });
+    await expect(send({
+      action: 'installAiExpert',
+      data: { definition: experts[1].definition }
+    })).resolves.toEqual({ success: true, data: experts[1] });
+    expect(mockStorageManager.installAiExpert).toHaveBeenCalledWith(experts[1].definition);
+    await expect(send({
+      action: 'setAiExpertEnabled',
+      data: { id: 'legal', enabled: false }
+    })).resolves.toEqual({
+      success: true,
+      data: { ...experts[1], enabled: false }
+    });
+    await expect(send({
+      action: 'removeAiExpert',
+      data: { id: 'legal' }
+    })).resolves.toEqual({ success: true, data: { removed: true } });
+
+    await expect(send({ action: 'getPromptTemplates' })).resolves.toEqual({
+      success: true,
+      data: promptTemplates
+    });
+    await expect(send({
+      action: 'installPromptTemplate',
+      data: { template: promptTemplates[0].template }
+    })).resolves.toEqual({ success: true, data: promptTemplates[0] });
+    await expect(send({
+      action: 'removePromptTemplate',
+      data: { id: 'custom-template' }
+    })).resolves.toEqual({ success: true, data: { removed: true } });
+    expect(mockTranslationService.translate).toHaveBeenCalledTimes(
+      translationCallsBeforeLibraryManagement
+    );
   });
 });

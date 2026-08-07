@@ -1,0 +1,304 @@
+import {
+  SENSITIVE_DATA_MAX_FIELD_LENGTH,
+  SENSITIVE_DATA_MAX_FIELDS,
+  SENSITIVE_DATA_MAX_MATCHES,
+  SensitiveDataMaskingSession,
+  createSensitiveDataMaskingSession
+} from '../SensitiveDataMasker';
+
+const PLACEHOLDER_PATTERN = /\[\[LEXIBRIDGE_MASK_[A-Z0-9]+_[A-Z0-9]+\]\]/g;
+
+function maskSingle(
+  text: string,
+  requireRestoration = true,
+  id = 'source'
+): { session: SensitiveDataMaskingSession; masked: string } {
+  const session = createSensitiveDataMaskingSession();
+  const result = session.maskFields([{ id, text, requireRestoration }]);
+  expect(result.status).toBe('ok');
+  if (result.status !== 'ok') throw new Error(result.message);
+  return { session, masked: result.fields[0].text };
+}
+
+function placeholders(text: string): string[] {
+  return text.match(PLACEHOLDER_PATTERN) || [];
+}
+
+describe('SensitiveDataMasker', () => {
+  it('masks supported sensitive values but leaves ordinary short numbers intact', () => {
+    const original = [
+      'email alice@example.com',
+      'phone +1 (415) 555-2671',
+      'card 4111 1111 1111 1111',
+      'ip 192.168.10.24',
+      'iban GB82 WEST 1234 5698 7654 32',
+      'url https://example.test/callback?token=top-secret&safe=1234&api_key=key%2042',
+      'camel https://example.test/?accessToken=camel-secret&clientSecret=second-secret',
+      'short 1234 and invalid-card 4111 1111 1111 1112'
+    ].join('\n');
+
+    const { session, masked } = maskSingle(original);
+
+    expect(placeholders(masked)).toHaveLength(9);
+    expect(masked).not.toContain('alice@example.com');
+    expect(masked).not.toContain('+1 (415) 555-2671');
+    expect(masked).not.toContain('4111 1111 1111 1111');
+    expect(masked).not.toContain('192.168.10.24');
+    expect(masked).not.toContain('GB82 WEST 1234 5698 7654 32');
+    expect(masked).not.toContain('top-secret');
+    expect(masked).not.toContain('key%2042');
+    expect(masked).not.toContain('camel-secret');
+    expect(masked).not.toContain('second-secret');
+    expect(masked).toContain('safe=1234');
+    expect(masked).toContain('short 1234');
+    expect(masked).toContain('invalid-card 4111 1111 1111 1112');
+
+    const restored = session.restoreFields([{ id: 'source', text: masked }]);
+    expect(restored).toEqual({ status: 'ok', fields: [{ id: 'source', text: original }] });
+  });
+
+  it('uses a shared primary placeholder for the same secret across fields', () => {
+    const session = createSensitiveDataMaskingSession();
+    const result = session.maskFields([
+      { id: 'source-a', text: 'Email alice@example.com', requireRestoration: true },
+      { id: 'source-b', text: 'Again alice@example.com', requireRestoration: true },
+      { id: 'context', text: 'Context alice@example.com', requireRestoration: false }
+    ]);
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+
+    const sourceAPlaceholder = placeholders(result.fields[0].text)[0];
+    expect(placeholders(result.fields[1].text)).toEqual([sourceAPlaceholder]);
+    expect(placeholders(result.fields[2].text)).toEqual([sourceAPlaceholder]);
+
+    expect(session.restoreFields([
+      { id: 'source-a', text: `Translated ${sourceAPlaceholder}` },
+      { id: 'source-b', text: `Other ${sourceAPlaceholder}` }
+    ])).toEqual({
+      status: 'ok',
+      fields: [
+        { id: 'source-a', text: 'Translated alice@example.com' },
+        { id: 'source-b', text: 'Other alice@example.com' }
+      ]
+    });
+  });
+
+  it('fails closed when any required field is omitted from a multi-field restoration', () => {
+    const session = createSensitiveDataMaskingSession();
+    const masked = session.maskFields([
+      { id: 'title', text: 'Owner alice@example.com', requireRestoration: true },
+      { id: 'body', text: 'Call +1 415-555-2671', requireRestoration: true },
+      { id: 'context', text: 'Host 192.168.1.10', requireRestoration: false }
+    ]);
+    expect(masked.status).toBe('ok');
+    if (masked.status !== 'ok') return;
+
+    const titleToken = placeholders(masked.fields[0].text)[0];
+    const result = session.restoreFields([
+      { id: 'title', text: `Translated ${titleToken}` }
+    ]);
+
+    expect(result).toEqual(expect.objectContaining({
+      status: 'ambiguous',
+      reason: 'missing-placeholder',
+      reasons: expect.arrayContaining(['missing-placeholder']),
+      fieldIds: ['body']
+    }));
+    expect(result).not.toHaveProperty('fields');
+  });
+
+  it('allocates distinct placeholders when one secret occurs multiple times in one field', () => {
+    const original = 'alice@example.com and alice@example.com';
+    const { session, masked } = maskSingle(original);
+    const tokens = placeholders(masked);
+
+    expect(tokens).toHaveLength(2);
+    expect(new Set(tokens).size).toBe(2);
+    expect(session.restoreFields([{ id: 'source', text: masked }])).toEqual({
+      status: 'ok',
+      fields: [{ id: 'source', text: original }]
+    });
+  });
+
+  it('does not require context or prompt placeholders in translated output', () => {
+    const session = createSensitiveDataMaskingSession();
+    const result = session.maskFields([
+      { id: 'source', text: 'Hello alice@example.com', requireRestoration: true },
+      { id: 'context', text: 'Account 4111 1111 1111 1111', requireRestoration: false },
+      { id: 'prompt', text: 'Call +1 415-555-2671', requireRestoration: false }
+    ]);
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+
+    const sourceToken = placeholders(result.fields[0].text)[0];
+    const contextToken = placeholders(result.fields[1].text)[0];
+    expect(session.restoreFields([{ id: 'source', text: `Bonjour ${sourceToken}` }])).toEqual({
+      status: 'ok',
+      fields: [{ id: 'source', text: 'Bonjour alice@example.com' }]
+    });
+
+    const leakedContextToken = session.restoreFields([{
+      id: 'source',
+      text: `Bonjour ${sourceToken} ${contextToken}`
+    }]);
+    expect(leakedContextToken).toEqual(expect.objectContaining({
+      status: 'ambiguous',
+      reason: 'unexpected-placeholder'
+    }));
+    expect(leakedContextToken).not.toHaveProperty('fields');
+  });
+
+  it.each([
+    ['missing-placeholder', () => 'translated without token'],
+    ['duplicate-placeholder', (token: string) => `${token} and ${token}`],
+    ['transformed-placeholder', (token: string) => token.toLowerCase()],
+    ['transformed-placeholder', (token: string) => token.replace('LEXIBRIDGE', 'LEXI\u200BBRIDGE')],
+    ['transformed-placeholder', (token: string) => token.replace(/_/g, '-')],
+    ['transformed-placeholder', (token: string) => token.replace('LEXIBRIDGE', 'LEXLBRIDGE')]
+  ])('returns ambiguous for %s output and never returns partial text', (reason, mutate) => {
+    const secret = 'leak-check@example.com';
+    const { session, masked } = maskSingle(secret);
+    const token = placeholders(masked)[0];
+
+    const result = session.restoreFields([{ id: 'source', text: mutate(token) }]);
+
+    expect(result.status).toBe('ambiguous');
+    if (result.status !== 'ambiguous') return;
+    expect(result.reason).toBe(reason);
+    expect(result.reasons).toContain(reason);
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(result).not.toHaveProperty('fields');
+  });
+
+  it('rejects unknown session tokens and known tokens from another field as ambiguous', () => {
+    const first = maskSingle('first@example.com', true, 'first');
+    const second = maskSingle('second@example.com', true, 'second');
+    const foreignToken = placeholders(second.masked)[0];
+    const unknown = first.session.restoreFields([{ id: 'first', text: foreignToken }]);
+
+    expect(unknown.status).toBe('ambiguous');
+    if (unknown.status === 'ambiguous') {
+      expect(unknown.reasons).toEqual(expect.arrayContaining([
+        'missing-placeholder',
+        'unknown-placeholder'
+      ]));
+    }
+
+    const sharedSession = createSensitiveDataMaskingSession();
+    const masked = sharedSession.maskFields([
+      { id: 'a', text: 'a@example.com', requireRestoration: true },
+      { id: 'b', text: 'b@example.com', requireRestoration: true }
+    ]);
+    expect(masked.status).toBe('ok');
+    if (masked.status !== 'ok') return;
+    const tokenB = placeholders(masked.fields[1].text)[0];
+    const unexpected = sharedSession.restoreFields([{ id: 'a', text: tokenB }]);
+    expect(unexpected.status).toBe('ambiguous');
+    if (unexpected.status === 'ambiguous') {
+      expect(unexpected.reasons).toEqual(expect.arrayContaining([
+        'missing-placeholder',
+        'unexpected-placeholder'
+      ]));
+    }
+  });
+
+  it('prevents placeholder collisions and creates distinct ASCII namespaces per session', () => {
+    const collision = createSensitiveDataMaskingSession().maskFields([{
+      id: 'source',
+      text: 'Do not trust [[LEXIBRIDGE_MASK_ATTACK_1]] here',
+      requireRestoration: true
+    }]);
+    expect(collision).toEqual(expect.objectContaining({
+      status: 'rejected',
+      reason: 'reserved-placeholder-input'
+    }));
+
+    const firstToken = placeholders(maskSingle('first@example.com').masked)[0];
+    const secondToken = placeholders(maskSingle('second@example.com').masked)[0];
+    expect(firstToken).not.toBe(secondToken);
+    expect(firstToken).toMatch(/^[\x20-\x7E]+$/);
+    expect(secondToken).toMatch(/^[\x20-\x7E]+$/);
+  });
+
+  it('enforces request, field, and match limits without retaining a rejected request', () => {
+    const tooManyFields = createSensitiveDataMaskingSession().maskFields(
+      Array.from({ length: SENSITIVE_DATA_MAX_FIELDS + 1 }, (_, index) => ({
+        id: String(index), text: '', requireRestoration: true
+      }))
+    );
+    expect(tooManyFields).toEqual(expect.objectContaining({ status: 'rejected', reason: 'too-many-fields' }));
+
+    const oversizedSession = createSensitiveDataMaskingSession();
+    expect(oversizedSession.maskFields([{
+      id: 'source', text: 'x'.repeat(SENSITIVE_DATA_MAX_FIELD_LENGTH + 1), requireRestoration: true
+    }])).toEqual(expect.objectContaining({ status: 'rejected', reason: 'field-too-long' }));
+    expect(oversizedSession.maskFields([{
+      id: 'source', text: 'safe', requireRestoration: true
+    }]).status).toBe('ok');
+
+    expect(createSensitiveDataMaskingSession().maskFields(
+      Array.from({ length: 5 }, (_, index) => ({
+        id: String(index), text: 'x'.repeat(40_001), requireRestoration: true
+      }))
+    )).toEqual(expect.objectContaining({ status: 'rejected', reason: 'total-input-too-large' }));
+
+    const repeatedEmails = Array.from(
+      { length: SENSITIVE_DATA_MAX_MATCHES + 1 },
+      (_, index) => `user${index}@example.com`
+    ).join(' ');
+    expect(createSensitiveDataMaskingSession().maskFields([{
+      id: 'source', text: repeatedEmails, requireRestoration: true
+    }])).toEqual(expect.objectContaining({ status: 'rejected', reason: 'too-many-matches' }));
+  });
+
+  it('is one-shot, validates restoration limits, and returns detached result objects', () => {
+    expect(createSensitiveDataMaskingSession().restoreFields([{
+      id: 'source', text: 'not initialized'
+    }])).toEqual(expect.objectContaining({ status: 'rejected', reason: 'session-not-masked' }));
+
+    const session = createSensitiveDataMaskingSession();
+    const masked = session.maskFields([{
+      id: 'source', text: 'alice@example.com', requireRestoration: true
+    }]);
+    expect(masked.status).toBe('ok');
+    if (masked.status !== 'ok') return;
+    const token = placeholders(masked.fields[0].text)[0];
+
+    masked.fields[0].text = 'caller mutation';
+    expect(session.restoreFields([{ id: 'source', text: token }])).toEqual({
+      status: 'ok',
+      fields: [{ id: 'source', text: 'alice@example.com' }]
+    });
+    expect(session.maskFields([{
+      id: 'other', text: 'other@example.com', requireRestoration: true
+    }])).toEqual(expect.objectContaining({ status: 'rejected', reason: 'session-already-used' }));
+    expect(session.restoreFields([{
+      id: 'source', text: 'x'.repeat(SENSITIVE_DATA_MAX_FIELD_LENGTH + 1)
+    }])).toEqual(expect.objectContaining({ status: 'rejected', reason: 'field-too-long' }));
+  });
+
+  it('does not expose mappings or log source data through success and error APIs', () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined);
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const secret = 'private.person@example.com';
+    const session = createSensitiveDataMaskingSession();
+    const masked = session.maskFields([{ id: 'source', text: secret, requireRestoration: true }]);
+    expect(masked.status).toBe('ok');
+    if (masked.status !== 'ok') return;
+
+    expect(JSON.stringify(session)).toBe('{}');
+    expect(Object.keys(session)).toEqual([]);
+    expect(JSON.stringify(masked)).not.toContain(secret);
+    const token = placeholders(masked.fields[0].text)[0];
+    const ambiguous = session.restoreFields([{ id: 'source', text: `${token}${token}` }]);
+    expect(JSON.stringify(ambiguous)).not.toContain(secret);
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
+
+    logSpy.mockRestore();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+});

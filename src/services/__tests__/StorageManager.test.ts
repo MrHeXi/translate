@@ -587,7 +587,14 @@ describe('StorageManager', () => {
               aiContextEnabled: fc.boolean(),
               aiTranslationDomain: translationDomainArbitrary,
               translationGlossary: glossaryArbitrary,
-              aiCustomPrompt: fc.string({ maxLength: 100 })
+              aiCustomPrompt: fc.string({ maxLength: 100 }),
+              aiExpertId: fc.constantFrom('general', 'technical', 'medical'),
+              aiPromptTemplateId: fc.constant('lexibridge-default'),
+              aiPromptVariables: fc.constant({}),
+              sensitiveDataMaskingEnabled: fc.boolean(),
+              dailyGoal: fc.integer({ min: 1, max: 100 }),
+              reviewInterval: fc.constantFrom('spaced', 'fixed'),
+              difficultyAdjustment: fc.constantFrom('auto', 'manual')
             }),
             vocabulary: fc.array(
               fc.record({
@@ -674,7 +681,14 @@ describe('StorageManager', () => {
               aiContextEnabled: fc.boolean(),
               aiTranslationDomain: translationDomainArbitrary,
               translationGlossary: glossaryArbitrary,
-              aiCustomPrompt: fc.string({ maxLength: 100 })
+              aiCustomPrompt: fc.string({ maxLength: 100 }),
+              aiExpertId: fc.constantFrom('general', 'technical', 'medical'),
+              aiPromptTemplateId: fc.constant('lexibridge-default'),
+              aiPromptVariables: fc.constant({}),
+              sensitiveDataMaskingEnabled: fc.boolean(),
+              dailyGoal: fc.integer({ min: 1, max: 100 }),
+              reviewInterval: fc.constantFrom('spaced', 'fixed'),
+              difficultyAdjustment: fc.constantFrom('auto', 'manual')
             }),
             vocabulary: fc.array(
               fc.record({
@@ -839,7 +853,14 @@ describe('StorageManager', () => {
               aiContextEnabled: fc.boolean(),
               aiTranslationDomain: translationDomainArbitrary,
               translationGlossary: glossaryArbitrary,
-              aiCustomPrompt: fc.string({ maxLength: 100 })
+              aiCustomPrompt: fc.string({ maxLength: 100 }),
+              aiExpertId: fc.constantFrom('general', 'technical', 'medical'),
+              aiPromptTemplateId: fc.constant('lexibridge-default'),
+              aiPromptVariables: fc.constant({}),
+              sensitiveDataMaskingEnabled: fc.boolean(),
+              dailyGoal: fc.integer({ min: 1, max: 100 }),
+              reviewInterval: fc.constantFrom('spaced', 'fixed'),
+              difficultyAdjustment: fc.constantFrom('auto', 'manual')
             }),
             vocabulary: fc.array(
               fc.record({

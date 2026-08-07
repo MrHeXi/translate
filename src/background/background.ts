@@ -7,16 +7,24 @@ if (typeof (self as any).importScripts === 'function') {
   console.log('Chrome翻译插件 Service Worker 已启动');
 }
 
-import { TranslationService } from '../services/TranslationService';
+import { TranslationResult, TranslationService } from '../services/TranslationService';
 import { DictionaryManager, DictionaryType } from '../services/DictionaryManager';
 import { LearningMode } from '../services/LearningMode';
-import { StorageManager } from '../services/StorageManager';
+import { StorageManager, UserSettings } from '../services/StorageManager';
 import { ReviewService } from '../services/ReviewService';
 import { performanceManager } from '../services/PerformanceManager';
 import { errorHandler, ErrorType, ErrorSeverity } from '../services/ErrorHandler';
 import { offlineManager } from '../services/OfflineManager';
-import { normalizeAiTranslationPreferences } from '../services/AiTranslationPreferences';
-import { isAiWritingAction, normalizeAiWritingTask } from '../services/AiWritingAssistant';
+import {
+  AiTranslationPreferences,
+  normalizeAiTranslationPreferences,
+  TranslationDomain
+} from '../services/AiTranslationPreferences';
+import {
+  AiWritingTask,
+  isAiWritingAction,
+  normalizeAiWritingTask
+} from '../services/AiWritingAssistant';
 import { getTranslationProvider, TRANSLATION_LANGUAGES } from '../services/TranslationProviderRegistry';
 import { openTranslationSidePanel } from '../services/SidePanelManager';
 import {
@@ -28,6 +36,10 @@ import {
   isTrustedTabAudioCaptureSender,
   tabAudioCaptureService
 } from '../services/TabAudioCaptureService';
+import {
+  createSensitiveDataMaskingSession,
+  SensitiveDataMaskingSession
+} from '../services/SensitiveDataMasker';
 
 // 消息类型定义（保留兼容性）
 interface MessageRequest {
@@ -41,6 +53,8 @@ interface MessageResponse {
   data?: any;
   error?: string;
 }
+
+const CANCELLABLE_REQUEST_ID_PATTERN = /^[A-Za-z0-9:_-]{1,128}$/;
 
 class BackgroundService {
   private translationService: TranslationService;
@@ -235,6 +249,34 @@ class BackgroundService {
         
         case 'updateSettings':
           response = await this.handleUpdateSettingsRequest(request);
+          break;
+
+        case 'getAiExperts':
+          response = await this.handleGetAiExpertsRequest();
+          break;
+
+        case 'installAiExpert':
+          response = await this.handleInstallAiExpertRequest(request);
+          break;
+
+        case 'setAiExpertEnabled':
+          response = await this.handleSetAiExpertEnabledRequest(request);
+          break;
+
+        case 'removeAiExpert':
+          response = await this.handleRemoveAiExpertRequest(request);
+          break;
+
+        case 'getPromptTemplates':
+          response = await this.handleGetPromptTemplatesRequest();
+          break;
+
+        case 'installPromptTemplate':
+          response = await this.handleInstallPromptTemplateRequest(request);
+          break;
+
+        case 'removePromptTemplate':
+          response = await this.handleRemovePromptTemplateRequest(request);
           break;
 
         case 'getTranslationProviderConfigs':
@@ -627,10 +669,9 @@ class BackgroundService {
   // 具体的消息处理方法
   private async handleTranslateRequest(request: MessageRequest): Promise<MessageResponse> {
     const startTime = Date.now();
-    const requestId = typeof request.data?.requestId === 'string'
-      ? request.data.requestId.trim()
-      : '';
-    if (requestId && !/^[A-Za-z0-9:_-]{1,128}$/.test(requestId)) {
+    const rawRequestId = request.data?.requestId;
+    const requestId = typeof rawRequestId === 'string' ? rawRequestId : '';
+    if (rawRequestId !== undefined && !CANCELLABLE_REQUEST_ID_PATTERN.test(requestId)) {
       throw new Error('Invalid translation request ID');
     }
     if (requestId && this.cancelledTranslationRequestIds.delete(requestId)) {
@@ -671,31 +712,32 @@ class BackgroundService {
       const providerConfig = provider
         ? await this.storageManager.getTranslationProviderConfig(provider)
         : undefined;
-      const settings = getTranslationProvider(provider)?.supportsAiPreferences
-        ? await this.storageManager.getSettings()
-        : null;
-      const aiPreferences = settings
-        ? normalizeAiTranslationPreferences({
-          contextEnabled: settings.aiContextEnabled,
-          domain: settings.aiTranslationDomain,
-          glossary: settings.translationGlossary,
-          customPrompt: settings.aiCustomPrompt
-        })
+      const settings = await this.storageManager.getSettings();
+      const aiPreferences = getTranslationProvider(provider)?.supportsAiPreferences
+        ? await this.resolveAiTranslationPreferences(settings)
         : undefined;
       const {
         aiWritingTask: _ignoredAiWritingTask,
         requestId: _ignoredRequestId,
         ...translationData
       } = request.data;
-      const translationRequest = {
-        ...translationData,
+      const maskedPayload = this.maskProviderPayload({
+        text: String(translationData.text || ''),
         context: aiPreferences?.contextEnabled ? request.data.context : undefined,
         aiPreferences,
+        maskingEnabled: Boolean(settings.sensitiveDataMaskingEnabled)
+      });
+      const translationRequest = {
+        ...translationData,
+        text: maskedPayload.text,
+        context: maskedPayload.context,
+        aiPreferences: maskedPayload.aiPreferences,
         providerConfig,
         ...(abortController ? { signal: abortController.signal } : {})
       };
+      if (abortController?.signal.aborted) throw this.createAbortError();
       const translate = () => this.translationService.translate(translationRequest);
-      const result = abortController || (provider && !['google', 'mymemory'].includes(provider))
+      const providerResult = abortController || (provider && !['google', 'mymemory'].includes(provider))
         ? await translate()
         : await errorHandler.handleWithRetry(
         translate,
@@ -703,6 +745,11 @@ class BackgroundService {
         3, // 最多重试3次
         1000, // 1秒延迟
         { component: 'background', action: 'translate' }
+      );
+      const result = this.restoreSensitiveTranslationResult(
+        maskedPayload.session,
+        providerResult,
+        String(translationData.text || '')
       );
 
       if (abortController?.signal.aborted) throw this.createAbortError();
@@ -732,11 +779,9 @@ class BackgroundService {
   }
 
   private handleCancelTranslationRequest(request: MessageRequest): MessageResponse {
-    const requestId = typeof request.data?.requestId === 'string'
-      ? request.data.requestId.trim()
-      : '';
+    const requestId = typeof request.data?.requestId === 'string' ? request.data.requestId : '';
     if (!requestId) return { success: false, error: 'Translation request ID is required' };
-    if (!/^[A-Za-z0-9:_-]{1,128}$/.test(requestId)) {
+    if (!CANCELLABLE_REQUEST_ID_PATTERN.test(requestId)) {
       return { success: false, error: 'Invalid translation request ID' };
     }
 
@@ -767,9 +812,212 @@ class BackgroundService {
     return error;
   }
 
+  private async resolveAiTranslationPreferences(
+    settings: UserSettings
+  ): Promise<AiTranslationPreferences> {
+    const [experts, promptTemplates] = await Promise.all([
+      this.storageManager.getAiExperts(),
+      this.storageManager.getPromptTemplates()
+    ]);
+    const requestedExpertId = settings.aiExpertId || settings.aiTranslationDomain || 'general';
+    const selectedExpert = experts.find(entry => (
+      entry.enabled && entry.definition.id === requestedExpertId
+    )) || experts.find(entry => entry.enabled && entry.definition.id === 'general');
+    const requestedTemplateId = settings.aiPromptTemplateId || 'lexibridge-default';
+    const selectedTemplate = promptTemplates.find(entry => entry.template.id === requestedTemplateId)
+      || promptTemplates.find(entry => entry.builtIn);
+    const expertDomain = selectedExpert?.builtIn
+      && this.isTranslationDomain(selectedExpert.definition.id)
+      ? selectedExpert.definition.id
+      : settings.aiTranslationDomain;
+
+    return normalizeAiTranslationPreferences({
+      contextEnabled: settings.aiContextEnabled,
+      domain: expertDomain,
+      glossary: settings.translationGlossary,
+      customPrompt: settings.aiCustomPrompt,
+      expertInstruction: selectedExpert?.definition.instruction,
+      promptTemplate: selectedTemplate?.template,
+      promptVariables: settings.aiPromptVariables
+    });
+  }
+
+  private isTranslationDomain(value: string): value is TranslationDomain {
+    return [
+      'general',
+      'academic',
+      'technical',
+      'software',
+      'business',
+      'finance',
+      'legal',
+      'medical',
+      'creative'
+    ].includes(value);
+  }
+
+  private maskProviderPayload(input: {
+    text: string;
+    context?: unknown;
+    aiPreferences?: AiTranslationPreferences;
+    aiWritingTask?: AiWritingTask;
+    maskingEnabled: boolean;
+  }): {
+    text: string;
+    context?: string;
+    aiPreferences?: AiTranslationPreferences;
+    aiWritingTask?: AiWritingTask;
+    session?: SensitiveDataMaskingSession;
+  } {
+    const context = typeof input.context === 'string' ? input.context : undefined;
+    if (!input.maskingEnabled) {
+      return {
+        text: input.text,
+        ...(context !== undefined ? { context } : {}),
+        ...(input.aiPreferences ? { aiPreferences: input.aiPreferences } : {}),
+        ...(input.aiWritingTask ? { aiWritingTask: input.aiWritingTask } : {})
+      };
+    }
+
+    const fields: Array<{ id: string; text: string; requireRestoration: boolean }> = [
+      { id: 'text', text: input.text, requireRestoration: true }
+    ];
+    if (context !== undefined) {
+      fields.push({ id: 'context', text: context, requireRestoration: false });
+    }
+
+    const preferences = input.aiPreferences;
+    if (preferences) {
+      fields.push(
+        { id: 'custom-prompt', text: preferences.customPrompt, requireRestoration: false },
+        { id: 'expert-instruction', text: preferences.expertInstruction, requireRestoration: false }
+      );
+      if (preferences.promptTemplate) {
+        fields.push({
+          id: 'prompt-template',
+          text: preferences.promptTemplate.systemPrompt,
+          requireRestoration: false
+        });
+        fields.push({
+          id: 'prompt-template-variables',
+          text: JSON.stringify(preferences.promptTemplate.variables),
+          requireRestoration: false
+        });
+      }
+      fields.push(
+        {
+          id: 'glossary',
+          text: JSON.stringify(preferences.glossary),
+          requireRestoration: false
+        },
+        {
+          id: 'prompt-variables',
+          text: JSON.stringify(preferences.promptVariables),
+          requireRestoration: false
+        }
+      );
+    }
+    if (input.aiWritingTask) {
+      fields.push({
+        id: 'writing-instruction',
+        text: input.aiWritingTask.instruction,
+        requireRestoration: false
+      });
+    }
+
+    const session = createSensitiveDataMaskingSession();
+    const masked = session.maskFields(fields);
+    if (masked.status !== 'ok') {
+      throw new Error(`Sensitive data masking could not be applied: ${masked.message}`);
+    }
+    const maskedById = new Map(masked.fields.map(field => [field.id, field.text]));
+    const maskedPreferences = preferences
+      ? {
+        ...preferences,
+        customPrompt: maskedById.get('custom-prompt') || '',
+        expertInstruction: maskedById.get('expert-instruction') || '',
+        ...(preferences.promptTemplate
+          ? {
+            promptTemplate: {
+              ...preferences.promptTemplate,
+              systemPrompt: maskedById.get('prompt-template') || '',
+              variables: JSON.parse(
+                maskedById.get('prompt-template-variables') || '[]'
+              ) as typeof preferences.promptTemplate.variables
+            }
+          }
+          : {}),
+        glossary: JSON.parse(maskedById.get('glossary') || '[]') as typeof preferences.glossary,
+        promptVariables: JSON.parse(
+          maskedById.get('prompt-variables') || '{}'
+        ) as typeof preferences.promptVariables
+      }
+      : undefined;
+    const maskedWritingTask = input.aiWritingTask
+      ? {
+        ...input.aiWritingTask,
+        instruction: maskedById.get('writing-instruction') || ''
+      }
+      : undefined;
+
+    return {
+      text: maskedById.get('text') || '',
+      ...(context !== undefined ? { context: maskedById.get('context') || '' } : {}),
+      ...(maskedPreferences ? { aiPreferences: maskedPreferences } : {}),
+      ...(maskedWritingTask ? { aiWritingTask: maskedWritingTask } : {}),
+      session
+    };
+  }
+
+  private restoreSensitiveTranslationResult(
+    session: SensitiveDataMaskingSession | undefined,
+    result: TranslationResult,
+    originalText: string
+  ): TranslationResult {
+    if (!session) return result;
+
+    const restore = (text: string): string => {
+      const restored = session.restoreFields([{ id: 'text', text }]);
+      if (restored.status !== 'ok') {
+        throw new Error(
+          `Sensitive data could not be restored safely: ${restored.message} The provider result was discarded.`
+        );
+      }
+      return restored.fields[0]!.text;
+    };
+
+    return {
+      ...result,
+      originalText,
+      translatedText: restore(result.translatedText),
+      ...(result.alternatives
+        ? { alternatives: result.alternatives.map(alternative => restore(alternative)) }
+        : {})
+    };
+  }
+
   private async handleProcessAiTextRequest(request: MessageRequest): Promise<MessageResponse> {
     const startTime = Date.now();
+    const rawRequestId = request.data?.requestId;
+    if (rawRequestId === undefined || rawRequestId === '') {
+      throw new Error('AI writing request ID is required.');
+    }
+    if (typeof rawRequestId !== 'string' || !CANCELLABLE_REQUEST_ID_PATTERN.test(rawRequestId)) {
+      throw new Error('Invalid AI writing request ID.');
+    }
+    const requestId = rawRequestId;
+    if (this.cancelledTranslationRequestIds.delete(requestId)) {
+      throw this.createAbortError();
+    }
+    if (this.activeTranslationRequests.has(requestId)) {
+      throw new Error('AI writing request ID is already active.');
+    }
+
+    const abortController = new AbortController();
+    this.activeTranslationRequests.set(requestId, abortController);
+
     try {
+      if (abortController.signal.aborted) throw this.createAbortError();
       const text = typeof request.data?.text === 'string' ? request.data.text.trim() : '';
       if (!text) throw new Error('Enter text for the AI writing task.');
       if (text.length > 20000) throw new Error('AI writing input must be 20,000 characters or fewer.');
@@ -790,16 +1038,28 @@ class BackgroundService {
         || TRANSLATION_LANGUAGES.some(language => language.code === targetLang);
       if (!isKnownLanguage) throw new Error('Choose a supported output language.');
 
-      const providerConfig = await this.storageManager.getTranslationProviderConfig(providerId);
+      const [providerConfig, settings] = await Promise.all([
+        this.storageManager.getTranslationProviderConfig(providerId),
+        this.storageManager.getSettings()
+      ]);
+      if (abortController.signal.aborted) throw this.createAbortError();
       const aiWritingTask = normalizeAiWritingTask(request.data.task);
-      const result = await this.translationService.translate({
+      const maskedPayload = this.maskProviderPayload({
         text,
+        aiWritingTask,
+        maskingEnabled: Boolean(settings.sensitiveDataMaskingEnabled)
+      });
+      const providerResult = await this.translationService.translate({
+        text: maskedPayload.text,
         sourceLang: 'auto',
         targetLang,
         provider: providerId,
         providerConfig,
-        aiWritingTask
+        aiWritingTask: maskedPayload.aiWritingTask,
+        signal: abortController.signal
       });
+      if (abortController.signal.aborted) throw this.createAbortError();
+      const result = this.restoreSensitiveTranslationResult(maskedPayload.session, providerResult, text);
 
       performanceManager.recordRequest(Date.now() - startTime, true);
       return {
@@ -820,6 +1080,10 @@ class BackgroundService {
         { component: 'background', action: 'processAiText' }
       );
       throw error;
+    } finally {
+      if (this.activeTranslationRequests.get(requestId) === abortController) {
+        this.activeTranslationRequests.delete(requestId);
+      }
     }
   }
 
@@ -880,6 +1144,52 @@ class BackgroundService {
     this.translationService.clearCache();
     await this.broadcastSettingsUpdate(request.data);
     return { success: true };
+  }
+
+  private async handleGetAiExpertsRequest(): Promise<MessageResponse> {
+    return { success: true, data: await this.storageManager.getAiExperts() };
+  }
+
+  private async handleInstallAiExpertRequest(request: MessageRequest): Promise<MessageResponse> {
+    const installed = await this.storageManager.installAiExpert(request.data?.definition);
+    this.translationService.clearCache();
+    return { success: true, data: installed };
+  }
+
+  private async handleSetAiExpertEnabledRequest(request: MessageRequest): Promise<MessageResponse> {
+    const id = typeof request.data?.id === 'string' ? request.data.id : '';
+    if (!id || typeof request.data?.enabled !== 'boolean') {
+      throw new Error('AI expert ID and enabled state are required.');
+    }
+    const updated = await this.storageManager.setAiExpertEnabled(id, request.data.enabled);
+    this.translationService.clearCache();
+    return { success: true, data: updated };
+  }
+
+  private async handleRemoveAiExpertRequest(request: MessageRequest): Promise<MessageResponse> {
+    const id = typeof request.data?.id === 'string' ? request.data.id : '';
+    if (!id) throw new Error('AI expert ID is required.');
+    const removed = await this.storageManager.removeAiExpert(id);
+    this.translationService.clearCache();
+    return { success: true, data: { removed } };
+  }
+
+  private async handleGetPromptTemplatesRequest(): Promise<MessageResponse> {
+    return { success: true, data: await this.storageManager.getPromptTemplates() };
+  }
+
+  private async handleInstallPromptTemplateRequest(request: MessageRequest): Promise<MessageResponse> {
+    const installed = await this.storageManager.installPromptTemplate(request.data?.template);
+    this.translationService.clearCache();
+    return { success: true, data: installed };
+  }
+
+  private async handleRemovePromptTemplateRequest(request: MessageRequest): Promise<MessageResponse> {
+    const id = typeof request.data?.id === 'string' ? request.data.id : '';
+    if (!id) throw new Error('Prompt template ID is required.');
+    const removed = await this.storageManager.removePromptTemplate(id);
+    this.translationService.clearCache();
+    return { success: true, data: { removed } };
   }
 
   private async broadcastSettingsUpdate(settings: Record<string, unknown>): Promise<void> {
@@ -1030,6 +1340,10 @@ class BackgroundService {
       aiTranslationDomain: 'general' as const,
       translationGlossary: [],
       aiCustomPrompt: '',
+      aiExpertId: 'general',
+      aiPromptTemplateId: 'lexibridge-default',
+      aiPromptVariables: {},
+      sensitiveDataMaskingEnabled: false,
       autoTranslate: false,
       showFloatingIcon: true,
       pageTranslationExcludeSelectors: [],
@@ -1050,6 +1364,7 @@ class BackgroundService {
     };
     
     await this.storageManager.saveSettings(defaultSettings);
+    this.translationService.clearCache();
     await this.broadcastSettingsUpdate(defaultSettings);
     return { success: true };
   }
@@ -1090,6 +1405,10 @@ class BackgroundService {
       aiTranslationDomain: 'general' as const,
       translationGlossary: [],
       aiCustomPrompt: '',
+      aiExpertId: 'general',
+      aiPromptTemplateId: 'lexibridge-default',
+      aiPromptVariables: {},
+      sensitiveDataMaskingEnabled: false,
       autoTranslate: false,
       showFloatingIcon: true,
       pageTranslationExcludeSelectors: [],
@@ -1110,6 +1429,7 @@ class BackgroundService {
     };
     
     await this.storageManager.saveSettings(defaultSettings);
+    this.translationService.clearCache();
     await this.broadcastSettingsUpdate(defaultSettings);
     return { success: true };
   }

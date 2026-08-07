@@ -48,6 +48,12 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - 100+ target language choices in settings.
 - 29 implemented provider adapters: Google Translate, MyMemory, DeepL, Microsoft Translator, OpenAI-compatible, Gemini, DeepSeek, OpenRouter, Groq, Qwen, Zhipu GLM/ChatGLM, SiliconFlow, Ollama, Claude, Azure OpenAI, LibreTranslate, Yandex Cloud Translate, NiuTrans, Caiyun Translate, ModernMT, Lingvanex, Naver Papago, Baidu Translate, Volcengine Translate, Alibaba Machine Translation, Amazon Translate, IBM Watson Language Translator, Youdao Translate, and SYSTRAN Translate.
 - AI translation controls for AI-capable providers, including opt-in neighboring page/document context, nine domain experts, normalized terminology mappings, custom instructions, and context-aware cache isolation.
+- Strict duplicate-key-safe JSON installation for versioned AI experts, full instruction and attribution review, enable/disable state, protected built-ins, upgrade-only replacement, and safe fallback when a selected custom expert is disabled or removed.
+- Structured YAML prompt-template import/export with bounded declared variables, required-variable validation, multiline JSON override values, deterministic local preview, rollback to the trusted default, and no provider request from management or preview actions.
+- Fixed extension-owned AI system requirements with source, context, glossary, custom instructions, installed experts, and imported prompt templates isolated as untrusted user-message data.
+- Opt-in request-scoped masking for supported email, phone, Luhn-valid payment-card, IPv4, IBAN, and sensitive URL-query values across translation and AI-writing payloads, with local restoration and fail-closed result rejection on missing, duplicated, transformed, unknown, or unexpected placeholders.
+- Abortable side-panel translation and AI-writing requests with unique IDs and a real Run/Stop toggle that immediately cancels the provider request and ignores late responses, including Clear and panel-close cancellation.
+- Sync-failure user-data fallback that takes precedence over stale synchronized settings, retries pending fields on recovery, remains equivalent when fallback cleanup fails, preserves learning preferences, and filters imports to settings and learning data so provider credentials and local AI libraries never enter Chrome Sync.
 - Local-only API credential storage with masked settings summaries for API keys, client/application IDs, and temporary session tokens; explicit configured-host approval; keyless Ollama configuration; and no credentialed-provider fallback to unrelated services.
 - Provider-specific target-language filtering for published narrow capability sets, including DeepL and Caiyun, with Simplified/Traditional Chinese mappings preserved.
 - Automated request-contract coverage for every implemented provider adapter. Credentialed services still require valid user accounts and provider-side live availability.
@@ -62,8 +68,9 @@ Verified on 2026-08-07:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 60 test suites and 510 tests.
+- `jest --runInBand`: passed, 64 test suites and 586 tests.
 - `webpack --mode=production`: passed.
+- Runtime source fingerprint: `0681519DED440ADB3BCCEBF47F5DEAE1B0E71F7CDD9B6C02F152E6769B00BC04` in `dist/build-meta.json`.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 
 Expected build warnings:
@@ -77,7 +84,7 @@ Expected build warnings:
 
 - Unpacked extension folder: `dist`
 - Test package: `chrome-translation-extension.zip`
-- ZIP size: `17,789,219` bytes
-- SHA-256: `3DAA7CF508B50758490FEB912273D7B2B104969987D69905022A94BC5840FC2B`
+- ZIP size: `17,831,049` bytes
+- SHA-256: `5FD1C08F6DFB0308690007BA19000168358279E0A6E3F10146046228FA6300A3`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

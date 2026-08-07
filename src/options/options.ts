@@ -9,7 +9,10 @@ import {
   TRANSLATION_PROVIDERS,
   TranslationProviderRuntimeConfig
 } from '../services/TranslationProviderRegistry';
-import type { TranslationProviderConfigSummary } from '../services/StorageManager';
+import type {
+  PromptTemplateRegistryEntry,
+  TranslationProviderConfigSummary
+} from '../services/StorageManager';
 import {
   normalizeSitePattern,
   PageTranslationDisplayMode,
@@ -22,12 +25,29 @@ import {
   BundledOcrLanguageCode
 } from '../services/BundledOcrService';
 import {
+  buildAiTranslationSystemPrompt,
+  buildAiTranslationUserMessage,
   formatTranslationGlossary,
   parseTranslationGlossary,
   TRANSLATION_DOMAINS,
   TranslationDomain,
   TranslationGlossaryEntry
 } from '../services/AiTranslationPreferences';
+import {
+  AI_EXPERT_MAX_JSON_BYTES,
+  AiExpertRegistryEntry,
+  parseAiExpertDefinitionJson
+} from '../services/AiExpertService';
+import {
+  DEFAULT_PROMPT_TEMPLATE,
+  exportPromptTemplate as serializePromptTemplate,
+  importPromptTemplate as parsePromptTemplate,
+  PROMPT_TEMPLATE_LIMITS,
+  PROMPT_TEMPLATE_MAX_YAML_BYTES,
+  PromptTemplate,
+  renderPromptTemplatePreview,
+  validatePromptTemplate
+} from '../services/PromptTemplateService';
 
 interface UserSettings {
   defaultTargetLanguage: string;
@@ -51,6 +71,10 @@ interface UserSettings {
   aiTranslationDomain?: TranslationDomain;
   translationGlossary?: TranslationGlossaryEntry[];
   aiCustomPrompt?: string;
+  aiExpertId?: string;
+  aiPromptTemplateId?: string;
+  aiPromptVariables?: Record<string, string>;
+  sensitiveDataMaskingEnabled?: boolean;
 }
 
 interface LearningStats {
@@ -70,12 +94,23 @@ interface DictionaryProgress {
   };
 }
 
+const utf8ByteLength = (value: string): number => {
+  let bytes = 0;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0)!;
+    bytes += codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4;
+  }
+  return bytes;
+};
+
 class OptionsController {
   private currentTab: string = 'general';
   private settings: UserSettings | null = null;
   private stats: LearningStats | null = null;
   private dictionaryProgress: DictionaryProgress = {};
   private providerConfigSummaries: Map<string, TranslationProviderConfigSummary> = new Map();
+  private aiExperts: AiExpertRegistryEntry[] = [];
+  private promptTemplates: PromptTemplateRegistryEntry[] = [];
   private siteTranslationRules: Map<string, SiteTranslationRule> = new Map();
   private editingSiteRulePattern: string | null = null;
   private readonly floatingIconEdgeMargin = 24;
@@ -94,6 +129,7 @@ class OptionsController {
     // 加载当前设置
     await this.loadSettings();
     await this.loadTranslationProviderConfigs();
+    await this.loadAiTools();
     
     // 加载学习统计
     await this.loadLearningStats();
@@ -174,6 +210,56 @@ class OptionsController {
 
     // 设置项变化监听
     this.bindSettingChangeListeners();
+    this.bindAiToolListeners();
+  }
+
+  private bindAiToolListeners(): void {
+    const expertSelect = document.getElementById('aiExpertId') as HTMLSelectElement | null;
+    expertSelect?.addEventListener('change', () => {
+      this.onSettingChange();
+      this.updateAiExpertDetails();
+    });
+    const expertFile = document.getElementById('aiExpertFile') as HTMLInputElement | null;
+    document.getElementById('importAiExpert')?.addEventListener('click', () => expertFile?.click());
+    expertFile?.addEventListener('change', event => void this.importAiExpert(event));
+    document.getElementById('toggleAiExpert')?.addEventListener(
+      'click',
+      () => void this.toggleAiExpert()
+    );
+    document.getElementById('removeAiExpert')?.addEventListener(
+      'click',
+      () => void this.removeAiExpert()
+    );
+
+    const promptSelect = document.getElementById('aiPromptTemplateId') as HTMLSelectElement | null;
+    promptSelect?.addEventListener('change', () => {
+      this.onPromptTemplateSelectionChanged();
+      this.onSettingChange();
+    });
+    const promptVariables = document.getElementById('aiPromptVariables') as HTMLTextAreaElement | null;
+    promptVariables?.addEventListener('input', () => this.onSettingChange());
+    const promptFile = document.getElementById('promptTemplateFile') as HTMLInputElement | null;
+    document.getElementById('importPromptTemplate')?.addEventListener('click', () => promptFile?.click());
+    promptFile?.addEventListener('change', event => void this.importPromptTemplate(event));
+    document.getElementById('previewPromptTemplate')?.addEventListener(
+      'click',
+      () => this.previewPromptTemplate()
+    );
+    document.getElementById('exportPromptTemplate')?.addEventListener(
+      'click',
+      () => this.exportSelectedPromptTemplate()
+    );
+    document.getElementById('resetPromptTemplate')?.addEventListener(
+      'click',
+      () => this.resetPromptTemplateSelection()
+    );
+    document.getElementById('removePromptTemplate')?.addEventListener(
+      'click',
+      () => void this.removePromptTemplate()
+    );
+
+    const masking = document.getElementById('sensitiveDataMaskingEnabled') as HTMLInputElement | null;
+    masking?.addEventListener('change', () => this.onSettingChange());
   }
 
   private bindSettingChangeListeners(): void {
@@ -350,6 +436,369 @@ class OptionsController {
     }
   }
 
+  private async loadAiTools(): Promise<void> {
+    try {
+      const [expertResponse, templateResponse] = await Promise.all([
+        this.sendMessage({ action: 'getAiExperts' }),
+        this.sendMessage({ action: 'getPromptTemplates' })
+      ]);
+      this.aiExperts = expertResponse?.success && Array.isArray(expertResponse.data)
+        ? expertResponse.data as AiExpertRegistryEntry[]
+        : [];
+      this.promptTemplates = templateResponse?.success && Array.isArray(templateResponse.data)
+        ? templateResponse.data as PromptTemplateRegistryEntry[]
+        : [{ template: { ...DEFAULT_PROMPT_TEMPLATE, variables: [] }, builtIn: true }];
+    } catch (error) {
+      this.aiExperts = [];
+      this.promptTemplates = [{
+        template: { ...DEFAULT_PROMPT_TEMPLATE, variables: [] },
+        builtIn: true
+      }];
+      console.error('Could not load AI tools:', error);
+      this.showAiToolsMessage('Could not load AI tools.', true);
+    }
+  }
+
+  private populateAiToolControls(): void {
+    const expertSelect = document.getElementById('aiExpertId') as HTMLSelectElement | null;
+    if (expertSelect && typeof expertSelect.replaceChildren === 'function') {
+      expertSelect.replaceChildren(...this.aiExperts.map(entry => {
+        const option = document.createElement('option');
+        option.value = entry.definition.id;
+        option.textContent = `${entry.definition.name}${entry.enabled ? '' : ' (disabled)'}`;
+        option.disabled = !entry.enabled;
+        return option;
+      }));
+      const requested = this.settings?.aiExpertId || this.settings?.aiTranslationDomain || 'general';
+      const fallback = this.aiExperts.find(entry => entry.enabled && entry.definition.id === 'general')
+        ?.definition.id || this.aiExperts.find(entry => entry.enabled)?.definition.id || '';
+      this.setSelectValue(expertSelect, requested, fallback);
+    }
+
+    const templateSelect = document.getElementById('aiPromptTemplateId') as HTMLSelectElement | null;
+    if (templateSelect && typeof templateSelect.replaceChildren === 'function') {
+      templateSelect.replaceChildren(...this.promptTemplates.map(entry => {
+        const option = document.createElement('option');
+        option.value = entry.template.id;
+        option.textContent = entry.template.name;
+        return option;
+      }));
+      const fallback = this.promptTemplates.find(entry => entry.builtIn)?.template.id
+        || DEFAULT_PROMPT_TEMPLATE.id;
+      this.setSelectValue(
+        templateSelect,
+        this.settings?.aiPromptTemplateId || fallback,
+        fallback
+      );
+    }
+
+    const variables = document.getElementById('aiPromptVariables') as HTMLTextAreaElement | null;
+    if (variables) {
+      variables.value = this.formatPromptVariables(this.settings?.aiPromptVariables || {});
+    }
+    const masking = document.getElementById('sensitiveDataMaskingEnabled') as HTMLInputElement | null;
+    if (masking) masking.checked = Boolean(this.settings?.sensitiveDataMaskingEnabled);
+    this.updateAiExpertDetails();
+    this.updatePromptTemplateDetails();
+  }
+
+  private getSelectedAiExpert(): AiExpertRegistryEntry | undefined {
+    const id = (document.getElementById('aiExpertId') as HTMLSelectElement | null)?.value;
+    return this.aiExperts.find(entry => entry.definition.id === id);
+  }
+
+  private getSelectedPromptTemplate(): PromptTemplateRegistryEntry | undefined {
+    const id = (document.getElementById('aiPromptTemplateId') as HTMLSelectElement | null)?.value;
+    return this.promptTemplates.find(entry => entry.template.id === id);
+  }
+
+  private updateAiExpertDetails(): void {
+    const selected = this.getSelectedAiExpert();
+    const details = document.getElementById('aiExpertDetails');
+    if (details) {
+      details.textContent = selected
+        ? `${selected.definition.description} Version ${selected.definition.version}. Source: ${selected.definition.source.name}${selected.definition.source.url ? ` (${selected.definition.source.url})` : ''}`
+        : '';
+    }
+    const instruction = document.getElementById('aiExpertInstruction');
+    if (instruction) {
+      instruction.textContent = selected?.definition.instruction || '';
+    }
+    const toggle = document.getElementById('toggleAiExpert') as HTMLButtonElement | null;
+    if (toggle) {
+      toggle.disabled = !selected;
+      toggle.textContent = selected?.enabled ? 'Disable' : 'Enable';
+    }
+    const remove = document.getElementById('removeAiExpert') as HTMLButtonElement | null;
+    if (remove) remove.disabled = !selected || selected.builtIn;
+  }
+
+  private updatePromptTemplateDetails(): void {
+    const selected = this.getSelectedPromptTemplate();
+    const details = document.getElementById('promptTemplateDetails');
+    if (details) {
+      details.textContent = selected
+        ? `Version ${selected.template.version}. Source: ${selected.template.source}`
+        : '';
+    }
+    const remove = document.getElementById('removePromptTemplate') as HTMLButtonElement | null;
+    if (remove) remove.disabled = !selected || selected.builtIn;
+    const exportButton = document.getElementById('exportPromptTemplate') as HTMLButtonElement | null;
+    if (exportButton) exportButton.disabled = !selected;
+  }
+
+  private async importAiExpert(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      if (typeof file.size === 'number' && file.size > AI_EXPERT_MAX_JSON_BYTES) {
+        throw new Error('AI expert JSON file is too large.');
+      }
+      const definition = parseAiExpertDefinitionJson(await file.text());
+      const response = await this.sendMessage({
+        action: 'installAiExpert',
+        data: { definition }
+      });
+      if (!response.success) throw new Error(response.error || 'Import failed.');
+      if (this.settings) this.settings.aiExpertId = response.data.definition.id;
+      await this.loadAiTools();
+      this.populateAiToolControls();
+      this.showAiToolsMessage('AI expert installed.');
+    } catch (error) {
+      this.showAiToolsMessage(error instanceof Error ? error.message : 'AI expert import failed.', true);
+    } finally {
+      input.value = '';
+    }
+  }
+
+  private async toggleAiExpert(): Promise<void> {
+    const selected = this.getSelectedAiExpert();
+    if (!selected) return;
+    try {
+      const response = await this.sendMessage({
+        action: 'setAiExpertEnabled',
+        data: { id: selected.definition.id, enabled: !selected.enabled }
+      });
+      if (!response.success) throw new Error(response.error || 'Expert update failed.');
+      await this.loadAiTools();
+      if (this.settings && selected.enabled) {
+        this.settings.aiExpertId = this.aiExperts.find(entry => (
+          entry.enabled && entry.definition.id === 'general'
+        ))?.definition.id || this.aiExperts.find(entry => entry.enabled)?.definition.id || 'general';
+      }
+      this.populateAiToolControls();
+      this.showAiToolsMessage(selected.enabled ? 'AI expert disabled.' : 'AI expert enabled.');
+    } catch (error) {
+      this.showAiToolsMessage(error instanceof Error ? error.message : 'Expert update failed.', true);
+    }
+  }
+
+  private async removeAiExpert(): Promise<void> {
+    const selected = this.getSelectedAiExpert();
+    if (!selected || selected.builtIn || !confirm(`Remove ${selected.definition.name}?`)) return;
+    try {
+      const response = await this.sendMessage({
+        action: 'removeAiExpert',
+        data: { id: selected.definition.id }
+      });
+      if (!response.success) throw new Error(response.error || 'Expert removal failed.');
+      await this.loadAiTools();
+      if (this.settings) {
+        this.settings.aiExpertId = this.aiExperts.find(entry => (
+          entry.enabled && entry.definition.id === 'general'
+        ))?.definition.id || this.aiExperts.find(entry => entry.enabled)?.definition.id || 'general';
+      }
+      this.populateAiToolControls();
+      this.showAiToolsMessage('AI expert removed.');
+    } catch (error) {
+      this.showAiToolsMessage(error instanceof Error ? error.message : 'Expert removal failed.', true);
+    }
+  }
+
+  private async importPromptTemplate(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      if (typeof file.size === 'number' && file.size > PROMPT_TEMPLATE_MAX_YAML_BYTES) {
+        throw new Error('Prompt template YAML file is too large.');
+      }
+      const template = parsePromptTemplate(await file.text());
+      const response = await this.sendMessage({
+        action: 'installPromptTemplate',
+        data: { template }
+      });
+      if (!response.success) throw new Error(response.error || 'Template import failed.');
+      if (this.settings) {
+        this.settings.aiPromptTemplateId = response.data.template.id;
+        this.settings.aiPromptVariables = {};
+      }
+      await this.loadAiTools();
+      this.populateAiToolControls();
+      this.onPromptTemplateSelectionChanged();
+      this.showAiToolsMessage('Prompt template installed.');
+    } catch (error) {
+      this.showAiToolsMessage(error instanceof Error ? error.message : 'Template import failed.', true);
+    } finally {
+      input.value = '';
+    }
+  }
+
+  private previewPromptTemplate(): void {
+    const selected = this.getSelectedPromptTemplate();
+    const preview = document.getElementById('aiPromptPreview') as HTMLTextAreaElement | null;
+    if (!selected || !preview) return;
+    try {
+      const expert = this.getSelectedAiExpert();
+      const selectedDomain = (document.getElementById('aiTranslationDomain') as HTMLSelectElement | null)
+        ?.value as TranslationDomain | undefined;
+      const preferences = {
+        domain: TRANSLATION_DOMAINS.some(domain => domain.code === selectedDomain)
+          ? selectedDomain
+          : 'general',
+        glossary: parseTranslationGlossary(
+          (document.getElementById('translationGlossary') as HTMLTextAreaElement | null)?.value || ''
+        ),
+        customPrompt: (
+          (document.getElementById('aiCustomPrompt') as HTMLTextAreaElement | null)?.value || ''
+        ),
+        expertInstruction: expert?.definition.instruction || '',
+        promptTemplate: selected.template,
+        promptVariables: this.parsePromptVariables(
+          (document.getElementById('aiPromptVariables') as HTMLTextAreaElement | null)?.value || '',
+          selected.template
+        )
+      };
+      preview.value = [
+        'SYSTEM',
+        buildAiTranslationSystemPrompt('English', 'Chinese (Simplified)', preferences),
+        '',
+        'USER',
+        buildAiTranslationUserMessage(
+          'Preview source text',
+          undefined,
+          preferences,
+          { sourceLanguage: 'English', targetLanguage: 'Chinese (Simplified)' }
+        )
+      ].join('\n');
+      this.showAiToolsMessage('Local prompt preview updated.');
+    } catch (error) {
+      preview.value = '';
+      this.showAiToolsMessage(error instanceof Error ? error.message : 'Prompt preview failed.', true);
+    }
+  }
+
+  private exportSelectedPromptTemplate(): void {
+    const selected = this.getSelectedPromptTemplate();
+    if (!selected) return;
+    try {
+      const yaml = serializePromptTemplate(selected.template);
+      const link = document.createElement('a');
+      const objectUrl = URL.createObjectURL(new Blob([yaml], { type: 'application/yaml' }));
+      link.href = objectUrl;
+      link.download = `${selected.template.id}.yaml`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+      this.showAiToolsMessage('Prompt template exported.');
+    } catch (error) {
+      this.showAiToolsMessage(error instanceof Error ? error.message : 'Template export failed.', true);
+    }
+  }
+
+  private resetPromptTemplateSelection(): void {
+    const select = document.getElementById('aiPromptTemplateId') as HTMLSelectElement | null;
+    if (select) this.setSelectValue(select, DEFAULT_PROMPT_TEMPLATE.id, DEFAULT_PROMPT_TEMPLATE.id);
+    const variables = document.getElementById('aiPromptVariables') as HTMLTextAreaElement | null;
+    if (variables) variables.value = '';
+    const preview = document.getElementById('aiPromptPreview') as HTMLTextAreaElement | null;
+    if (preview) preview.value = '';
+    this.updatePromptTemplateDetails();
+    this.onSettingChange();
+    this.showAiToolsMessage('Default prompt template selected.');
+  }
+
+  private async removePromptTemplate(): Promise<void> {
+    const selected = this.getSelectedPromptTemplate();
+    if (!selected || selected.builtIn || !confirm(`Remove ${selected.template.name}?`)) return;
+    try {
+      const response = await this.sendMessage({
+        action: 'removePromptTemplate',
+        data: { id: selected.template.id }
+      });
+      if (!response.success) throw new Error(response.error || 'Template removal failed.');
+      if (this.settings) {
+        this.settings.aiPromptTemplateId = DEFAULT_PROMPT_TEMPLATE.id;
+        this.settings.aiPromptVariables = {};
+      }
+      await this.loadAiTools();
+      this.populateAiToolControls();
+      this.showAiToolsMessage('Prompt template removed.');
+    } catch (error) {
+      this.showAiToolsMessage(error instanceof Error ? error.message : 'Template removal failed.', true);
+    }
+  }
+
+  private onPromptTemplateSelectionChanged(): void {
+    const selected = this.getSelectedPromptTemplate();
+    const variables = document.getElementById('aiPromptVariables') as HTMLTextAreaElement | null;
+    if (variables && selected) {
+      variables.value = this.formatPromptVariables({});
+    }
+    const preview = document.getElementById('aiPromptPreview') as HTMLTextAreaElement | null;
+    if (preview) preview.value = '';
+    this.updatePromptTemplateDetails();
+  }
+
+  private parsePromptVariables(value: string, template: PromptTemplate): Record<string, string> {
+    if (utf8ByteLength(value) > PROMPT_TEMPLATE_MAX_YAML_BYTES) {
+      throw new Error('Template variable input is too large.');
+    }
+    const allowedNames = new Set(template.variables.map(variable => variable.name));
+    let parsed: unknown = {};
+    try {
+      parsed = value.trim() ? JSON.parse(value) : {};
+    } catch {
+      throw new Error('Template variables must be a JSON object.');
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Template variables must be a JSON object.');
+    }
+    const variables: Record<string, string> = {};
+    for (const [name, variableValue] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!allowedNames.has(name)) throw new Error(`Unknown template variable: ${name}`);
+      if (typeof variableValue !== 'string') {
+        throw new Error(`Template variable ${name} must be a string.`);
+      }
+      if (Array.from(variableValue).length > PROMPT_TEMPLATE_LIMITS.variableDefaultCodePoints) {
+        throw new Error(`Template variable ${name} is too long.`);
+      }
+      variables[name] = variableValue;
+    }
+    renderPromptTemplatePreview(template, {
+      systemVariables: {
+        sourceLanguage: 'English',
+        targetLanguage: 'Chinese (Simplified)',
+        domainInstruction: '',
+        glossary: '',
+        customInstructions: ''
+      },
+      variables
+    });
+    return variables;
+  }
+
+  private formatPromptVariables(variables: Record<string, string>): string {
+    return JSON.stringify(variables, null, 2);
+  }
+
+  private showAiToolsMessage(message: string, isError: boolean = false): void {
+    const element = document.getElementById('aiToolsMessage');
+    if (!element) return;
+    element.textContent = message;
+    element.classList.toggle('error', isError);
+  }
+
   private async loadLearningStats(): Promise<void> {
     try {
       const response = await this.sendMessage({ action: 'getLearningStats' });
@@ -417,6 +866,7 @@ class OptionsController {
 
     const aiCustomPrompt = document.getElementById('aiCustomPrompt') as HTMLTextAreaElement;
     if (aiCustomPrompt) aiCustomPrompt.value = this.settings.aiCustomPrompt || '';
+    this.populateAiToolControls();
 
     const translationProvider = document.getElementById('translationProvider') as HTMLSelectElement;
     if (translationProvider) this.setSelectValue(translationProvider, this.settings.translationProvider, 'google');
@@ -1032,7 +1482,10 @@ class OptionsController {
       }
     } catch (error) {
       console.error('保存设置失败:', error);
-      this.showMessage('设置保存失败', 'error');
+      this.showMessage(
+        error instanceof Error ? `Settings could not be saved: ${error.message}` : 'Settings could not be saved',
+        'error'
+      );
       return false;
     }
   }
@@ -1054,6 +1507,18 @@ class OptionsController {
     const aiCustomPrompt = (
       (document.getElementById('aiCustomPrompt') as HTMLTextAreaElement)?.value || ''
     ).trim().slice(0, 2000);
+    const aiExpertId = this.getSelectedAiExpert()?.definition.id || 'general';
+    const selectedPromptTemplate = this.getSelectedPromptTemplate();
+    const aiPromptTemplateId = selectedPromptTemplate?.template.id || DEFAULT_PROMPT_TEMPLATE.id;
+    const aiPromptVariables = selectedPromptTemplate
+      ? this.parsePromptVariables(
+        (document.getElementById('aiPromptVariables') as HTMLTextAreaElement)?.value || '',
+        validatePromptTemplate(selectedPromptTemplate.template)
+      )
+      : {};
+    const sensitiveDataMaskingEnabled = Boolean(
+      (document.getElementById('sensitiveDataMaskingEnabled') as HTMLInputElement | null)?.checked
+    );
     const translationProvider = (document.getElementById('translationProvider') as HTMLSelectElement)?.value || 'google';
     const pageTranslationDisplayMode = (
       (document.getElementById('pageTranslationDisplayMode') as HTMLSelectElement)?.value || 'bilingual'
@@ -1099,6 +1564,10 @@ class OptionsController {
       aiTranslationDomain,
       translationGlossary,
       aiCustomPrompt,
+      aiExpertId,
+      aiPromptTemplateId,
+      aiPromptVariables,
+      sensitiveDataMaskingEnabled,
       translationProvider: translationProvider,
       pageTranslationDisplayMode: pageTranslationDisplayMode,
       translationStyle,

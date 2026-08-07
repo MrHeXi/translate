@@ -124,6 +124,61 @@
             </div>
           </fieldset>
 
+          <fieldset class="ai-tools-section">
+            <legend>AI tools</legend>
+            <div class="ai-tools-grid">
+              <section class="ai-tool-group" aria-labelledby="aiExpertHeading">
+                <h3 id="aiExpertHeading">Expert library</h3>
+                <label class="ai-translation-field" for="aiExpertId">
+                  Active expert
+                  <select id="aiExpertId"></select>
+                </label>
+                <p id="aiExpertDetails" class="ai-tool-details"></p>
+                <pre id="aiExpertInstruction" class="ai-expert-instruction"></pre>
+                <div class="ai-tool-actions">
+                  <button id="importAiExpert" class="secondary-btn" type="button">Import JSON</button>
+                  <button id="toggleAiExpert" class="secondary-btn" type="button">Disable</button>
+                  <button id="removeAiExpert" class="danger-btn" type="button">Remove</button>
+                  <input id="aiExpertFile" type="file" accept="application/json,.json" hidden>
+                </div>
+              </section>
+
+              <section class="ai-tool-group" aria-labelledby="promptTemplateHeading">
+                <h3 id="promptTemplateHeading">Prompt templates</h3>
+                <label class="ai-translation-field" for="aiPromptTemplateId">
+                  Active template
+                  <select id="aiPromptTemplateId"></select>
+                </label>
+                <p id="promptTemplateDetails" class="ai-tool-details"></p>
+                <label class="ai-translation-field" for="aiPromptVariables">
+                  Template variables
+                  <textarea id="aiPromptVariables" rows="4" spellcheck="false" placeholder='{"tone":"concise"}'></textarea>
+                </label>
+                <label class="ai-translation-field" for="aiPromptPreview">
+                  Local preview
+                  <textarea id="aiPromptPreview" rows="7" readonly></textarea>
+                </label>
+                <div class="ai-tool-actions">
+                  <button id="previewPromptTemplate" class="secondary-btn" type="button">Preview</button>
+                  <button id="importPromptTemplate" class="secondary-btn" type="button">Import YAML</button>
+                  <button id="exportPromptTemplate" class="secondary-btn" type="button">Export YAML</button>
+                  <button id="resetPromptTemplate" class="secondary-btn" type="button">Use default</button>
+                  <button id="removePromptTemplate" class="danger-btn" type="button">Remove</button>
+                  <input id="promptTemplateFile" type="file" accept="application/yaml,text/yaml,.yaml,.yml" hidden>
+                </div>
+              </section>
+            </div>
+            <p id="aiToolsMessage" class="ai-tools-message" role="status"></p>
+          </fieldset>
+
+          <fieldset class="provider-privacy-section">
+            <legend>Provider privacy</legend>
+            <label class="ai-translation-toggle" for="sensitiveDataMaskingEnabled">
+              Mask supported sensitive data
+              <input id="sensitiveDataMaskingEnabled" type="checkbox">
+            </label>
+          </fieldset>
+
           <div class="setting-item">
             <label for="pageTranslationDisplayMode">Page translation display:</label>
             <select id="pageTranslationDisplayMode">

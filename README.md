@@ -41,6 +41,9 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Choose from 29 implemented provider adapters: Google Translate, MyMemory, DeepL, Microsoft Translator, OpenAI-compatible, Gemini, DeepSeek, OpenRouter, Groq, Qwen, Zhipu GLM/ChatGLM, SiliconFlow, Ollama, Claude, Azure OpenAI, LibreTranslate, Yandex Cloud Translate, NiuTrans, Caiyun Translate, ModernMT, Lingvanex, Naver Papago, Baidu Translate, Volcengine Translate, Alibaba Machine Translation, Amazon Translate, IBM Watson Language Translator, Youdao Translate, and SYSTRAN Translate.
 - With AI-capable providers, choose a domain expert, enforce a local terminology glossary, add custom translation instructions, and optionally use neighboring page or document text as reference context.
 - Keep neighboring-context sharing off by default. Context is collected only after a manual page or document translation starts and is bounded before it is sent to the selected AI provider.
+- Install versioned AI expert definitions from strict duplicate-key-safe JSON, review their source attribution and full instruction text, enable or disable them, and safely remove custom definitions without replacing trusted built-ins.
+- Import and export validated YAML prompt templates, set bounded declared variables as a JSON object, preview the separated system and user messages locally, and return to the built-in template without a provider request.
+- Optionally mask supported emails, phone numbers, Luhn-valid payment card numbers, IPv4 addresses, IBANs, and sensitive URL query values before provider requests. Restoration happens locally; ambiguous placeholder output is discarded with an error.
 - Keep provider API keys, client/application IDs, and temporary session tokens in local Chrome storage only; credentials are excluded from Chrome sync and learning-data exports.
 
 ### Selection Translation
@@ -148,6 +151,7 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Use Chrome sync where available.
 - Export and import learning data.
 - Store user-supplied translation provider API keys, client/application IDs, and temporary session tokens only in `chrome.storage.local`, with masked summaries in the settings UI.
+- Store installed AI expert and prompt-template definitions only in `chrome.storage.local`; selected IDs, declared variable values, and the masking preference remain ordinary settings.
 - Keep default telemetry off.
 
 ## Install for Local Testing
@@ -214,7 +218,9 @@ Google Translate and MyMemory remain available without provider configuration. C
 
 For cloud providers that use account-level access keys, create dedicated least-privilege credentials and prefer short-lived STS credentials when available. Local extension storage prevents Chrome Sync and export leakage, but it is not a server-side secret manager.
 
-For AI-capable providers, the AI translation controls in settings can select a subject domain, define terminology as `source term => required translation`, and add custom instructions. Neighboring context is opt-in and applies to manually translated page batches and document blocks only. Configured AI-capable providers also power the side-panel writing actions; ordinary machine-translation providers remain translation-only.
+For AI-capable providers, the AI translation controls in settings can select a subject domain, define terminology as `source term => required translation`, and add custom instructions. The AI tools section manages installable JSON experts and YAML prompt templates; import, export, enable/disable, removal, and prompt preview are local actions and never start translation. Imported expert/template content is sent only as untrusted user-level translation preferences and cannot replace the extension-owned system requirements. Neighboring context is opt-in and applies to manually translated page batches and document blocks only. Configured AI-capable providers also power the side-panel writing actions; ordinary machine-translation providers remain translation-only.
+
+Sensitive-data masking is an opt-in provider privacy setting. When enabled, supported values are replaced with request-scoped ASCII placeholders before text, context, glossary, expert, template, or AI-writing instruction content reaches a provider. The extension restores required placeholders only when every expected token is present exactly once. A missing, duplicated, unknown, or transformed token causes the provider result to be discarded. Pattern matching can have false negatives, so masking is not a substitute for reviewing content before translation.
 
 ### Configure Site Rules
 

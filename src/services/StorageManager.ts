@@ -18,6 +18,17 @@ import type {
   TranslationDomain,
   TranslationGlossaryEntry
 } from './AiTranslationPreferences';
+import {
+  AiExpertDefinition,
+  AiExpertRegistry,
+  AiExpertRegistryEntry,
+  createAiExpertRegistry
+} from './AiExpertService';
+import {
+  DEFAULT_PROMPT_TEMPLATE,
+  PromptTemplate,
+  validatePromptTemplate
+} from './PromptTemplateService';
 
 export type {
   PageTranslationDisplayMode,
@@ -34,6 +45,9 @@ export interface UserSettings {
   learningModeEnabled: boolean;
   activeDictionaries: string[];
   highlightColors: { [key: string]: string };
+  dailyGoal?: number;
+  reviewInterval?: string;
+  difficultyAdjustment?: string;
   autoTranslate: boolean;
   showFloatingIcon: boolean;
   pageTranslationExcludeSelectors?: string[];
@@ -45,6 +59,15 @@ export interface UserSettings {
   aiTranslationDomain?: TranslationDomain;
   translationGlossary?: TranslationGlossaryEntry[];
   aiCustomPrompt?: string;
+  aiExpertId?: string;
+  aiPromptTemplateId?: string;
+  aiPromptVariables?: Record<string, string>;
+  sensitiveDataMaskingEnabled?: boolean;
+}
+
+export interface PromptTemplateRegistryEntry {
+  template: PromptTemplate;
+  builtIn: boolean;
 }
 
 export interface TranslationProviderConfigSummary {
@@ -65,8 +88,41 @@ export interface UserData {
   dictionaryProgress: { [key: string]: any };
 }
 
+const USER_SETTINGS_FIELDS: ReadonlyArray<keyof UserSettings> = [
+  'defaultTargetLanguage',
+  'translationProvider',
+  'pageTranslationDisplayMode',
+  'floatingIconPosition',
+  'learningModeEnabled',
+  'activeDictionaries',
+  'highlightColors',
+  'dailyGoal',
+  'reviewInterval',
+  'difficultyAdjustment',
+  'autoTranslate',
+  'showFloatingIcon',
+  'pageTranslationExcludeSelectors',
+  'translationStyle',
+  'pageTranslationScope',
+  'siteTranslationRules',
+  'documentOcrLanguage',
+  'aiContextEnabled',
+  'aiTranslationDomain',
+  'translationGlossary',
+  'aiCustomPrompt',
+  'aiExpertId',
+  'aiPromptTemplateId',
+  'aiPromptVariables',
+  'sensitiveDataMaskingEnabled'
+];
+
 export class StorageManager {
   private readonly providerConfigStorageKey = 'translationProviderConfigs';
+  private readonly aiExpertDefinitionsStorageKey = 'aiExpertDefinitionsV1';
+  private readonly aiExpertDisabledIdsStorageKey = 'aiExpertDisabledIdsV1';
+  private readonly promptTemplatesStorageKey = 'aiPromptTemplatesV1';
+  private readonly userDataFallbackStorageKey = 'userDataLocalFallbackV1';
+  private readonly promptTemplateLimit = 50;
   private defaultSettings: UserSettings = {
     defaultTargetLanguage: 'zh-CN',
     translationProvider: 'google',
@@ -81,6 +137,9 @@ export class StorageManager {
       cet4: '#96ceb4',
       cet6: '#feca57'
     },
+    dailyGoal: 20,
+    reviewInterval: 'spaced',
+    difficultyAdjustment: 'auto',
     autoTranslate: false,
     showFloatingIcon: true,
     pageTranslationExcludeSelectors: [],
@@ -91,22 +150,59 @@ export class StorageManager {
     aiContextEnabled: false,
     aiTranslationDomain: 'general',
     translationGlossary: [],
-    aiCustomPrompt: ''
+    aiCustomPrompt: '',
+    aiExpertId: 'general',
+    aiPromptTemplateId: DEFAULT_PROMPT_TEMPLATE.id,
+    aiPromptVariables: {},
+    sensitiveDataMaskingEnabled: false
   };
 
   async saveUserData(data: Partial<UserData>): Promise<void> {
+    const userData = this.selectUserDataFields(data);
+    let pendingFallback: Partial<UserData> = {};
     try {
-      await chrome.storage.sync.set(data);
+      pendingFallback = await this.loadUserDataFallback();
+    } catch (error) {
+      console.warn('Unable to read pending local user-data fallback:', error);
+    }
+    const dataToSave = { ...pendingFallback, ...userData };
+
+    try {
+      await chrome.storage.sync.set(dataToSave);
       console.log('用户数据保存成功');
     } catch (error) {
       console.error('保存用户数据失败:', error);
       // 如果同步存储失败，尝试本地存储
       try {
-        await chrome.storage.local.set(data);
+        await chrome.storage.local.set({
+          [this.userDataFallbackStorageKey]: dataToSave
+        });
         console.log('用户数据已保存到本地存储');
       } catch (localError) {
         console.error('本地存储也失败:', localError);
         throw new Error('无法保存用户数据');
+      }
+      return;
+    }
+
+    if (Object.keys(pendingFallback).length > 0) {
+      try {
+        await this.clearUserDataFallback();
+      } catch (cleanupError) {
+        // Keep the fallback equivalent to the successful sync write so a stale
+        // local copy cannot roll settings back on the next load.
+        try {
+          await chrome.storage.local.set({
+            [this.userDataFallbackStorageKey]: dataToSave
+          });
+        } catch (recoveryError) {
+          console.error('Unable to reconcile the synchronized user-data fallback:', {
+            cleanupError,
+            recoveryError
+          });
+          throw new Error('User data synced, but the local safety copy could not be reconciled.');
+        }
+        console.warn('Unable to clear the user-data fallback; retained an equivalent local copy.', cleanupError);
       }
     }
   }
@@ -114,23 +210,44 @@ export class StorageManager {
   async loadUserData(): Promise<UserData> {
     try {
       // 首先尝试从同步存储加载
-      let result = await chrome.storage.sync.get(null);
+      const syncResult = await chrome.storage.sync.get(null);
+      let result = this.selectUserDataFields(syncResult);
       
       // 如果同步存储为空，尝试本地存储
       if (Object.keys(result).length === 0) {
-        result = await chrome.storage.local.get(null);
+        result = this.selectUserDataFields(await chrome.storage.local.get(null));
+      }
+
+      try {
+        const pendingFallback = await this.loadUserDataFallback();
+        result = { ...result, ...pendingFallback };
+      } catch (error) {
+        console.warn('Unable to read pending local user-data fallback:', error);
       }
 
       // 合并默认设置
       const userData: UserData = {
-        settings: { ...this.defaultSettings, ...result['settings'] },
-        vocabulary: result['vocabulary'] || [],
-        learningStats: result['learningStats'] || {},
-        dictionaryProgress: result['dictionaryProgress'] || {}
+        settings: { ...this.defaultSettings, ...result.settings },
+        vocabulary: result.vocabulary || [],
+        learningStats: result.learningStats || {},
+        dictionaryProgress: result.dictionaryProgress || {}
       };
 
       return userData;
     } catch (error) {
+      try {
+        let localResult = this.selectUserDataFields(await chrome.storage.local.get(null));
+        const pendingFallback = await this.loadUserDataFallback();
+        localResult = { ...localResult, ...pendingFallback };
+        return {
+          settings: { ...this.defaultSettings, ...localResult.settings },
+          vocabulary: localResult.vocabulary || [],
+          learningStats: localResult.learningStats || {},
+          dictionaryProgress: localResult.dictionaryProgress || {}
+        };
+      } catch (localError) {
+        console.warn('Unable to read local user data after sync failure:', localError);
+      }
       console.error('加载用户数据失败:', error);
       // 返回默认数据
       return {
@@ -157,6 +274,117 @@ export class StorageManager {
   async getSettings(): Promise<UserSettings> {
     const userData = await this.loadUserData();
     return userData.settings;
+  }
+
+  async getAiExperts(): Promise<readonly AiExpertRegistryEntry[]> {
+    return (await this.loadAiExpertRegistry()).list();
+  }
+
+  async installAiExpert(value: unknown): Promise<AiExpertRegistryEntry> {
+    const registry = await this.loadAiExpertRegistry();
+    const installed = registry.install(value);
+    await this.persistAiExpertRegistry(registry);
+    return installed;
+  }
+
+  async setAiExpertEnabled(id: string, enabled: boolean): Promise<AiExpertRegistryEntry> {
+    const registry = await this.loadAiExpertRegistry();
+    const updated = registry.setEnabled(id, enabled);
+    if (!updated) throw new Error('AI expert was not found.');
+    const enabledEntries = registry.listEnabled();
+    if (!enabled && enabledEntries.length === 0) {
+      throw new Error('At least one AI expert must remain enabled.');
+    }
+    await this.persistAiExpertRegistry(registry);
+
+    if (!enabled) {
+      const settings = await this.getSettings();
+      if (settings.aiExpertId === id) {
+        const fallbackId = enabledEntries.find(entry => entry.definition.id === 'general')
+          ?.definition.id || enabledEntries[0]!.definition.id;
+        await this.saveSettings({ aiExpertId: fallbackId });
+      }
+    }
+    return updated;
+  }
+
+  async removeAiExpert(id: string): Promise<boolean> {
+    const registry = await this.loadAiExpertRegistry();
+    const entry = registry.get(id);
+    if (!entry) return false;
+    if (entry.builtIn) throw new Error('Built-in AI experts cannot be removed.');
+    const removed = registry.remove(id);
+    if (!removed) return false;
+    await this.persistAiExpertRegistry(registry);
+
+    const settings = await this.getSettings();
+    if (settings.aiExpertId === id) {
+      const enabledEntries = registry.listEnabled();
+      const fallbackId = enabledEntries.find(entry => entry.definition.id === 'general')
+        ?.definition.id || enabledEntries[0]!.definition.id;
+      await this.saveSettings({ aiExpertId: fallbackId });
+    }
+    return true;
+  }
+
+  async getPromptTemplates(): Promise<readonly PromptTemplateRegistryEntry[]> {
+    const customTemplates = await this.loadCustomPromptTemplates();
+    return [
+      { template: this.clonePromptTemplate(DEFAULT_PROMPT_TEMPLATE), builtIn: true },
+      ...customTemplates.map(template => ({ template: this.clonePromptTemplate(template), builtIn: false }))
+    ];
+  }
+
+  async installPromptTemplate(value: unknown): Promise<PromptTemplateRegistryEntry> {
+    const template = validatePromptTemplate(value);
+    if (template.id === DEFAULT_PROMPT_TEMPLATE.id) {
+      throw new Error('The built-in prompt template cannot be replaced.');
+    }
+
+    const templates = await this.loadCustomPromptTemplates();
+    const existingIndex = templates.findIndex(item => item.id === template.id);
+    if (existingIndex >= 0) {
+      const existing = templates[existingIndex]!;
+      if (template.version < existing.version) {
+        throw new Error(`Cannot downgrade prompt template ${template.id}.`);
+      }
+      if (template.version === existing.version
+        && JSON.stringify(template) !== JSON.stringify(existing)) {
+        throw new Error(`Prompt template ${template.id} already has different content at this version.`);
+      }
+      templates[existingIndex] = template;
+    } else {
+      if (templates.length >= this.promptTemplateLimit) {
+        throw new Error(`Prompt template library cannot exceed ${this.promptTemplateLimit} custom templates.`);
+      }
+      templates.push(template);
+    }
+
+    await chrome.storage.local.set({
+      [this.promptTemplatesStorageKey]: templates.map(item => this.clonePromptTemplate(item))
+    });
+    return { template: this.clonePromptTemplate(template), builtIn: false };
+  }
+
+  async removePromptTemplate(id: string): Promise<boolean> {
+    if (id === DEFAULT_PROMPT_TEMPLATE.id) {
+      throw new Error('The built-in prompt template cannot be removed.');
+    }
+    const templates = await this.loadCustomPromptTemplates();
+    const remaining = templates.filter(template => template.id !== id);
+    if (remaining.length === templates.length) return false;
+    await chrome.storage.local.set({
+      [this.promptTemplatesStorageKey]: remaining.map(item => this.clonePromptTemplate(item))
+    });
+
+    const settings = await this.getSettings();
+    if (settings.aiPromptTemplateId === id) {
+      await this.saveSettings({
+        aiPromptTemplateId: DEFAULT_PROMPT_TEMPLATE.id,
+        aiPromptVariables: {}
+      });
+    }
+    return true;
   }
 
   async getTranslationProviderConfig(providerId: string): Promise<TranslationProviderRuntimeConfig | undefined> {
@@ -329,13 +557,14 @@ export class StorageManager {
 
       // 反序列化日期字符串为Date对象
       const deserializedData = this.deserializeDates(importData.data);
+      const userData = this.selectUserDataFields(deserializedData);
 
       // 备份当前数据
       const currentData = await this.loadUserData();
       await chrome.storage.local.set({ backup: currentData });
 
       // 导入新数据
-      await this.saveUserData(deserializedData);
+      await this.saveUserData(userData);
       
       console.log('数据导入成功');
     } catch (error) {
@@ -385,6 +614,72 @@ export class StorageManager {
     return configs && typeof configs === 'object' ? { ...configs } : {};
   }
 
+  private async loadAiExpertRegistry(): Promise<AiExpertRegistry> {
+    const result = await chrome.storage.local.get([
+      this.aiExpertDefinitionsStorageKey,
+      this.aiExpertDisabledIdsStorageKey
+    ]);
+    const registry = createAiExpertRegistry();
+    const definitions = result[this.aiExpertDefinitionsStorageKey];
+    if (Array.isArray(definitions)) {
+      for (const definition of definitions) {
+        try {
+          registry.install(definition);
+        } catch {
+          // Ignore corrupt local entries while keeping the built-in library usable.
+        }
+      }
+    }
+
+    const disabledIds = result[this.aiExpertDisabledIdsStorageKey];
+    if (Array.isArray(disabledIds)) {
+      for (const id of disabledIds) {
+        if (typeof id === 'string') registry.setEnabled(id, false);
+      }
+    }
+    return registry;
+  }
+
+  private async persistAiExpertRegistry(registry: AiExpertRegistry): Promise<void> {
+    const entries = registry.list();
+    await chrome.storage.local.set({
+      [this.aiExpertDefinitionsStorageKey]: entries
+        .filter(entry => !entry.builtIn)
+        .map(entry => entry.definition as AiExpertDefinition),
+      [this.aiExpertDisabledIdsStorageKey]: entries
+        .filter(entry => !entry.enabled)
+        .map(entry => entry.definition.id)
+    });
+  }
+
+  private async loadCustomPromptTemplates(): Promise<PromptTemplate[]> {
+    const result = await chrome.storage.local.get(this.promptTemplatesStorageKey);
+    const stored = result[this.promptTemplatesStorageKey];
+    if (!Array.isArray(stored)) return [];
+
+    const templates: PromptTemplate[] = [];
+    const seen = new Set<string>();
+    for (const value of stored) {
+      try {
+        const template = validatePromptTemplate(value);
+        if (template.id === DEFAULT_PROMPT_TEMPLATE.id || seen.has(template.id)) continue;
+        seen.add(template.id);
+        templates.push(template);
+        if (templates.length >= this.promptTemplateLimit) break;
+      } catch {
+        // Ignore corrupt local templates instead of making settings unusable.
+      }
+    }
+    return templates;
+  }
+
+  private clonePromptTemplate(template: Readonly<PromptTemplate>): PromptTemplate {
+    return {
+      ...template,
+      variables: template.variables.map(variable => ({ ...variable }))
+    };
+  }
+
   private maskCredential(value: string): string {
     if (!value) return '';
     if (value.length <= 8) return '*'.repeat(Math.max(4, value.length));
@@ -417,15 +712,71 @@ export class StorageManager {
     }
   }
 
+  private selectUserDataFields(value: unknown): Partial<UserData> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const source = value as Record<string, unknown>;
+    const selected: Record<string, unknown> = {};
+    const keys: ReadonlyArray<keyof UserData> = [
+      'settings',
+      'vocabulary',
+      'learningStats',
+      'dictionaryProgress'
+    ];
+    for (const key of keys) {
+      if (Object.prototype.hasOwnProperty.call(source, key)) {
+        selected[key] = key === 'settings'
+          ? this.selectUserSettingsFields(source[key])
+          : source[key];
+      }
+    }
+    return selected as Partial<UserData>;
+  }
+
+  private selectUserSettingsFields(value: unknown): Partial<UserSettings> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const source = value as Record<string, unknown>;
+    const selected: Record<string, unknown> = {};
+    for (const key of USER_SETTINGS_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(source, key)) {
+        selected[key] = source[key];
+      }
+    }
+    return selected as Partial<UserSettings>;
+  }
+
+  private async loadUserDataFallback(): Promise<Partial<UserData>> {
+    const result = await chrome.storage.local.get(this.userDataFallbackStorageKey);
+    return this.selectUserDataFields(result?.[this.userDataFallbackStorageKey]);
+  }
+
+  private async clearUserDataFallback(): Promise<void> {
+    const localStorage = chrome.storage.local as unknown as {
+      remove?: (keys: string | string[]) => Promise<void>;
+      set: (items: Record<string, unknown>) => Promise<void>;
+    };
+    if (typeof localStorage.remove === 'function') {
+      await localStorage.remove(this.userDataFallbackStorageKey);
+      return;
+    }
+    await localStorage.set({ [this.userDataFallbackStorageKey]: null });
+  }
+
   async syncData(): Promise<void> {
     try {
       // 从本地存储获取数据
       const localData = await chrome.storage.local.get(null);
-      const syncableData = { ...localData };
-      delete syncableData[this.providerConfigStorageKey];
+      const localUserData = this.selectUserDataFields(localData);
+      const pendingFallback = this.selectUserDataFields(
+        localData?.[this.userDataFallbackStorageKey]
+      );
+      const syncableData = { ...localUserData, ...pendingFallback };
       
       // 同步到云端存储
       await chrome.storage.sync.set(syncableData);
+
+      if (Object.keys(pendingFallback).length > 0) {
+        await this.clearUserDataFallback();
+      }
       
       console.log('数据同步成功');
     } catch (error) {

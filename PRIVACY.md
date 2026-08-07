@@ -1,6 +1,6 @@
 # LexiBridge Translate Privacy Policy
 
-Last updated: 2026-08-05
+Last updated: 2026-08-07
 
 LexiBridge Translate is a browser extension for user-triggered page translation, side-panel text translation, document text translation, selected or currently visible image text translation, video subtitle text translation, explicit local-media or current-tab audio transcription, live caption text translation and local transcript export, selection translation, vocabulary collection, and vocabulary review.
 
@@ -14,10 +14,11 @@ LexiBridge uses Chrome storage for product functionality:
 - Cached data: built-in dictionary progress and temporary translation cache used to reduce repeated requests during a session.
 - Document translation history: source metadata, extracted source text, translated blocks, provider/language identity, display mode, and completion state saved only after the user clicks Save history.
 - Translation provider credentials: API keys, client/application IDs, temporary session tokens, and provider-specific endpoint, model, or region settings entered by the user.
+- AI tool libraries: user-installed expert definitions and prompt templates, including their version, source attribution, instructions, and declared template variables.
 
 Chrome storage may sync data through the user's browser profile if Chrome sync is enabled. LexiBridge does not run its own account server.
 
-Document translation history and translation provider API keys, client/application IDs, and temporary session tokens are stored separately in `chrome.storage.local`. They are not written to Chrome Sync. Document history keeps at most 10, 25, or 50 entries, rejects entries above 512 KiB, and evicts the oldest whole entries before its serialized data exceeds 4 MiB. Binary PDF, DOCX, and EPUB source bytes are never stored in history. Provider credentials are also excluded from learning-data exports, translation cache keys, and extension logs. The settings page receives only masked credential summaries and never reads saved full credentials back from storage.
+Document translation history, translation provider credentials, installed AI expert definitions, expert enabled states, and installed prompt templates are stored separately in `chrome.storage.local`. They are not written to Chrome Sync. Selected expert/template IDs, prompt-variable values, and the sensitive-data masking preference are ordinary settings and may sync through Chrome. Document history keeps at most 10, 25, or 50 entries, rejects entries above 512 KiB, and evicts the oldest whole entries before its serialized data exceeds 4 MiB. Binary PDF, DOCX, and EPUB source bytes are never stored in history. Provider credentials are also excluded from learning-data exports, translation cache keys, and extension logs. The settings page receives only masked credential summaries and never reads saved full credentials back from storage.
 
 ## Translation Provider Requests
 
@@ -49,6 +50,12 @@ The extension sends the text needed for the requested translation and the select
 Document translation history is never created when the document page opens, when a file is selected, or when translation finishes. The user must click Save history. Opening a history entry restores its locally stored source and edited translation results without sending a provider request. Export, Delete, Clear all, and retention changes are local operations.
 
 For AI-capable provider translation, domain choice, terminology mappings, and custom translation instructions are included in the AI request when configured. Neighboring page or document context is disabled by default. If the user enables it, LexiBridge sends a bounded window of nearby text with each manually requested page or document block so the AI provider can resolve ambiguity. The request identifies that context as reference-only data and asks the model not to output it. Side-panel AI writing requests identify entered source material separately from an explicit optional instruction and ask the model not to treat source material as instructions. Side-panel source text, results, tone, length, and additional requirements are not stored as a writing history. Glossary and prompt settings may sync through Chrome storage; provider credentials remain local-only.
+
+Sensitive-data masking is disabled by default. When the user enables it, LexiBridge locally replaces detected email addresses, phone numbers, Luhn-valid payment card numbers, IPv4 addresses, valid IBANs, and values under recognized sensitive URL query keys with request-scoped ASCII placeholders before a translation or AI-writing request is sent. The same local session covers source text, optional context, glossary values, expert instructions, prompt templates and variables, and AI-writing instructions. Original values are kept only in the in-memory request session and are not added to provider request bodies or translation cache keys. Required source-text placeholders are restored locally only when each expected placeholder is returned exactly once. Missing, duplicate, unknown, unexpected, or transformed placeholders cause the provider result to be discarded and an error to be shown.
+
+Installed expert instructions, imported prompt templates, terminology mappings, custom preferences, source text, and context are placed only in the provider's untrusted user-message channel. The extension-owned system message is fixed at runtime and does not embed imported instructions.
+
+Pattern-based masking can miss sensitive values or classify ordinary values incorrectly. It does not recognize every kind of personal, medical, legal, financial, authentication, or proprietary information, and it does not change the configured provider's data handling. Users should review content before submitting it and should not rely on masking as a guarantee that all sensitive information has been removed.
 
 ## No Default Telemetry
 
