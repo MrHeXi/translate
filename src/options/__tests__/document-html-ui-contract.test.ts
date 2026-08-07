@@ -1,3 +1,6 @@
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+
 const flushPromises = async (): Promise<void> => {
   await Promise.resolve();
   await Promise.resolve();
@@ -65,6 +68,19 @@ describe('document translator HTML files', () => {
         })
       }
     };
+  });
+
+  it('ships explicit MOBI and multi-file batch controls in the real document page', () => {
+    const html = readFileSync(resolve(__dirname, '..', 'document.html'), 'utf8');
+
+    expect(html).toContain('id="batchDocumentFiles"');
+    expect(html).toContain('multiple accept=');
+    expect(html).toContain('id="startDocumentBatch"');
+    expect(html).toContain('id="cancelDocumentBatch"');
+    expect(html).toContain('id="retryDocumentBatch"');
+    expect(html).toContain('id="downloadDocumentBatch"');
+    expect(html).toContain('id="exportTextFile"');
+    expect(html).toContain('.mobi,.azw3');
   });
 
   it('loads HTML files as readable document text without auto-translating', async () => {

@@ -114,6 +114,7 @@ describe('product packaging contract', () => {
     expect(readme).toContain('`.html`, `.htm`');
     expect(readme).toContain('`.json`');
     expect(readme).toContain('`.docx`, `.epub`');
+    expect(readme).toMatch(/MOBI.*AZW3/i);
     expect(readme).toContain('Extract readable HTML body blocks');
     expect(readme).toContain('Extract readable string values from JSON files');
     expect(readme).toContain('Export translated JSON files');
@@ -208,6 +209,7 @@ describe('product packaging contract', () => {
     expect(checklist).toContain('add text without safe geometry');
     expect(checklist).toContain('changing settings while Image text remains enabled makes a fresh provider request');
     expect(checklist).toContain('repeated Video subtitle and Live caption text also makes a fresh request');
+    expect(checklist).toMatch(/MOBI.*AZW3/i);
   });
 
   it('provides store listing copy with permission, privacy, and screenshot guidance', () => {
@@ -291,9 +293,9 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('51 test suites and 436 tests');
-    expect(releaseNotes).toContain('17,742,915');
-    expect(releaseNotes).toContain('57AA6451D17856FB8A48D1A0E41EBFC08166B139C043C190915C0D169F1DD5E6');
+    expect(releaseNotes).toContain('56 test suites and 476 tests');
+    expect(releaseNotes).toContain('17,779,884');
+    expect(releaseNotes).toContain('3AC6899984C7C026A610A73083774097F2F2ECD43EB4B3B27F1BCF7261AC69F1');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -302,8 +304,12 @@ describe('product packaging contract', () => {
     expect(releaseNotes).toContain('single MessageManager listener owns content-script command dispatch');
     expect(releaseNotes).toContain('explicit click-to-speak speech using script-aware locales');
     expect(releaseNotes).toContain('Structure-preserving ASS/SSA subtitle import and export');
+    expect(releaseNotes).toContain('MOBI/AZW3');
+    expect(releaseNotes).toContain('Explicit multi-file document translation queue');
+    expect(releaseNotes).toContain('selecting files never starts translation');
+    expect(releaseNotes).toContain('Structure-preserving SRT/VTT batch translation');
     expect(releaseNotes).toContain('Explicit versioned document history in local Chrome storage');
-    expect(releaseNotes).toContain('language prefixes such as `/en`, `/中文`, and `/zh-CN`');
+    expect(releaseNotes).toContain('language prefixes such as `/en`, `/zh`, and `/zh-CN`');
 
     expect(screenshotGuide).toContain('Popup Overview');
     expect(screenshotGuide).toContain('Floating Button');
@@ -320,6 +326,10 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('Export DOCX');
     expect(screenshotGuide).toContain('EPUB sample');
     expect(screenshotGuide).toContain('Export EPUB');
+    expect(screenshotGuide).toMatch(/MOBI\/AZW3/i);
+    expect(screenshotGuide).toMatch(/multi-file document batch/i);
+    expect(screenshotGuide).toContain('Start batch');
+    expect(screenshotGuide).toMatch(/file selection sends no translation request and does not start work/i);
     expect(screenshotGuide).toContain('Export subtitles');
     expect(screenshotGuide).toContain('Export PDF');
     expect(screenshotGuide).toContain('original and translated rendered pages');
@@ -368,7 +378,7 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('DOCX paragraph text and EPUB spine text extraction');
     expect(roadmap).toContain('DOCX translated paragraph export');
     expect(roadmap).toContain('EPUB translated block export');
-    expect(roadmap).toContain('Timing-preserving subtitle file export');
+    expect(roadmap).toContain('Structure-preserving SRT/VTT subtitle export');
     expect(roadmap).toContain('bundled Mozilla PDF.js');
     expect(roadmap).toContain('order left-column text before right-column text');
     expect(roadmap).toContain('identify likely standalone formulas locally');
@@ -415,7 +425,11 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('include AI preferences in cache identity');
     expect(roadmap).toContain('Document Formats, Batch Workflows, and History');
     expect(roadmap).toContain('Done: add ASS/SSA subtitle import/export');
-    expect(roadmap).toContain('Remaining: add MOBI import');
+    expect(roadmap).toContain('Done: add bounded MOBI and KF8-based AZW3 import');
+    expect(roadmap).toMatch(
+      /Done: add explicit multi-file batch translation[^\r\n]*stays idle after file selection/
+    );
+    expect(roadmap).not.toContain('Remaining: add MOBI import');
     expect(roadmap).toContain('explicit local translation history');
     expect(roadmap).toContain('YouTube standard videos, Live, Shorts');
     expect(roadmap).toContain('installable AI expert definitions');
@@ -431,6 +445,7 @@ describe('product packaging contract', () => {
     const documentHtml = readProjectFile('src/options/document.html');
 
     expect(packageJson.dependencies).toEqual(expect.objectContaining({
+      '@lingo-reader/mobi-parser': '0.4.6',
       'pdf-lib': expect.any(String),
       'pdfjs-dist': expect.any(String),
       'tesseract.js': expect.any(String),
@@ -446,10 +461,20 @@ describe('product packaging contract', () => {
     expect(webpackConfig).toContain("path.join(tesseractRoot, 'dist/worker.min.js')");
     expect(webpackConfig).toContain('tesseract-core-simd-lstm.wasm');
     expect(webpackConfig).toContain('ocrLanguagePackages');
+    expect(webpackConfig).toContain('stream: false');
     expect(documentHtml).toContain('id="pdfViewer"');
     expect(documentHtml).toContain('id="exportPdfFile"');
     expect(documentHtml).toContain('id="ocrLanguage"');
     expect(documentHtml).toContain('.ass,.ssa');
+    expect(documentHtml).toContain('.mobi,.azw3');
+    expect(documentHtml).toContain('id="batchDocumentFiles"');
+    expect(documentHtml).toContain('id="batchConcurrency"');
+    expect(documentHtml).toContain('id="startDocumentBatch"');
+    expect(documentHtml).toContain('id="cancelDocumentBatch"');
+    expect(documentHtml).toContain('id="retryDocumentBatch"');
+    expect(documentHtml).toContain('id="downloadDocumentBatch"');
+    expect(documentHtml).toContain('id="clearDocumentBatch"');
+    expect(documentHtml).toContain('id="batchDocumentQueue"');
     expect(documentHtml).toContain('id="saveDocumentHistory"');
     expect(documentHtml).toContain('id="historyRetention"');
     expect(documentHtml).toContain('id="documentHistoryList"');

@@ -11,7 +11,8 @@ LexiBridge is built around one idea: translate while you read, then review what 
 It is best for:
 
 - Reading English web pages, technical articles, documentation, and study material.
-- Translating pasted or uploaded text documents, HTML files, JSON files, DOCX files, EPUB files, subtitle files, and PDFs with local page rendering.
+- Translating pasted or uploaded text documents, HTML files, JSON files, DOCX files, EPUB files, bounded MOBI/AZW3 eBooks, subtitle files, and PDFs with local page rendering.
+- Queuing multiple local documents for an explicit batch run with bounded concurrency, cancellation, failed-file retry, and deterministic ZIP download.
 - Translating video captions when the page exposes subtitle/caption tracks or common DOM-rendered captions.
 - Generating timed subtitles from a user-selected local audio or video file through a configured OpenAI or Groq transcription service.
 - Capturing audio from the source tab only after an explicit click, then generating subtitles after the user stops capture.
@@ -68,19 +69,22 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 ### Document Translation
 
 - Open the document translator from the popup or from detected document URLs.
-- Paste text or upload `.txt`, `.md`, `.html`, `.htm`, `.json`, `.docx`, `.epub`, `.srt`, `.vtt`, `.ass`, `.ssa`, or `.pdf` files.
+- Paste text or upload `.txt`, `.md`, `.html`, `.htm`, `.json`, `.docx`, `.epub`, `.mobi`, `.azw3`, `.srt`, `.vtt`, `.ass`, `.ssa`, or `.pdf` files.
+- Keep every selected document idle until you explicitly click Translate document or Start batch; opening the page, choosing files, changing the queue, and retrying failed files never start translation by themselves.
 - Translate document blocks manually with bilingual, translation-only, or original-only display.
 - Edit translated blocks directly before exporting or saving the result.
 - Extract readable HTML body blocks while skipping scripts, styles, and markup.
 - Extract readable string values from JSON files.
 - Export translated JSON files with the original object and array structure preserved.
 - Extract readable text from DOCX paragraphs and EPUB spine documents.
+- Import MOBI and KF8-based AZW3 files up to 64 MiB, with at most 4,096 chapters, 8 MiB per chapter, and 64 MiB of extracted HTML; preserve deterministic spine order and duplicate paragraphs. Translated MOBI/AZW3 content is exported as text rather than rewritten as an eBook.
 - Export translated DOCX files by writing translated paragraph text back into the original document archive.
 - Export translated EPUB files by writing translated readable blocks back into the original book archive.
-- Export translated `.srt` and `.vtt` subtitle files with their original timing preserved.
+- Export translated `.srt` and `.vtt` subtitle files by replacing cue text only, preserving original timing, cue identifiers/settings, WEBVTT metadata and NOTE/STYLE/REGION sections, line endings, and other non-cue content.
 - Import and export `.ass` and `.ssa` subtitles while preserving script sections, timing, styles, comments, commas inside dialogue text, and inline override tags; vector-drawing dialogue remains untouched.
+- Queue up to 100 supported documents, limited to 64 MiB per file and 128 MiB total, choose concurrency 1, 2, or 3, and click Start batch explicitly. Cancel an active batch, queue failed files for an explicit retry, and download a deterministic ZIP only after every file succeeds.
 - Save document results explicitly to versioned local history, reopen them without starting translation, export an entry as JSON, delete entries, clear all history, and keep the latest 10, 25, or 50 entries.
-- Keep document history in `chrome.storage.local` only with bounded entry and total sizes. Binary PDF, DOCX, and EPUB source bytes are never stored, so source-format export is unavailable after reopening those files from history.
+- Keep document history in `chrome.storage.local` only with bounded entry and total sizes. Binary PDF, DOCX, EPUB, MOBI, and AZW3 source bytes are never stored, so source-format export is unavailable after reopening those files from history.
 - Parse and render PDF pages locally with Mozilla PDF.js, including compressed text streams, font mappings, page sizes, and positioned text lines.
 - Detect confidently separated two-column PDF text, keep left-column-then-right-column reading order, and constrain translated overlays to the detected column region.
 - Identify likely standalone mathematical expressions, preserve them in their original form, and exclude them from translation-provider requests and translated overlays.
@@ -247,9 +251,9 @@ In Main content scope, LexiBridge prefers semantic `article`, `main`, and `[role
 
 1. Open the document translator.
 2. Choose a `.srt`, `.vtt`, `.ass`, or `.ssa` subtitle file.
-3. Click Translate document.
+3. Confirm that choosing the file only loads it and sends no translation request, then click Translate document.
 4. Edit any translated cue if needed.
-5. Click Export subtitles to download a translated subtitle file with its original timing and supported script metadata.
+5. Click Export subtitles. SRT/VTT exports preserve the original cue timing, identifiers/settings, metadata sections, non-cue content, and line endings; ASS/SSA exports preserve supported script metadata.
 
 ### Use Local Document History
 
@@ -279,6 +283,21 @@ In Main content scope, LexiBridge prefers semantic `article`, `main`, and `[role
 2. Choose an `.epub` file.
 3. Click Translate document.
 4. Click Export EPUB to download a translated EPUB file with readable blocks rewritten.
+
+### Translate MOBI or AZW3 Files
+
+1. Open the document translator and choose a `.mobi` or `.azw3` file up to 64 MiB; parsing is also limited to 4,096 chapters, 8 MiB per chapter, and 64 MiB of extracted HTML.
+2. Review the extracted chapters in deterministic spine order; choosing the file does not start translation.
+3. Click Translate document explicitly.
+4. Click Export text to download the translated reading content; LexiBridge does not claim to rewrite the original MOBI/AZW3 container.
+
+### Translate Multiple Documents
+
+1. Open the document translator and choose up to 100 supported files for the batch queue, with a 64 MiB per-file and 128 MiB total limit.
+2. Confirm every file remains idle and no provider request occurs after selection.
+3. Choose concurrency 1, 2, or 3, then click Start batch explicitly.
+4. Use Cancel to stop active work, or queue failed files and click Start batch again to retry them.
+5. After every file succeeds, click Download ZIP to create the deterministic result archive; incomplete or failed queues cannot be downloaded as a successful batch.
 
 ### Translate PDF Files
 

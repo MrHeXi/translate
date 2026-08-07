@@ -85,15 +85,24 @@ Capture the document translator page with:
 - Source text or a safe sample document loaded.
 - Bilingual translated blocks visible.
 - Target language, provider, and display mode controls visible.
+- A clear manual Translate document action; opening the page or selecting any file must not be presented as starting translation.
 - For an HTML sample, readable body text blocks visible without raw tags or script/style content.
 - For a JSON sample, readable string values visible with the Export JSON control after translation.
 - For a DOCX sample, extracted readable text blocks visible with the Export DOCX control after translation, without implying full layout-perfect Office conversion.
 - For an EPUB sample, extracted readable text blocks visible with the Export EPUB control after translation, without implying full layout-perfect eBook conversion.
+- For a MOBI/AZW3 sample, bounded extracted reading text in deterministic spine order and the Export text control visible after an explicit translation; do not imply MOBI/AZW3 container rewriting.
+- For an SRT/VTT sample, an edited translated cue and Export subtitles visible after manual translation; supporting copy may state that timing, identifiers/settings, WEBVTT metadata sections, non-cue content, and line endings are preserved.
 - For an ASS/SSA subtitle sample, an edited translated cue and the enabled Export subtitles control visible after manual translation; do not imply that vector drawings are translated.
 - Local history visible with a harmless saved entry and Open, Export, and Delete controls. Do not show private source text or imply automatic/cloud history storage.
 - For a standards-compliant PDF sample, original and translated rendered pages visible side by side with the Export PDF control enabled after translation.
 - For a two-column academic PDF, left/right column boundaries respected by translated overlays and a preserved standalone formula visible in its original form.
 - If showing an image-only PDF, include the OCR language selector and local progress text. State that browser OCR is tried first and bundled offline OCR handles the fallback; do not imply guaranteed recognition on every scan.
+
+For the multi-file document batch, capture two separate states:
+
+- First, show several safe sample files queued with every row idle, the 1/2/3 concurrency control, and Start batch available. The image and caption must make clear that file selection sends no translation request and does not start work.
+- Second, after an explicit Start batch click, show per-file status/progress and the Cancel control. A completed example may also show Queue failed for failed items or Download ZIP after every file succeeds, but must not imply that retry starts automatically or that an incomplete/failed queue can produce a successful archive.
+- Describe the downloaded archive as deterministic for identical successful results. Do not imply background processing after Cancel or any page-load, file-selection, queue-change, or retry-triggered translation.
 
 ### Video Subtitles
 

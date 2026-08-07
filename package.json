@@ -49,6 +49,7 @@
     "webpack-cli": "^5.1.4"
   },
   "dependencies": {
+    "@lingo-reader/mobi-parser": "0.4.6",
     "@tesseract.js-data/chi_sim": "^1.0.0",
     "@tesseract.js-data/chi_tra": "^1.0.0",
     "@tesseract.js-data/eng": "^1.0.0",

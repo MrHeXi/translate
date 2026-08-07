@@ -51,6 +51,9 @@ class BackgroundService {
   private isInitialized: boolean = false;
   private initializationPromise: Promise<void>;
   private initializationError: Error | null = null;
+  private readonly activeTranslationRequests = new Map<string, AbortController>();
+  private readonly cancelledTranslationRequestIds = new Set<string>();
+  private readonly maxCancelledTranslationRequestIds = 256;
 
   constructor() {
     this.translationService = new TranslationService();
@@ -176,6 +179,11 @@ class BackgroundService {
     sendResponse: (response: MessageResponse) => void
   ): Promise<void> {
     try {
+      if (request.action === 'cancelTranslationRequest') {
+        sendResponse(this.handleCancelTranslationRequest(request));
+        return;
+      }
+
       await this.ensureInitialized();
 
       let response: MessageResponse;
@@ -339,7 +347,9 @@ class BackgroundService {
       
       sendResponse(response);
     } catch (error) {
-      console.error(`处理消息失败 [${request.action}]:`, error);
+      if (!(error instanceof Error && error.name === 'AbortError')) {
+        console.error(`处理消息失败 [${request.action}]:`, error);
+      }
       sendResponse({ 
         success: false, 
         error: error instanceof Error ? error.message : '未知错误' 
@@ -617,7 +627,26 @@ class BackgroundService {
   // 具体的消息处理方法
   private async handleTranslateRequest(request: MessageRequest): Promise<MessageResponse> {
     const startTime = Date.now();
+    const requestId = typeof request.data?.requestId === 'string'
+      ? request.data.requestId.trim()
+      : '';
+    if (requestId && !/^[A-Za-z0-9:_-]{1,128}$/.test(requestId)) {
+      throw new Error('Invalid translation request ID');
+    }
+    if (requestId && this.cancelledTranslationRequestIds.delete(requestId)) {
+      throw this.createAbortError();
+    }
+    if (requestId && this.activeTranslationRequests.has(requestId)) {
+      throw new Error('Translation request ID is already active');
+    }
+
+    const abortController = requestId ? new AbortController() : null;
+    if (requestId && abortController) {
+      this.activeTranslationRequests.set(requestId, abortController);
+    }
+
     try {
+      if (abortController?.signal.aborted) throw this.createAbortError();
       // 检查网络状态
       if (!offlineManager.isNetworkOnline()) {
         // 尝试离线翻译
@@ -625,6 +654,7 @@ class BackgroundService {
           request.data.text, 
           request.data.targetLang
         );
+        if (abortController?.signal.aborted) throw this.createAbortError();
         
         if (offlineResult.success) {
           const responseTime = Date.now() - startTime;
@@ -652,15 +682,20 @@ class BackgroundService {
           customPrompt: settings.aiCustomPrompt
         })
         : undefined;
-      const { aiWritingTask: _ignoredAiWritingTask, ...translationData } = request.data;
+      const {
+        aiWritingTask: _ignoredAiWritingTask,
+        requestId: _ignoredRequestId,
+        ...translationData
+      } = request.data;
       const translationRequest = {
         ...translationData,
         context: aiPreferences?.contextEnabled ? request.data.context : undefined,
         aiPreferences,
-        providerConfig
+        providerConfig,
+        ...(abortController ? { signal: abortController.signal } : {})
       };
       const translate = () => this.translationService.translate(translationRequest);
-      const result = provider && !['google', 'mymemory'].includes(provider)
+      const result = abortController || (provider && !['google', 'mymemory'].includes(provider))
         ? await translate()
         : await errorHandler.handleWithRetry(
         translate,
@@ -669,6 +704,8 @@ class BackgroundService {
         1000, // 1秒延迟
         { component: 'background', action: 'translate' }
       );
+
+      if (abortController?.signal.aborted) throw this.createAbortError();
 
       const responseTime = Date.now() - startTime;
       performanceManager.recordRequest(responseTime, true);
@@ -687,7 +724,47 @@ class BackgroundService {
       );
       
       throw error;
+    } finally {
+      if (requestId && this.activeTranslationRequests.get(requestId) === abortController) {
+        this.activeTranslationRequests.delete(requestId);
+      }
     }
+  }
+
+  private handleCancelTranslationRequest(request: MessageRequest): MessageResponse {
+    const requestId = typeof request.data?.requestId === 'string'
+      ? request.data.requestId.trim()
+      : '';
+    if (!requestId) return { success: false, error: 'Translation request ID is required' };
+    if (!/^[A-Za-z0-9:_-]{1,128}$/.test(requestId)) {
+      return { success: false, error: 'Invalid translation request ID' };
+    }
+
+    const controller = this.activeTranslationRequests.get(requestId);
+    if (!controller) {
+      this.rememberCancelledTranslationRequestId(requestId);
+      return { success: true, data: { cancelled: false } };
+    }
+
+    controller.abort();
+    return { success: true, data: { cancelled: true } };
+  }
+
+  private rememberCancelledTranslationRequestId(requestId: string): void {
+    if (this.cancelledTranslationRequestIds.has(requestId)) return;
+    if (this.cancelledTranslationRequestIds.size >= this.maxCancelledTranslationRequestIds) {
+      const oldestRequestId = this.cancelledTranslationRequestIds.values().next().value;
+      if (typeof oldestRequestId === 'string') {
+        this.cancelledTranslationRequestIds.delete(oldestRequestId);
+      }
+    }
+    this.cancelledTranslationRequestIds.add(requestId);
+  }
+
+  private createAbortError(): Error {
+    const error = new Error('Translation request was cancelled');
+    error.name = 'AbortError';
+    return error;
   }
 
   private async handleProcessAiTextRequest(request: MessageRequest): Promise<MessageResponse> {

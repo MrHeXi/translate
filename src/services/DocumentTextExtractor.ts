@@ -1,3 +1,8 @@
+import {
+  MobiDocumentFormat,
+  mobiDocumentService
+} from './MobiDocumentService';
+
 export interface DocumentBlock {
   id: number;
   originalText: string;
@@ -7,6 +12,7 @@ export interface DocumentBlock {
   json?: DocumentJsonStringValue;
   docx?: DocumentDocxParagraph;
   epub?: DocumentEpubBlock;
+  mobi?: DocumentMobiBlock;
 }
 
 export interface DocumentBlockLayout {
@@ -72,6 +78,14 @@ export interface DocumentEpubBlock {
   blockIndex: number;
 }
 
+export interface DocumentMobiBlock {
+  format: MobiDocumentFormat;
+  chapterId: string;
+  chapterIndex: number;
+  blockIndex: number;
+  chunkIndex: number;
+}
+
 interface ZipCentralEntry {
   name: string;
   compressionMethod: number;
@@ -97,6 +111,13 @@ interface AssFieldRange {
 
 export class DocumentTextExtractor {
   static async extractFromFile(file: File): Promise<string> {
+    const mobiFormat = this.getMobiFileFormat(file);
+    if (mobiFormat) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const blocks = await this.extractBlocksFromMobiBytes(bytes, mobiFormat);
+      return blocks.map(block => block.originalText).join('\n\n').trim();
+    }
+
     if (this.isPdfFile(file)) {
       const bytes = new Uint8Array(await file.arrayBuffer());
       return this.extractTextFromPdfBytes(bytes);
@@ -125,6 +146,12 @@ export class DocumentTextExtractor {
   }
 
   static async extractBlocksFromFile(file: File, maxBlockLength: number = 1200): Promise<DocumentBlock[]> {
+    const mobiFormat = this.getMobiFileFormat(file);
+    if (mobiFormat) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      return this.extractBlocksFromMobiBytes(bytes, mobiFormat, maxBlockLength);
+    }
+
     if (this.isPdfFile(file)) {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const layoutBlocks = this.extractLayoutBlocksFromPdfBytes(bytes);
@@ -363,6 +390,57 @@ export class DocumentTextExtractor {
     return this.rewriteAssWithTranslations(subtitleText, results);
   }
 
+  static rewriteTimedSubtitleWithTranslations(
+    subtitleText: string,
+    results: Array<{ block: DocumentBlock; translatedText: string }>
+  ): string {
+    const lines = this.getSourceTextLines(subtitleText);
+    const replacements: Array<{ start: number; end: number; text: string }> = [];
+    let searchLineIndex = 0;
+
+    for (const result of results) {
+      const cue = result.block.subtitle;
+      const translatedText = result.translatedText.trim();
+      if (!cue || !translatedText) continue;
+
+      const timingLineIndex = lines.findIndex((line, index) => (
+        index >= searchLineIndex && line.content.trim() === cue.timing.trim()
+      ));
+      if (timingLineIndex < 0) continue;
+
+      const cueTextLineIndexes: number[] = [];
+      for (
+        let index = timingLineIndex + 1;
+        index < lines.length && cueTextLineIndexes.length < cue.textLines.length;
+        index += 1
+      ) {
+        if (!lines[index]!.content.trim()) break;
+        cueTextLineIndexes.push(index);
+      }
+      if (cueTextLineIndexes.length !== cue.textLines.length) continue;
+      const matchesOriginalCue = cueTextLineIndexes.every((lineIndex, index) => (
+        lines[lineIndex]!.content.trim() === cue.textLines[index]!.trim()
+      ));
+      if (!matchesOriginalCue) continue;
+
+      const firstLine = lines[cueTextLineIndexes[0]!]!;
+      const lastLine = lines[cueTextLineIndexes[cueTextLineIndexes.length - 1]!]!;
+      const newline = subtitleText.includes('\r\n') ? '\r\n' : '\n';
+      replacements.push({
+        start: firstLine.start,
+        end: lastLine.start + lastLine.content.length,
+        text: translatedText.replace(/\r\n?|\n/g, newline)
+      });
+      searchLineIndex = cueTextLineIndexes[cueTextLineIndexes.length - 1]! + 1;
+    }
+
+    return replacements
+      .sort((left, right) => right.start - left.start)
+      .reduce((rewritten, replacement) => (
+        `${rewritten.slice(0, replacement.start)}${replacement.text}${rewritten.slice(replacement.end)}`
+      ), subtitleText);
+  }
+
   static extractTextFromPdfBytes(bytes: Uint8Array): string {
     const layoutBlocks = this.extractLayoutBlocksFromPdfBytes(bytes);
     if (layoutBlocks.length > 0) {
@@ -462,15 +540,24 @@ export class DocumentTextExtractor {
     return (await this.extractDocxTextBlocksFromBytes(bytes)).join('\n\n').trim();
   }
 
-  static async extractBlocksFromDocxBytes(bytes: Uint8Array, maxBlockLength: number = 1200): Promise<DocumentBlock[]> {
+  static async extractBlocksFromDocxBytes(
+    bytes: Uint8Array,
+    maxBlockLength: number = 1200,
+    signal?: AbortSignal
+  ): Promise<DocumentBlock[]> {
     void maxBlockLength;
-    return this.extractDocxParagraphBlocksFromBytes(bytes);
+    this.throwIfAborted(signal, 'DOCX parsing was cancelled');
+    const blocks = await this.extractDocxParagraphBlocksFromBytes(bytes, signal);
+    this.throwIfAborted(signal, 'DOCX parsing was cancelled');
+    return blocks;
   }
 
   static async rewriteDocxWithTranslations(
     bytes: Uint8Array,
-    results: Array<{ block: DocumentBlock; translatedText: string }>
+    results: Array<{ block: DocumentBlock; translatedText: string }>,
+    signal?: AbortSignal
   ): Promise<Uint8Array> {
+    this.throwIfAborted(signal, 'DOCX export was cancelled');
     const entries = this.readZipCentralDirectory(bytes);
     const replacements = new Map<string, Map<number, string>>();
 
@@ -484,7 +571,8 @@ export class DocumentTextExtractor {
 
     const files: ZipFileData[] = [];
     for (const entry of entries) {
-      let data = await this.readZipEntryData(bytes, entry);
+      this.throwIfAborted(signal, 'DOCX export was cancelled');
+      let data = await this.readZipEntryData(bytes, entry, signal);
 
       const entryReplacements = replacements.get(entry.name);
       if (entryReplacements) {
@@ -495,22 +583,71 @@ export class DocumentTextExtractor {
       files.push({ name: entry.name, data });
     }
 
-    return this.createStoredZip(files);
+    this.throwIfAborted(signal, 'DOCX export was cancelled');
+    return this.createStoredZip(files, signal);
   }
 
   static async extractTextFromEpubBytes(bytes: Uint8Array): Promise<string> {
     return (await this.extractEpubTextBlocksFromBytes(bytes)).join('\n\n').trim();
   }
 
-  static async extractBlocksFromEpubBytes(bytes: Uint8Array, maxBlockLength: number = 1200): Promise<DocumentBlock[]> {
+  static async extractBlocksFromEpubBytes(
+    bytes: Uint8Array,
+    maxBlockLength: number = 1200,
+    signal?: AbortSignal
+  ): Promise<DocumentBlock[]> {
     void maxBlockLength;
-    return this.extractEpubBlocksFromBytes(bytes);
+    this.throwIfAborted(signal, 'EPUB parsing was cancelled');
+    const blocks = await this.extractEpubBlocksFromBytes(bytes, signal);
+    this.throwIfAborted(signal, 'EPUB parsing was cancelled');
+    return blocks;
+  }
+
+  static async extractBlocksFromMobiBytes(
+    bytes: Uint8Array,
+    format: MobiDocumentFormat = 'mobi',
+    maxBlockLength: number = 1200,
+    signal?: AbortSignal
+  ): Promise<DocumentBlock[]> {
+    if (!Number.isSafeInteger(maxBlockLength) || maxBlockLength <= 0) {
+      throw new RangeError('MOBI block length must be a positive integer');
+    }
+
+    const chapters = await mobiDocumentService.extractChapters(bytes, format, { signal });
+    const blocks: DocumentBlock[] = [];
+
+    for (const chapter of chapters) {
+      if (signal?.aborted) {
+        throw new DOMException('MOBI parsing was cancelled', 'AbortError');
+      }
+
+      const chapterBlocks = this.extractHtmlTextBlocks(chapter.html, false);
+      chapterBlocks.forEach((text, blockIndex) => {
+        this.chunkBlock(text, maxBlockLength).forEach((originalText, chunkIndex) => {
+          blocks.push({
+            id: blocks.length + 1,
+            originalText,
+            mobi: {
+              format,
+              chapterId: chapter.id,
+              chapterIndex: chapter.index,
+              blockIndex,
+              chunkIndex
+            }
+          });
+        });
+      });
+    }
+
+    return blocks;
   }
 
   static async rewriteEpubWithTranslations(
     bytes: Uint8Array,
-    results: Array<{ block: DocumentBlock; translatedText: string }>
+    results: Array<{ block: DocumentBlock; translatedText: string }>,
+    signal?: AbortSignal
   ): Promise<Uint8Array> {
+    this.throwIfAborted(signal, 'EPUB export was cancelled');
     const entries = this.readZipCentralDirectory(bytes);
     const replacements = new Map<string, Map<number, string>>();
 
@@ -524,7 +661,8 @@ export class DocumentTextExtractor {
 
     const files: ZipFileData[] = [];
     for (const entry of entries) {
-      let data = await this.readZipEntryData(bytes, entry);
+      this.throwIfAborted(signal, 'EPUB export was cancelled');
+      let data = await this.readZipEntryData(bytes, entry, signal);
 
       const entryReplacements = replacements.get(entry.name);
       if (entryReplacements) {
@@ -535,7 +673,8 @@ export class DocumentTextExtractor {
       files.push({ name: entry.name, data });
     }
 
-    return this.createStoredZip(files);
+    this.throwIfAborted(signal, 'EPUB export was cancelled');
+    return this.createStoredZip(files, signal);
   }
 
   static extractLayoutBlocksFromPdfBytes(bytes: Uint8Array): DocumentBlock[] {
@@ -828,16 +967,57 @@ export class DocumentTextExtractor {
     let currentChunk = '';
 
     for (const sentence of sentences) {
-      const nextChunk = currentChunk ? `${currentChunk} ${sentence.trim()}` : sentence.trim();
+      const normalizedSentence = sentence.trim();
+      if (normalizedSentence.length > maxBlockLength) {
+        if (currentChunk) {
+          chunks.push(currentChunk);
+          currentChunk = '';
+        }
+        chunks.push(...this.splitOversizedText(normalizedSentence, maxBlockLength));
+        continue;
+      }
+
+      const nextChunk = currentChunk ? `${currentChunk} ${normalizedSentence}` : normalizedSentence;
       if (nextChunk.length > maxBlockLength && currentChunk) {
         chunks.push(currentChunk);
-        currentChunk = sentence.trim();
+        currentChunk = normalizedSentence;
       } else {
         currentChunk = nextChunk;
       }
     }
 
     if (currentChunk) chunks.push(currentChunk);
+    return chunks;
+  }
+
+  private static splitOversizedText(text: string, maxBlockLength: number): string[] {
+    const characters = Array.from(text);
+    const chunks: string[] = [];
+    let offset = 0;
+
+    while (offset < characters.length) {
+      const remainingLength = characters.length - offset;
+      if (remainingLength <= maxBlockLength) {
+        const remainder = characters.slice(offset).join('').trim();
+        if (remainder) chunks.push(remainder);
+        break;
+      }
+
+      const upperBound = offset + maxBlockLength;
+      let splitAt = upperBound;
+      for (let index = upperBound; index > offset; index -= 1) {
+        if (/\s/.test(characters[index - 1] || '')) {
+          splitAt = index - 1;
+          break;
+        }
+      }
+
+      const chunk = characters.slice(offset, splitAt).join('').trim();
+      if (chunk) chunks.push(chunk);
+      offset = splitAt;
+      while (offset < characters.length && /\s/.test(characters[offset] || '')) offset += 1;
+    }
+
     return chunks;
   }
 
@@ -870,9 +1050,22 @@ export class DocumentTextExtractor {
       file.name.toLowerCase().endsWith('.epub');
   }
 
-  private static extractHtmlTextBlocks(html: string): string[] {
+  private static getMobiFileFormat(file: File): MobiDocumentFormat | null {
+    const lowerName = file.name.toLowerCase();
+    if (lowerName.endsWith('.azw3')) return 'kf8';
+    if (
+      lowerName.endsWith('.mobi')
+      || file.type === 'application/x-mobipocket-ebook'
+      || file.type === 'application/vnd.amazon.mobi8-ebook'
+    ) {
+      return 'mobi';
+    }
+    return null;
+  }
+
+  private static extractHtmlTextBlocks(html: string, deduplicate: boolean = true): string[] {
     if (typeof DOMParser === 'undefined') {
-      return this.splitHtmlTextWithoutParser(html);
+      return this.splitHtmlTextWithoutParser(html, deduplicate);
     }
 
     const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -909,13 +1102,14 @@ export class DocumentTextExtractor {
       .filter(Boolean);
 
     if (candidates.length > 0) {
-      return this.uniqueTextBlocks(candidates);
+      return deduplicate ? this.uniqueTextBlocks(candidates) : candidates;
     }
 
-    return this.uniqueTextBlocks([this.normalizeHtmlText(root.textContent || '')]);
+    const rootText = this.normalizeHtmlText(root.textContent || '');
+    return deduplicate ? this.uniqueTextBlocks([rootText]) : [rootText].filter(Boolean);
   }
 
-  private static splitHtmlTextWithoutParser(html: string): string[] {
+  private static splitHtmlTextWithoutParser(html: string, deduplicate: boolean = true): string[] {
     const withoutNoise = html
       .replace(/<script[\s\S]*?<\/script>/gi, '\n')
       .replace(/<style[\s\S]*?<\/style>/gi, '\n')
@@ -927,12 +1121,11 @@ export class DocumentTextExtractor {
     );
     const plainText = this.decodeHtmlEntities(withBlockBreaks.replace(/<[^>]+>/g, ' '));
 
-    return this.uniqueTextBlocks(
-      plainText
-        .split(/\n{2,}|\n/)
-        .map(block => this.normalizeHtmlText(block))
-        .filter(Boolean)
-    );
+    const blocks = plainText
+      .split(/\n{2,}|\n/)
+      .map(block => this.normalizeHtmlText(block))
+      .filter(Boolean);
+    return deduplicate ? this.uniqueTextBlocks(blocks) : blocks;
   }
 
   private static normalizeHtmlText(text: string): string {
@@ -1054,7 +1247,11 @@ export class DocumentTextExtractor {
     return (await this.extractDocxParagraphBlocksFromBytes(bytes)).map(block => block.originalText);
   }
 
-  private static async extractDocxParagraphBlocksFromBytes(bytes: Uint8Array): Promise<DocumentBlock[]> {
+  private static async extractDocxParagraphBlocksFromBytes(
+    bytes: Uint8Array,
+    signal?: AbortSignal
+  ): Promise<DocumentBlock[]> {
+    this.throwIfAborted(signal, 'DOCX parsing was cancelled');
     const entries = this.readZipCentralDirectory(bytes);
     const xmlNames = [
       'word/document.xml',
@@ -1065,7 +1262,8 @@ export class DocumentTextExtractor {
     const blocks: DocumentBlock[] = [];
 
     for (const xmlName of xmlNames) {
-      const xml = await this.readZipTextEntry(bytes, entries, xmlName);
+      this.throwIfAborted(signal, 'DOCX parsing was cancelled');
+      const xml = await this.readZipTextEntry(bytes, entries, xmlName, signal);
       if (xml) blocks.push(...this.extractDocxXmlParagraphBlocks(xml, xmlName, blocks.length));
     }
 
@@ -1143,13 +1341,18 @@ export class DocumentTextExtractor {
     return (await this.extractEpubBlocksFromBytes(bytes)).map(block => block.originalText);
   }
 
-  private static async extractEpubBlocksFromBytes(bytes: Uint8Array): Promise<DocumentBlock[]> {
+  private static async extractEpubBlocksFromBytes(
+    bytes: Uint8Array,
+    signal?: AbortSignal
+  ): Promise<DocumentBlock[]> {
+    this.throwIfAborted(signal, 'EPUB parsing was cancelled');
     const entries = this.readZipCentralDirectory(bytes);
-    const contentPaths = await this.getEpubContentPaths(bytes, entries);
+    const contentPaths = await this.getEpubContentPaths(bytes, entries, signal);
     const blocks: DocumentBlock[] = [];
 
     for (const contentPath of contentPaths) {
-      const html = await this.readZipTextEntry(bytes, entries, contentPath);
+      this.throwIfAborted(signal, 'EPUB parsing was cancelled');
+      const html = await this.readZipTextEntry(bytes, entries, contentPath, signal);
       if (html) blocks.push(...this.extractEpubHtmlBlocks(html, contentPath, blocks.length));
     }
 
@@ -1210,12 +1413,17 @@ export class DocumentTextExtractor {
     return `${open}${escapedText}${close}`;
   }
 
-  private static async getEpubContentPaths(bytes: Uint8Array, entries: ZipCentralEntry[]): Promise<string[]> {
-    const container = await this.readZipTextEntry(bytes, entries, 'META-INF/container.xml');
+  private static async getEpubContentPaths(
+    bytes: Uint8Array,
+    entries: ZipCentralEntry[],
+    signal?: AbortSignal
+  ): Promise<string[]> {
+    this.throwIfAborted(signal, 'EPUB parsing was cancelled');
+    const container = await this.readZipTextEntry(bytes, entries, 'META-INF/container.xml', signal);
     const rootFilePath = container ? this.getXmlAttribute(container, 'full-path') : null;
 
     if (rootFilePath) {
-      const opf = await this.readZipTextEntry(bytes, entries, rootFilePath);
+      const opf = await this.readZipTextEntry(bytes, entries, rootFilePath, signal);
       if (opf) {
         const spinePaths = this.extractEpubSpinePaths(opf, rootFilePath);
         if (spinePaths.length > 0) return spinePaths;
@@ -1331,17 +1539,25 @@ export class DocumentTextExtractor {
   private static async readZipTextEntry(
     bytes: Uint8Array,
     entries: ZipCentralEntry[],
-    entryName: string
+    entryName: string,
+    signal?: AbortSignal
   ): Promise<string | null> {
+    this.throwIfAborted(signal, 'Document archive parsing was cancelled');
     const normalizedEntryName = this.normalizeZipEntryName(entryName);
     const entry = entries.find(candidate => candidate.name === normalizedEntryName);
     if (!entry) return null;
 
-    const data = await this.readZipEntryData(bytes, entry);
+    const data = await this.readZipEntryData(bytes, entry, signal);
+    this.throwIfAborted(signal, 'Document archive parsing was cancelled');
     return new TextDecoder('utf-8').decode(data);
   }
 
-  private static async readZipEntryData(bytes: Uint8Array, entry: ZipCentralEntry): Promise<Uint8Array> {
+  private static async readZipEntryData(
+    bytes: Uint8Array,
+    entry: ZipCentralEntry,
+    signal?: AbortSignal
+  ): Promise<Uint8Array> {
+    this.throwIfAborted(signal, 'Document archive parsing was cancelled');
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const localOffset = entry.localHeaderOffset;
 
@@ -1355,18 +1571,24 @@ export class DocumentTextExtractor {
     const compressedData = bytes.slice(dataStart, dataStart + entry.compressedSize);
 
     if (entry.compressionMethod === 0) return compressedData;
-    if (entry.compressionMethod === 8) return this.inflateRawDeflate(compressedData, entry.name);
+    if (entry.compressionMethod === 8) {
+      const data = await this.inflateRawDeflate(compressedData, entry.name);
+      this.throwIfAborted(signal, 'Document archive parsing was cancelled');
+      return data;
+    }
 
     throw new Error(`Unsupported archive compression method ${entry.compressionMethod} for ${entry.name}`);
   }
 
-  private static createStoredZip(files: ZipFileData[]): Uint8Array {
+  private static createStoredZip(files: ZipFileData[], signal?: AbortSignal): Uint8Array {
+    this.throwIfAborted(signal, 'Document archive export was cancelled');
     const encoder = new TextEncoder();
     const localChunks: Uint8Array[] = [];
     const centralChunks: Uint8Array[] = [];
     let localOffset = 0;
 
     for (const file of files) {
+      this.throwIfAborted(signal, 'Document archive export was cancelled');
       const nameBytes = encoder.encode(file.name);
       const crc = this.crc32(file.data);
       const localHeader = new Uint8Array(30 + nameBytes.length);
@@ -1408,6 +1630,14 @@ export class DocumentTextExtractor {
     this.writeUint32(endOfCentralDirectory, 16, localOffset);
 
     return this.concatBytes([...localChunks, centralDirectory, endOfCentralDirectory]);
+  }
+
+  private static throwIfAborted(signal: AbortSignal | undefined, message: string): void {
+    if (!signal?.aborted) return;
+    if (typeof DOMException !== 'undefined') throw new DOMException(message, 'AbortError');
+    const error = new Error(message);
+    error.name = 'AbortError';
+    throw error;
   }
 
   private static concatBytes(chunks: Uint8Array[]): Uint8Array {

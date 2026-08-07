@@ -43,7 +43,7 @@
       <section class="document-input">
         <div class="input-actions">
           <label class="file-picker">
-            <input id="documentFile" type="file" accept=".txt,.md,.markdown,.html,.htm,.json,.docx,.epub,.srt,.vtt,.ass,.ssa,.pdf,text/plain,text/markdown,text/html,application/xhtml+xml,application/json,text/json,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/epub+zip,application/pdf">
+            <input id="documentFile" type="file" accept=".txt,.md,.markdown,.html,.htm,.json,.docx,.epub,.mobi,.azw3,.srt,.vtt,.ass,.ssa,.pdf,text/plain,text/markdown,text/html,application/xhtml+xml,application/json,text/json,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/epub+zip,application/x-mobipocket-ebook,application/pdf">
             Choose file
           </label>
           <button id="translateDocument" class="primary-btn">Translate document</button>
@@ -53,9 +53,10 @@
           <button id="exportDocxFile" class="secondary-btn" disabled>Export DOCX</button>
           <button id="exportEpubFile" class="secondary-btn" disabled>Export EPUB</button>
           <button id="exportPdfFile" class="secondary-btn" disabled>Export PDF</button>
+          <button id="exportTextFile" class="secondary-btn" disabled>Export text</button>
           <button id="clearDocument" class="secondary-btn">Clear</button>
         </div>
-        <textarea id="sourceText" placeholder="Paste document text or load a PDF, HTML, JSON, DOCX, EPUB, SRT, VTT, ASS, or SSA file."></textarea>
+        <textarea id="sourceText" placeholder="Paste document text or load a PDF, HTML, JSON, DOCX, EPUB, MOBI, AZW3, SRT, VTT, ASS, or SSA file."></textarea>
         <p id="documentMessage" class="document-message" role="status"></p>
       </section>
 
@@ -64,6 +65,34 @@
           <div id="progressBar" class="progress-bar"></div>
         </div>
         <span id="progressText">0 blocks</span>
+      </section>
+
+      <section class="document-batch" aria-label="Batch document translation">
+        <header class="batch-header">
+          <h2>Batch translation</h2>
+          <label>
+            Parallel files
+            <select id="batchConcurrency">
+              <option value="1">1</option>
+              <option value="2" selected>2</option>
+              <option value="3">3</option>
+            </select>
+          </label>
+        </header>
+        <div class="batch-actions">
+          <label class="file-picker">
+            <input id="batchDocumentFiles" type="file" multiple accept=".txt,.md,.markdown,.html,.htm,.json,.docx,.epub,.mobi,.azw3,.srt,.vtt,.ass,.ssa,.pdf,text/plain,text/markdown,text/html,application/xhtml+xml,application/json,text/json,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/epub+zip,application/x-mobipocket-ebook,application/pdf">
+            Choose files
+          </label>
+          <button id="startDocumentBatch" class="primary-btn" type="button" disabled>Start batch</button>
+          <button id="cancelDocumentBatch" class="secondary-btn" type="button" disabled>Cancel</button>
+          <button id="retryDocumentBatch" class="secondary-btn" type="button" disabled>Queue failed</button>
+          <button id="downloadDocumentBatch" class="secondary-btn" type="button" disabled>Download ZIP</button>
+          <button id="clearDocumentBatch" class="secondary-btn" type="button" disabled>Clear queue</button>
+        </div>
+        <p id="batchDocumentSummary" class="batch-summary">No files queued</p>
+        <p id="batchDocumentMessage" class="document-message" role="status"></p>
+        <div id="batchDocumentQueue" class="batch-queue"></div>
       </section>
 
       <section class="document-history" aria-label="Local document translation history">

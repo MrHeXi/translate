@@ -22,6 +22,21 @@ import {
   DOCUMENT_HISTORY_SCHEMA_VERSION,
   documentHistoryService
 } from '../services/DocumentHistoryService';
+import {
+  createDocumentBatchArchive,
+  DOCUMENT_BATCH_ARCHIVE_MAX_FILES,
+  DOCUMENT_BATCH_ARCHIVE_MAX_TOTAL_BYTES
+} from '../services/DocumentBatchArchive';
+import {
+  DocumentBatchService,
+  DocumentBatchSnapshot
+} from '../services/DocumentBatchService';
+import {
+  DocumentBatchTranslationOutput,
+  DocumentBatchTranslationProgress,
+  documentBatchTranslator,
+  DOCUMENT_BATCH_MAX_SOURCE_BYTES
+} from '../services/DocumentBatchTranslator';
 
 type DisplayMode = 'bilingual' | 'translation-only' | 'original-only';
 
@@ -48,6 +63,18 @@ interface PdfPageView {
   translationLayer: HTMLElement;
 }
 
+interface BatchDocumentInput {
+  id: string;
+  file: File;
+}
+
+interface BatchTranslationSettings {
+  provider: string;
+  targetLanguage: string;
+  ocrLanguage: BundledOcrLanguageCode;
+  runId: string;
+}
+
 class DocumentTranslatorController {
   private sourceText: HTMLTextAreaElement | null = null;
   private fileInput: HTMLInputElement | null = null;
@@ -57,6 +84,7 @@ class DocumentTranslatorController {
   private exportDocxButton: HTMLButtonElement | null = null;
   private exportEpubButton: HTMLButtonElement | null = null;
   private exportPdfButton: HTMLButtonElement | null = null;
+  private exportTextButton: HTMLButtonElement | null = null;
   private saveHistoryButton: HTMLButtonElement | null = null;
   private clearButton: HTMLButtonElement | null = null;
   private historyRetention: HTMLSelectElement | null = null;
@@ -71,6 +99,16 @@ class DocumentTranslatorController {
   private progressText: HTMLElement | null = null;
   private resultsContainer: HTMLElement | null = null;
   private pdfViewer: HTMLElement | null = null;
+  private batchFileInput: HTMLInputElement | null = null;
+  private batchConcurrency: HTMLSelectElement | null = null;
+  private batchStartButton: HTMLButtonElement | null = null;
+  private batchCancelButton: HTMLButtonElement | null = null;
+  private batchRetryButton: HTMLButtonElement | null = null;
+  private batchDownloadButton: HTMLButtonElement | null = null;
+  private batchClearButton: HTMLButtonElement | null = null;
+  private batchSummary: HTMLElement | null = null;
+  private batchMessage: HTMLElement | null = null;
+  private batchQueue: HTMLElement | null = null;
   private loadedDocumentBlocks: DocumentBlock[] | null = null;
   private loadedSourceText = '';
   private loadedRawFileText = '';
@@ -84,6 +122,14 @@ class DocumentTranslatorController {
   private readonly pdfPageViews = new Map<number, PdfPageView>();
   private historyEntries: DocumentHistoryEntry[] = [];
   private isBusy = false;
+  private batchInputs: BatchDocumentInput[] = [];
+  private batchService: DocumentBatchService<BatchDocumentInput, DocumentBatchTranslationOutput> | null = null;
+  private unsubscribeBatch: (() => void) | null = null;
+  private activeBatchSettings: BatchTranslationSettings | null = null;
+  private readonly batchProgress = new Map<string, DocumentBatchTranslationProgress>();
+  private batchFileSequence = 1;
+  private batchRunSequence = 1;
+  private batchIsRunning = false;
 
   constructor() {
     this.initialize();
@@ -98,6 +144,7 @@ class DocumentTranslatorController {
     this.exportDocxButton = document.getElementById('exportDocxFile') as HTMLButtonElement | null;
     this.exportEpubButton = document.getElementById('exportEpubFile') as HTMLButtonElement | null;
     this.exportPdfButton = document.getElementById('exportPdfFile') as HTMLButtonElement | null;
+    this.exportTextButton = document.getElementById('exportTextFile') as HTMLButtonElement | null;
     this.saveHistoryButton = document.getElementById('saveDocumentHistory') as HTMLButtonElement | null;
     this.clearButton = document.getElementById('clearDocument') as HTMLButtonElement | null;
     this.historyRetention = document.getElementById('historyRetention') as HTMLSelectElement | null;
@@ -112,6 +159,16 @@ class DocumentTranslatorController {
     this.progressText = document.getElementById('progressText');
     this.resultsContainer = document.getElementById('translationResults');
     this.pdfViewer = document.getElementById('pdfViewer');
+    this.batchFileInput = document.getElementById('batchDocumentFiles') as HTMLInputElement | null;
+    this.batchConcurrency = document.getElementById('batchConcurrency') as HTMLSelectElement | null;
+    this.batchStartButton = document.getElementById('startDocumentBatch') as HTMLButtonElement | null;
+    this.batchCancelButton = document.getElementById('cancelDocumentBatch') as HTMLButtonElement | null;
+    this.batchRetryButton = document.getElementById('retryDocumentBatch') as HTMLButtonElement | null;
+    this.batchDownloadButton = document.getElementById('downloadDocumentBatch') as HTMLButtonElement | null;
+    this.batchClearButton = document.getElementById('clearDocumentBatch') as HTMLButtonElement | null;
+    this.batchSummary = document.getElementById('batchDocumentSummary');
+    this.batchMessage = document.getElementById('batchDocumentMessage');
+    this.batchQueue = document.getElementById('batchDocumentQueue');
 
     this.populateControls();
     await this.loadSettings();
@@ -119,6 +176,7 @@ class DocumentTranslatorController {
     this.bindEvents();
     this.renderResults([]);
     this.updateExportButtons();
+    this.renderBatchQueue(null);
     await this.loadDocumentHistory();
   }
 
@@ -205,6 +263,7 @@ class DocumentTranslatorController {
     this.exportDocxButton?.addEventListener('click', () => void this.exportTranslatedDocx());
     this.exportEpubButton?.addEventListener('click', () => void this.exportTranslatedEpub());
     this.exportPdfButton?.addEventListener('click', () => void this.exportTranslatedPdf());
+    this.exportTextButton?.addEventListener('click', () => this.exportTranslatedText());
     this.saveHistoryButton?.addEventListener('click', () => void this.saveDocumentHistory());
     this.clearButton?.addEventListener('click', () => this.clearDocument());
     this.historyRetention?.addEventListener('change', () => void this.changeHistoryRetention());
@@ -213,6 +272,13 @@ class DocumentTranslatorController {
     this.displayMode?.addEventListener('change', () => this.applyDisplayMode());
     this.ocrLanguage?.addEventListener('change', () => void this.handleOcrLanguageChange());
     this.translationProvider?.addEventListener('change', () => this.updateTargetLanguageAvailability());
+    this.batchFileInput?.addEventListener('change', () => this.loadBatchFiles());
+    this.batchConcurrency?.addEventListener('change', () => this.rebuildPendingBatch());
+    this.batchStartButton?.addEventListener('click', () => void this.startDocumentBatch());
+    this.batchCancelButton?.addEventListener('click', () => this.cancelDocumentBatch());
+    this.batchRetryButton?.addEventListener('click', () => this.retryFailedBatchFiles());
+    this.batchDownloadButton?.addEventListener('click', () => this.downloadDocumentBatch());
+    this.batchClearButton?.addEventListener('click', () => this.clearDocumentBatch());
 
     const openOptions = document.getElementById('openOptions');
     openOptions?.addEventListener('click', () => chrome.runtime.openOptionsPage());
@@ -229,11 +295,12 @@ class DocumentTranslatorController {
       const isJsonDocument = this.isJsonDocumentFile(file);
       const isDocxDocument = this.isDocxDocumentFile(file);
       const isEpubDocument = this.isEpubDocumentFile(file);
+      const isMobiDocument = this.isMobiDocumentFile(file);
       const isPdfDocument = this.isPdfDocumentFile(file);
-      const rawText = isDocxDocument || isEpubDocument || isPdfDocument
+      const rawText = isDocxDocument || isEpubDocument || isMobiDocument || isPdfDocument
         ? ''
         : await file.text();
-      const rawBytes = isDocxDocument || isEpubDocument || isPdfDocument
+      const rawBytes = isDocxDocument || isEpubDocument || isMobiDocument || isPdfDocument
         ? new Uint8Array(await file.arrayBuffer())
         : null;
       let blocks: DocumentBlock[];
@@ -259,6 +326,11 @@ class DocumentTranslatorController {
         blocks = await DocumentTextExtractor.extractBlocksFromDocxBytes(rawBytes!);
       } else if (isEpubDocument) {
         blocks = await DocumentTextExtractor.extractBlocksFromEpubBytes(rawBytes!);
+      } else if (isMobiDocument) {
+        blocks = await DocumentTextExtractor.extractBlocksFromMobiBytes(
+          rawBytes!,
+          file.name.toLowerCase().endsWith('.azw3') ? 'kf8' : 'mobi'
+        );
       } else {
         blocks = await DocumentTextExtractor.extractBlocksFromFile(file);
       }
@@ -386,6 +458,394 @@ class DocumentTranslatorController {
     return response.data.translatedText;
   }
 
+  private loadBatchFiles(): void {
+    if (this.isBusy) return;
+    if (this.batchService?.getSnapshot().isDraining) {
+      this.showBatchMessage('Wait for cancelled file cleanup before replacing the queue.', 'error');
+      return;
+    }
+    const files = Array.from(this.batchFileInput?.files || []);
+    if (files.length === 0) return;
+
+    try {
+      if (files.length > DOCUMENT_BATCH_ARCHIVE_MAX_FILES) {
+        throw new RangeError(`Choose no more than ${DOCUMENT_BATCH_ARCHIVE_MAX_FILES} files.`);
+      }
+
+      let totalBytes = 0;
+      files.forEach(file => {
+        if (!this.isSupportedDocumentFile(file)) {
+          throw new Error(`${file.name} is not a supported document type.`);
+        }
+        if (file.size > DOCUMENT_BATCH_MAX_SOURCE_BYTES) {
+          throw new RangeError(`${file.name} exceeds the 64 MiB per-file limit.`);
+        }
+        totalBytes += file.size;
+      });
+      if (totalBytes > DOCUMENT_BATCH_ARCHIVE_MAX_TOTAL_BYTES) {
+        throw new RangeError('The selected files exceed the 128 MiB batch limit.');
+      }
+
+      this.batchInputs = files.map(file => {
+        const input = { id: `batch-file-${this.batchFileSequence}`, file };
+        this.batchFileSequence += 1;
+        return input;
+      });
+      this.batchProgress.clear();
+      this.resetBatchService();
+      this.showBatchMessage(`${files.length} files queued. Start the batch when ready.`);
+    } catch (error) {
+      if (this.batchFileInput) this.batchFileInput.value = '';
+      this.showBatchMessage(
+        error instanceof Error ? error.message : 'Could not create the document queue.',
+        'error'
+      );
+    }
+  }
+
+  private rebuildPendingBatch(): void {
+    if (this.isBusy || this.batchInputs.length === 0) return;
+    const snapshot = this.batchService?.getSnapshot();
+    if (snapshot?.tasks.some(task => task.status !== 'pending')) {
+      if (this.batchConcurrency) this.batchConcurrency.value = String(snapshot.concurrency);
+      return;
+    }
+    this.resetBatchService();
+  }
+
+  private resetBatchService(): void {
+    this.unsubscribeBatch?.();
+    this.unsubscribeBatch = null;
+    this.batchService = null;
+
+    if (this.batchInputs.length === 0) {
+      this.renderBatchQueue(null);
+      return;
+    }
+
+    const service = new DocumentBatchService<BatchDocumentInput, DocumentBatchTranslationOutput>(
+      (input, signal) => this.translateBatchFile(input, signal),
+      {
+        concurrency: this.getBatchConcurrency(),
+        initialInputs: this.batchInputs
+      }
+    );
+    this.batchService = service;
+    this.unsubscribeBatch = service.subscribe(snapshot => this.renderBatchQueue(snapshot));
+  }
+
+  private async startDocumentBatch(): Promise<void> {
+    const service = this.batchService;
+    if (this.isBusy || !service) return;
+    const before = service.getSnapshot();
+    if (before.pendingCount === 0) {
+      this.showBatchMessage('Queue files or requeue failed files before starting.', 'error');
+      return;
+    }
+
+    this.activeBatchSettings = {
+      provider: this.translationProvider?.value || 'google',
+      targetLanguage: this.targetLanguage?.value || 'zh-CN',
+      ocrLanguage: this.getOcrLanguage(),
+      runId: `${Date.now()}-${this.batchRunSequence}`
+    };
+    this.batchRunSequence += 1;
+    this.batchIsRunning = true;
+    this.setBusy(true);
+    this.showBatchMessage(`Translating ${before.pendingCount} queued files`);
+
+    try {
+      const finalSnapshot = await service.start();
+      if (finalSnapshot.cancelledCount > 0) {
+        this.showBatchMessage(
+          finalSnapshot.isDraining
+            ? `Batch cancelled. Waiting for ${finalSnapshot.drainingCount} active files to finish cleanup.`
+            : 'Batch cancelled. Running requests were stopped.'
+        );
+      } else if (finalSnapshot.failedCount > 0) {
+        this.showBatchMessage(
+          `${finalSnapshot.completedCount} files completed; ${finalSnapshot.failedCount} failed.`,
+          'error'
+        );
+      } else {
+        this.showBatchMessage(`${finalSnapshot.completedCount} files translated.`);
+      }
+    } finally {
+      this.batchIsRunning = false;
+      this.activeBatchSettings = null;
+      this.setBusy(false);
+      this.renderBatchQueue(service.getSnapshot());
+    }
+  }
+
+  private cancelDocumentBatch(): void {
+    if (!this.batchIsRunning || !this.batchService) return;
+    this.batchService.cancel();
+    this.showBatchMessage('Cancelling active document translations');
+  }
+
+  private retryFailedBatchFiles(): void {
+    if (this.isBusy || !this.batchService) return;
+    const failedIds = this.batchService.getSnapshot().tasks
+      .filter(task => task.status === 'failed')
+      .map(task => task.input.id);
+    if (failedIds.length === 0) return;
+
+    failedIds.forEach(id => this.batchProgress.delete(id));
+    const snapshot = this.batchService.retryFailed();
+    this.renderBatchQueue(snapshot);
+    this.showBatchMessage(`${failedIds.length} failed files requeued. Start the batch when ready.`);
+  }
+
+  private downloadDocumentBatch(): void {
+    if (this.isBusy || !this.batchService) return;
+    const snapshot = this.batchService.getSnapshot();
+    if (
+      snapshot.cancelledCount > 0
+      || snapshot.failedCount > 0
+      || snapshot.pendingCount > 0
+      || snapshot.runningCount > 0
+      || snapshot.isDraining
+    ) {
+      this.showBatchMessage('Finish or clear the current queue before downloading.', 'error');
+      return;
+    }
+
+    const files = snapshot.tasks.flatMap(task => (
+      task.status === 'completed' && task.output
+        ? [{ fileName: task.output.fileName, bytes: task.output.bytes }]
+        : []
+    ));
+    if (files.length === 0) {
+      this.showBatchMessage('No completed files are available to download.', 'error');
+      return;
+    }
+
+    try {
+      const archive = createDocumentBatchArchive(files);
+      this.downloadBinaryFile(archive, 'translated-documents.zip', 'application/zip');
+      this.showBatchMessage(`Downloaded ${files.length} translated files.`);
+    } catch (error) {
+      this.showBatchMessage(
+        error instanceof Error ? error.message : 'Could not create the translated document archive.',
+        'error'
+      );
+    }
+  }
+
+  private clearDocumentBatch(): void {
+    if (this.isBusy) return;
+    if (this.batchService?.getSnapshot().isDraining) {
+      this.showBatchMessage('Wait for cancelled file cleanup before clearing the queue.', 'error');
+      return;
+    }
+    this.unsubscribeBatch?.();
+    this.unsubscribeBatch = null;
+    this.batchService = null;
+    this.batchInputs = [];
+    this.batchProgress.clear();
+    if (this.batchFileInput) this.batchFileInput.value = '';
+    this.renderBatchQueue(null);
+    this.showBatchMessage('');
+  }
+
+  private async translateBatchFile(
+    input: BatchDocumentInput,
+    signal: AbortSignal
+  ): Promise<DocumentBatchTranslationOutput> {
+    const settings = this.activeBatchSettings;
+    if (!settings) throw new Error('Batch translation settings are unavailable.');
+
+    return documentBatchTranslator.translateFile(input.file, {
+      provider: settings.provider,
+      targetLanguage: settings.targetLanguage,
+      ocrLanguage: settings.ocrLanguage,
+      requestIdPrefix: `document-batch:${settings.runId}:${input.id}`,
+      signal,
+      translateText: (text, context, requestId, requestSignal) => this.translateBatchBlock(
+        text,
+        context,
+        requestId,
+        requestSignal,
+        settings
+      ),
+      onProgress: progress => {
+        this.batchProgress.set(input.id, progress);
+        this.renderBatchQueue(this.batchService?.getSnapshot() || null);
+      }
+    });
+  }
+
+  private async translateBatchBlock(
+    text: string,
+    context: string,
+    requestId: string,
+    signal: AbortSignal,
+    settings: BatchTranslationSettings
+  ): Promise<string> {
+    this.throwIfBatchAborted(signal);
+    const cancelRequest = (): void => {
+      void this.sendMessage({
+        action: 'cancelTranslationRequest',
+        data: { requestId }
+      }).catch(() => undefined);
+    };
+    signal.addEventListener('abort', cancelRequest, { once: true });
+
+    try {
+      const response = await this.sendMessage({
+        action: 'translate',
+        data: {
+          text,
+          context,
+          targetLang: settings.targetLanguage,
+          provider: settings.provider,
+          requestId
+        }
+      });
+      this.throwIfBatchAborted(signal);
+      if (!response?.success) {
+        throw new Error(response?.error || 'Document translation failed.');
+      }
+      return response.data.translatedText;
+    } finally {
+      signal.removeEventListener('abort', cancelRequest);
+    }
+  }
+
+  private renderBatchQueue(
+    snapshot: DocumentBatchSnapshot<BatchDocumentInput, DocumentBatchTranslationOutput> | null
+  ): void {
+    if (this.batchQueue) {
+      this.batchQueue.replaceChildren();
+      for (const task of snapshot?.tasks || []) {
+        const item = document.createElement('article');
+        item.className = `batch-item batch-item--${task.status}`;
+
+        const name = document.createElement('p');
+        name.className = 'batch-item-name';
+        name.textContent = task.input.file.name;
+
+        const status = document.createElement('span');
+        status.className = 'batch-item-status';
+        status.textContent = this.getBatchStatusLabel(task.status);
+
+        const detail = document.createElement('p');
+        detail.className = 'batch-item-detail';
+        const progress = this.batchProgress.get(task.input.id);
+        detail.textContent = progress
+          ? this.formatBatchProgress(progress)
+          : this.formatFileSize(task.input.file.size);
+
+        item.append(name, status, detail);
+        if (task.status === 'failed') {
+          const error = document.createElement('p');
+          error.className = 'batch-item-error';
+          error.textContent = task.error instanceof Error
+            ? task.error.message
+            : 'Translation failed.';
+          item.appendChild(error);
+        }
+        this.batchQueue.appendChild(item);
+      }
+    }
+
+    if (this.batchSummary) {
+      this.batchSummary.textContent = snapshot
+        ? `${snapshot.tasks.length} files: ${snapshot.pendingCount} waiting, ${snapshot.runningCount} running, ${snapshot.completedCount} completed, ${snapshot.failedCount} failed, ${snapshot.cancelledCount} cancelled${snapshot.drainingCount > 0 ? `, ${snapshot.drainingCount} cleaning up` : ''}`
+        : 'No files queued';
+    }
+    this.updateBatchControls(snapshot);
+  }
+
+  private updateBatchControls(
+    snapshot: DocumentBatchSnapshot<BatchDocumentInput, DocumentBatchTranslationOutput> | null = (
+      this.batchService?.getSnapshot() || null
+    )
+  ): void {
+    const taskCount = snapshot?.tasks.length || 0;
+    const canDownload = Boolean(
+      snapshot
+      && snapshot.completedCount > 0
+      && snapshot.pendingCount === 0
+      && snapshot.runningCount === 0
+      && snapshot.failedCount === 0
+      && snapshot.cancelledCount === 0
+      && !snapshot.isDraining
+    );
+    const isDraining = Boolean(snapshot?.isDraining);
+    if (this.batchFileInput) this.batchFileInput.disabled = this.isBusy || isDraining;
+    if (this.batchConcurrency) {
+      const hasSettledTasks = Boolean(snapshot?.tasks.some(task => task.status !== 'pending'));
+      this.batchConcurrency.disabled = this.isBusy || isDraining || hasSettledTasks;
+    }
+    if (this.batchStartButton) {
+      this.batchStartButton.disabled = this.isBusy
+        || isDraining
+        || !snapshot
+        || snapshot.pendingCount === 0;
+    }
+    if (this.batchCancelButton) this.batchCancelButton.disabled = !this.batchIsRunning;
+    if (this.batchRetryButton) {
+      this.batchRetryButton.disabled = this.isBusy
+        || isDraining
+        || !snapshot
+        || snapshot.failedCount === 0;
+    }
+    if (this.batchDownloadButton) this.batchDownloadButton.disabled = this.isBusy || !canDownload;
+    if (this.batchClearButton) {
+      this.batchClearButton.disabled = this.isBusy || isDraining || taskCount === 0;
+    }
+  }
+
+  private getBatchConcurrency(): number {
+    const concurrency = Number(this.batchConcurrency?.value || 2);
+    return concurrency === 1 || concurrency === 3 ? concurrency : 2;
+  }
+
+  private getBatchStatusLabel(status: string): string {
+    switch (status) {
+      case 'pending': return 'Waiting';
+      case 'running': return 'Translating';
+      case 'completed': return 'Completed';
+      case 'failed': return 'Failed';
+      case 'cancelled': return 'Cancelled';
+      default: return status;
+    }
+  }
+
+  private formatBatchProgress(progress: DocumentBatchTranslationProgress): string {
+    if (progress.ocr) {
+      const percent = Math.round(Math.max(0, Math.min(1, progress.ocr.progress)) * 100);
+      return `OCR page ${progress.ocr.pageNumber}: ${progress.ocr.status} ${percent}%`;
+    }
+    return progress.totalBlocks > 0
+      ? `${progress.completedBlocks}/${progress.totalBlocks} blocks`
+      : 'Preparing document';
+  }
+
+  private formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KiB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+  }
+
+  private showBatchMessage(message: string, type: 'info' | 'error' = 'info'): void {
+    if (!this.batchMessage) return;
+    this.batchMessage.textContent = message;
+    this.batchMessage.classList.toggle('error', type === 'error');
+  }
+
+  private throwIfBatchAborted(signal: AbortSignal): void {
+    if (!signal.aborted) return;
+    if (typeof DOMException !== 'undefined') {
+      throw new DOMException('Document batch translation was cancelled', 'AbortError');
+    }
+    const error = new Error('Document batch translation was cancelled');
+    error.name = 'AbortError';
+    throw error;
+  }
+
   private createDocumentContext(blocks: DocumentBlock[], blockIndex: number): string {
     return blocks
       .slice(Math.max(0, blockIndex - 2), Math.min(blocks.length, blockIndex + 3))
@@ -476,7 +936,12 @@ class DocumentTranslatorController {
 
     const content = assFormat
       ? DocumentTextExtractor.rewriteAssWithTranslations(this.loadedRawFileText, subtitleResults)
-      : this.renderTranslatedSubtitleFile(subtitleResults, format as 'srt' | 'vtt');
+      : this.loadedRawFileText
+        ? DocumentTextExtractor.rewriteTimedSubtitleWithTranslations(
+          this.loadedRawFileText,
+          subtitleResults
+        )
+        : this.renderTranslatedSubtitleFile(subtitleResults, format as 'srt' | 'vtt');
     const extension = format;
     const filename = this.createSubtitleExportFilename(extension);
 
@@ -567,6 +1032,22 @@ class DocumentTranslatorController {
     }
   }
 
+  private exportTranslatedText(): void {
+    const results = this.currentResults.filter(result => result.translatedText.trim());
+    if (results.length === 0) {
+      this.showMessage('Translate document text before exporting.', 'error');
+      return;
+    }
+
+    const content = `${results.map(result => result.translatedText.trim()).join('\n\n')}\n`;
+    this.downloadTextFile(
+      content,
+      this.createTextExportFilename(),
+      'text/plain;charset=utf-8'
+    );
+    this.showMessage(`Exported ${results.length} translated text blocks`);
+  }
+
   private renderTranslatedSubtitleFile(results: TranslationResult[], format: 'srt' | 'vtt'): string {
     const cues = results.map((result, index) => {
       const cue = result.block.subtitle!;
@@ -652,6 +1133,17 @@ class DocumentTranslatorController {
     return `${baseName}.translated.pdf`;
   }
 
+  private createTextExportFilename(): string {
+    const baseName = (this.loadedFileName || 'translated-document')
+      .replace(/\.[^.]+$/, '')
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 80) || 'translated-document';
+    return `${baseName}.translated.txt`;
+  }
+
   private async renderPdfPreview(): Promise<void> {
     if (!this.pdfViewer || !this.pdfSession || !this.pdfAnalysis) return;
 
@@ -675,9 +1167,11 @@ class DocumentTranslatorController {
       await this.pdfSession.renderPage(summary.pageNumber, originalCanvas);
       translatedCanvas.width = originalCanvas.width;
       translatedCanvas.height = originalCanvas.height;
-      if (typeof CanvasRenderingContext2D !== 'undefined') {
-        const translatedContext = translatedCanvas.getContext('2d', { alpha: false });
-        translatedContext?.drawImage(originalCanvas, 0, 0);
+      const translatedContext = typeof CanvasRenderingContext2D !== 'undefined'
+        ? translatedCanvas.getContext('2d', { alpha: false })
+        : null;
+      if (translatedContext) {
+        translatedContext.drawImage(originalCanvas, 0, 0);
       } else {
         await this.pdfSession.renderPage(summary.pageNumber, translatedCanvas);
       }
@@ -1395,6 +1889,8 @@ class DocumentTranslatorController {
       case 'pdf':
       case 'docx':
       case 'epub':
+      case 'mobi':
+      case 'azw3':
         return extension;
       default:
         return 'manual';
@@ -1402,7 +1898,11 @@ class DocumentTranslatorController {
   }
 
   private isTextHistorySourceKind(sourceKind: DocumentHistorySourceKind): boolean {
-    return sourceKind !== 'pdf' && sourceKind !== 'docx' && sourceKind !== 'epub';
+    return sourceKind !== 'pdf'
+      && sourceKind !== 'docx'
+      && sourceKind !== 'epub'
+      && sourceKind !== 'mobi'
+      && sourceKind !== 'azw3';
   }
 
   private createHistoryExportFilename(fileName: string): string {
@@ -1458,6 +1958,7 @@ class DocumentTranslatorController {
         button.disabled = isBusy;
       });
     this.updateExportButtons(isBusy);
+    this.updateBatchControls();
   }
 
   private updateExportButtons(isBusy: boolean = false): void {
@@ -1466,6 +1967,7 @@ class DocumentTranslatorController {
     this.updateDocxExportButton(isBusy);
     this.updateEpubExportButton(isBusy);
     this.updatePdfExportButton(isBusy);
+    this.updateTextExportButton(isBusy);
     if (this.saveHistoryButton) {
       this.saveHistoryButton.disabled = isBusy || this.currentResults.length === 0;
     }
@@ -1521,6 +2023,12 @@ class DocumentTranslatorController {
       || hasUnpositionedPdfText;
   }
 
+  private updateTextExportButton(isBusy: boolean = false): void {
+    if (!this.exportTextButton) return;
+    const hasTranslatedText = this.currentResults.some(result => result.translatedText.trim());
+    this.exportTextButton.disabled = isBusy || !hasTranslatedText;
+  }
+
   private isJsonDocumentFile(file: File): boolean {
     return file.type === 'application/json' ||
       file.type === 'text/json' ||
@@ -1537,12 +2045,24 @@ class DocumentTranslatorController {
       file.name.toLowerCase().endsWith('.epub');
   }
 
+  private isMobiDocumentFile(file: File): boolean {
+    const lowerName = file.name.toLowerCase();
+    return file.type === 'application/x-mobipocket-ebook'
+      || lowerName.endsWith('.mobi')
+      || lowerName.endsWith('.azw3');
+  }
+
   private isPdfDocumentFile(file: File): boolean {
     return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
   }
 
   private isPdfFileName(fileName: string): boolean {
     return fileName.toLowerCase().endsWith('.pdf');
+  }
+
+  private isSupportedDocumentFile(file: File): boolean {
+    return /\.(?:txt|md|markdown|html|htm|xhtml|json|docx|epub|mobi|azw3|srt|vtt|ass|ssa|pdf)$/i
+      .test(file.name);
   }
 
   private showMessage(message: string, type: 'info' | 'error' = 'info'): void {

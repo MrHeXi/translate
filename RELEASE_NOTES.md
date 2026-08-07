@@ -16,14 +16,16 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Bottom-right floating button with a visible "Translate page" hint.
 - Selected-text translation tooltip with vocabulary collection actions and explicit click-to-speak speech using script-aware locales; selection and translation completion never start speech.
 - Control-hover paragraph translation for on-demand reading help.
-- Input box translation by typing three trailing spaces, with language prefixes such as `/en`, `/中文`, and `/zh-CN`, mobile input/touch support, timeout protection, trusted-user-event enforcement, and no initialization scan.
+- Input box translation by typing three trailing spaces, with language prefixes such as `/en`, `/zh`, and `/zh-CN`, mobile input/touch support, timeout protection, trusted-user-event enforcement, and no initialization scan.
 - Chrome side-panel text translation opened from the popup or `Alt+S`, with configured-provider filtering, provider-specific target languages, `Ctrl+Enter`, copy, and clear controls.
 - AI-assisted side-panel polish, rewrite, drafting, reply, and summary actions with configured-AI-provider enforcement, output-language, tone, length, optional-instruction, and iterative-use controls.
 - Side-panel initialization and mode switching load or update local controls only and never send a provider request until the user submits text.
-- Document translator for pasted text, text files, HTML, JSON, DOCX, EPUB, subtitle files, and PDFs, with bundled PDF.js page rendering, positioned text extraction, browser-plus-bundled offline OCR for image-only pages, side-by-side original/translated previews, and flattened translated-PDF export.
+- Document translator for pasted text, text files, HTML, JSON, DOCX, EPUB, MOBI/AZW3, subtitle files, and PDFs, with bounded MOBI parsing and deterministic spine ordering, bundled PDF.js page rendering, positioned text extraction, browser-plus-bundled offline OCR for image-only pages, side-by-side original/translated previews, and flattened translated-PDF export.
+- Explicit multi-file document translation queue with selectable concurrency from one to three workers, per-file status, immediate cancellation, failed-file retry, and deterministic ZIP export after every file succeeds; selecting files never starts translation.
+- Structure-preserving SRT/VTT batch translation that rewrites cue text while retaining metadata, notes, styles, regions, identifiers, timing settings, and source line endings.
 - Structure-preserving ASS/SSA subtitle import and export with timing, styles, comments, inline tags, and comma-bearing dialogue text retained; vector-drawing dialogue remains original.
 - Editable translated document blocks whose final text is used by subtitle, JSON, DOCX, EPUB, PDF, and history exports.
-- Explicit versioned document history in local Chrome storage with reopen-without-translation, JSON export, delete/clear controls, 10/25/50 retention, 512 KiB per-entry and 4 MiB total limits, and no binary PDF/DOCX/EPUB source persistence.
+- Explicit versioned document history in local Chrome storage with reopen-without-translation, JSON export, delete/clear controls, 10/25/50 retention, 512 KiB per-entry and 4 MiB total limits, and no binary PDF/DOCX/EPUB/MOBI/AZW3 source persistence.
 - Mixed PDF pages with sparse text layers are supplemented by local OCR when PDF.js identifies raster content; text-layer and OCR blocks are merged and duplicate detections are removed.
 - Editing a loaded PDF preserves block IDs, page geometry, column metadata, and formula metadata when safe; newly inserted text without safe source geometry remains translatable but disables PDF export rather than being silently omitted.
 - Conservative two-column PDF detection with left-column-then-right-column reading order and translated overlays constrained to inferred column regions.
@@ -54,11 +56,11 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 
 ### Verification
 
-Verified on 2026-08-05:
+Verified on 2026-08-07:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 51 test suites and 436 tests.
+- `jest --runInBand --silent`: passed, 56 test suites and 476 tests.
 - `webpack --mode=production`: passed.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 
@@ -73,7 +75,7 @@ Expected build warnings:
 
 - Unpacked extension folder: `dist`
 - Test package: `chrome-translation-extension.zip`
-- ZIP size: `17,742,915` bytes
-- SHA-256: `57AA6451D17856FB8A48D1A0E41EBFC08166B139C043C190915C0D169F1DD5E6`
+- ZIP size: `17,779,884` bytes
+- SHA-256: `3AC6899984C7C026A610A73083774097F2F2ECD43EB4B3B27F1BCF7261AC69F1`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

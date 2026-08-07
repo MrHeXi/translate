@@ -431,7 +431,7 @@ export class PdfDocumentSession {
     try {
       const operatorList = await page.getOperatorList();
       if (operatorList.fnArray.some(operator => RASTER_IMAGE_OPERATORS.has(operator))) return true;
-      return this.isTextConfinedToPageMargins(textBlocks, viewport);
+      return false;
     } catch {
       // Sparse marginal text is still safer to supplement when operator inspection is unavailable.
       return this.isTextConfinedToPageMargins(textBlocks, viewport);

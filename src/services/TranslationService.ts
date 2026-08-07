@@ -31,6 +31,7 @@ export interface TranslationRequest {
   context?: string;
   aiPreferences?: Partial<AiTranslationPreferences>;
   aiWritingTask?: Partial<AiWritingTask>;
+  signal?: AbortSignal;
 }
 
 export interface TranslationResult {
@@ -92,8 +93,12 @@ export class TranslationService {
       
       return result;
     } catch (error) {
+      if (request.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+        throw error;
+      }
+
       console.error('翻译请求失败:', error);
-      
+
       // 如果有过期的缓存，在API失败时返回过期缓存
       if (error instanceof TranslationProviderError) {
         throw error;
@@ -287,6 +292,9 @@ export class TranslationService {
           case 'systran': return await this.callSystranAPI(request, provider);
         }
       } catch (error) {
+        if (request.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) {
+          throw error;
+        }
         lastError = error;
         const canFallback = provider === 'google' || provider === 'mymemory';
         console.warn(`${provider} API failed${canFallback ? ', trying fallback provider' : ''}`, error);
@@ -371,7 +379,7 @@ export class TranslationService {
     
     const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(request.text)}&langpair=${langPair}`;
     
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: request.signal });
     
     if (!response.ok) {
       throw new Error(`MyMemory API 请求失败: ${response.status}`);
@@ -401,7 +409,7 @@ export class TranslationService {
     // 使用 Google Translate 的免费接口
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(request.text)}`;
     
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: request.signal });
     
     if (!response.ok) {
       throw new Error(`Google Translate API 请求失败: ${response.status}`);
@@ -437,6 +445,7 @@ export class TranslationService {
     }
 
     const response = await fetch(config.endpoint, {
+      signal: request.signal,
       method: 'POST',
       headers: {
         Authorization: `DeepL-Auth-Key ${config.apiKey}`,
@@ -478,6 +487,7 @@ export class TranslationService {
     }
 
     const response = await fetch(url.toString(), {
+      signal: request.signal,
       method: 'POST',
       headers,
       body: JSON.stringify([{ Text: request.text }])
@@ -513,6 +523,7 @@ export class TranslationService {
     if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
 
     const response = await fetch(config.endpoint, {
+      signal: request.signal,
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -555,6 +566,7 @@ export class TranslationService {
     const { systemPrompt, userMessage, temperature } = this.buildAiProviderPrompt(request);
     const endpoint = `${config.endpoint.replace(/\/$/, '')}/${encodeURIComponent(config.model)}:generateContent`;
     const response = await fetch(endpoint, {
+      signal: request.signal,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -599,6 +611,7 @@ export class TranslationService {
     const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
     const { systemPrompt, userMessage, temperature } = this.buildAiProviderPrompt(request);
     const response = await fetch(config.endpoint, {
+      signal: request.signal,
       method: 'POST',
       headers: {
         'api-key': config.apiKey,
@@ -634,6 +647,7 @@ export class TranslationService {
     const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
     const { systemPrompt, userMessage, temperature } = this.buildAiProviderPrompt(request);
     const response = await fetch(config.endpoint, {
+      signal: request.signal,
       method: 'POST',
       headers: {
         'x-api-key': config.apiKey,
@@ -679,6 +693,7 @@ export class TranslationService {
     if (config.apiKey) body['api_key'] = config.apiKey;
 
     const response = await fetch(config.endpoint, {
+      signal: request.signal,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -710,6 +725,7 @@ export class TranslationService {
     if (config.region) body['folderId'] = config.region;
 
     const response = await fetch(config.endpoint, {
+      signal: request.signal,
       method: 'POST',
       headers: {
         Authorization: `Api-Key ${config.apiKey}`,
@@ -744,6 +760,7 @@ export class TranslationService {
       src_text: request.text
     });
     const response = await fetch(config.endpoint, {
+      signal: request.signal,
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString()
@@ -768,6 +785,7 @@ export class TranslationService {
       ? this.mapCaiyunLanguage(request.sourceLang)
       : 'auto';
     const response = await fetch(config.endpoint, {
+      signal: request.signal,
       method: 'POST',
       headers: {
         'x-authorization': `token ${config.apiKey}`,
@@ -804,6 +822,7 @@ export class TranslationService {
     });
     if (request.context) body.set('context', request.context.slice(0, 4000));
     const response = await fetch(config.endpoint, {
+      signal: request.signal,
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString()
@@ -823,6 +842,7 @@ export class TranslationService {
     const provider = getTranslationProvider(providerId)!;
     const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
     const response = await fetch(config.endpoint, {
+      signal: request.signal,
       method: 'POST',
       headers: {
         Authorization: config.apiKey,
@@ -863,6 +883,7 @@ export class TranslationService {
       text: request.text
     });
     const response = await fetch(config.endpoint, {
+      signal: request.signal,
       method: 'POST',
       headers: {
         'X-NCP-APIGW-API-KEY-ID': config.clientId,
@@ -906,6 +927,7 @@ export class TranslationService {
       sign
     });
     const response = await fetch(config.endpoint, {
+      signal: request.signal,
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString()
@@ -1012,7 +1034,12 @@ export class TranslationService {
       Authorization: authorization
     };
     if (config.sessionToken) headers['X-Security-Token'] = config.sessionToken;
-    const response = await fetch(endpoint.toString(), { method: 'POST', headers, body });
+    const response = await fetch(endpoint.toString(), {
+      method: 'POST',
+      headers,
+      body,
+      signal: request.signal
+    });
     const data = await this.readProviderJson(response, provider.label);
     const metadataError = data?.ResponseMetadata?.Error;
     if (metadataError) {
@@ -1117,7 +1144,12 @@ export class TranslationService {
       Authorization: authorization
     };
     if (config.sessionToken) headers['X-Acs-Security-Token'] = config.sessionToken;
-    const response = await fetch(endpoint.toString(), { method: 'POST', headers, body });
+    const response = await fetch(endpoint.toString(), {
+      method: 'POST',
+      headers,
+      body,
+      signal: request.signal
+    });
     const data = await this.readProviderJson(response, provider.label);
     if (String(data?.Code) !== '200') {
       const code = data?.Code === undefined ? '' : String(data.Code);
@@ -1222,7 +1254,12 @@ export class TranslationService {
       Authorization: authorization
     };
     if (config.sessionToken) headers['X-Amz-Security-Token'] = config.sessionToken;
-    const response = await fetch(endpoint.toString(), { method: 'POST', headers, body });
+    const response = await fetch(endpoint.toString(), {
+      method: 'POST',
+      headers,
+      body,
+      signal: request.signal
+    });
     const data = await this.readProviderJson(response, provider.label);
     if (typeof data?.TranslatedText !== 'string' || !data.TranslatedText.trim()) {
       throw new TranslationProviderError(`${provider.label} returned an invalid translation response`);
@@ -1279,6 +1316,7 @@ export class TranslationService {
       curtime
     });
     const response = await fetch(config.endpoint, {
+      signal: request.signal,
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString()
@@ -1318,6 +1356,7 @@ export class TranslationService {
     }
 
     const response = await fetch(endpoint.toString(), {
+      signal: request.signal,
       method: 'POST',
       headers: {
         Authorization: `Basic ${this.encodeBasicCredentials('apikey', config.apiKey)}`,
@@ -1360,6 +1399,7 @@ export class TranslationService {
     endpoint.searchParams.set('target', this.mapSystranLanguage(request.targetLang));
     endpoint.searchParams.set('withInfo', 'true');
     const response = await fetch(endpoint.toString(), {
+      signal: request.signal,
       method: 'POST',
       headers: { Authorization: `Key ${config.apiKey}` }
     });

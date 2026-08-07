@@ -5,6 +5,17 @@ const flushPromises = async (): Promise<void> => {
   await Promise.resolve();
 };
 
+const deferred = <T = void>(): {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+} => {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>(resolvePromise => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+};
+
 describe('BackgroundService provider configuration messages', () => {
   beforeEach(() => {
     jest.resetModules();
@@ -16,6 +27,7 @@ describe('BackgroundService provider configuration messages', () => {
   });
 
   it('injects local credentials into translation and only returns masked configuration summaries', async () => {
+    const initializationGate = deferred<void>();
     const listeners: Array<(
       request: any,
       sender: chrome.runtime.MessageSender,
@@ -50,7 +62,9 @@ describe('BackgroundService provider configuration messages', () => {
       getCacheSize: jest.fn().mockReturnValue(0)
     };
     const mockDictionaryManager = {
-      loadBuiltInDictionary: jest.fn().mockResolvedValue({ words: [], totalCount: 0 }),
+      loadBuiltInDictionary: jest.fn()
+        .mockImplementationOnce(() => initializationGate.promise)
+        .mockResolvedValue({ words: [], totalCount: 0 }),
       clearWordCache: jest.fn()
     };
     const mockLearningMode = {
@@ -148,14 +162,34 @@ describe('BackgroundService provider configuration messages', () => {
     }));
 
     require('../background');
-    await flushPromises();
-    await flushPromises();
-
     const mainListener = listeners[0];
     expect(mainListener).toBeDefined();
     const send = (request: any): Promise<any> => new Promise(resolve => {
       expect(mainListener!(request, {}, resolve)).toBe(true);
     });
+
+    const initializationRaceRequestId = 'document-batch:initializing:block-1';
+    const initializingTranslation = send({
+      action: 'translate',
+      data: {
+        text: 'Cancel before initialization completes',
+        targetLang: 'fr',
+        provider: 'openai',
+        requestId: initializationRaceRequestId
+      }
+    });
+    await expect(send({
+      action: 'cancelTranslationRequest',
+      data: { requestId: initializationRaceRequestId }
+    })).resolves.toEqual({ success: true, data: { cancelled: false } });
+    initializationGate.resolve();
+    await expect(initializingTranslation).resolves.toEqual({
+      success: false,
+      error: 'Translation request was cancelled'
+    });
+    expect(mockTranslationService.translate).not.toHaveBeenCalled();
+    await flushPromises();
+    await flushPromises();
 
     const translateResponse = await send({
       action: 'translate',
@@ -182,6 +216,42 @@ describe('BackgroundService provider configuration messages', () => {
     });
     expect(translateResponse).toEqual({ success: true, data: translationResult });
     expect(JSON.stringify(translateResponse)).not.toContain('server-side-secret');
+
+    mockTranslationService.translate.mockImplementationOnce((translationRequest: any) => (
+      new Promise((_resolve, reject) => {
+        translationRequest.signal.addEventListener('abort', () => {
+          const error = new Error('cancelled');
+          error.name = 'AbortError';
+          reject(error);
+        }, { once: true });
+      })
+    ));
+    const activeTranslation = send({
+      action: 'translate',
+      data: {
+        text: 'Long batch block',
+        targetLang: 'fr',
+        provider: 'openai',
+        requestId: 'document-batch:task-1:block-1'
+      }
+    });
+    await flushPromises();
+
+    const cancelResponse = await send({
+      action: 'cancelTranslationRequest',
+      data: { requestId: 'document-batch:task-1:block-1' }
+    });
+    expect(cancelResponse).toEqual({ success: true, data: { cancelled: true } });
+    expect(mockTranslationService.translate).toHaveBeenLastCalledWith(expect.objectContaining({
+      text: 'Long batch block',
+      signal: expect.objectContaining({ aborted: true })
+    }));
+    await expect(activeTranslation).resolves.toEqual({ success: false, error: 'cancelled' });
+    await expect(send({
+      action: 'cancelTranslationRequest',
+      data: { requestId: 'document-batch:unknown' }
+    })).resolves.toEqual({ success: true, data: { cancelled: false } });
+    mockTranslationService.translate.mockResolvedValue(translationResult);
 
     mockStorageManager.getSettings.mockResolvedValue({
       aiContextEnabled: false,

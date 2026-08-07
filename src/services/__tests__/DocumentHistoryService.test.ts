@@ -208,8 +208,55 @@ describe('DocumentHistoryService', () => {
       sourceKind: 'pdf',
       rawFileText: 'binary source represented as text'
     })).rejects.toThrow(/Invalid/i);
+    await expect(service.save({
+      ...makeInput(),
+      sourceKind: 'mobi',
+      rawFileText: 'binary source represented as text'
+    })).rejects.toThrow(/Invalid/i);
+    await expect(service.save({
+      ...makeInput(),
+      sourceKind: 'azw3',
+      rawFileText: 'binary source represented as text'
+    })).rejects.toThrow(/Invalid/i);
 
     expect(await service.list()).toEqual([]);
+  });
+
+  it('round-trips bounded MOBI block metadata and rejects malformed chapter geometry', async () => {
+    const service = new DocumentHistoryService();
+    const mobiBlock = {
+      id: 1,
+      originalText: 'Chapter text',
+      mobi: {
+        format: 'kf8' as const,
+        chapterId: 'chapter-1',
+        chapterIndex: 0,
+        blockIndex: 2,
+        chunkIndex: 1
+      }
+    };
+    const saved = await service.save({
+      ...makeInput('book.azw3'),
+      sourceKind: 'azw3',
+      rawFileText: undefined,
+      sourceText: 'Chapter text',
+      documentBlocks: [mobiBlock],
+      results: [{ block: mobiBlock, translatedText: 'Translated chapter' }]
+    });
+
+    expect(saved.documentBlocks[0]?.mobi).toEqual(mobiBlock.mobi);
+    expect((await service.get(saved.id))?.results[0]?.block.mobi).toEqual(mobiBlock.mobi);
+
+    await expect(service.save({
+      ...makeInput('invalid.mobi'),
+      sourceKind: 'mobi',
+      rawFileText: undefined,
+      documentBlocks: [{
+        ...mobiBlock,
+        mobi: { ...mobiBlock.mobi, chapterIndex: -1 }
+      }],
+      results: [{ block: mobiBlock, translatedText: 'Translation' }]
+    })).rejects.toThrow(/Invalid/i);
   });
 
   it('keeps the total serialized store under 4 MiB by evicting oldest whole entries', async () => {

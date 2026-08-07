@@ -48,7 +48,11 @@ module.exports = (env, argv) => {
     },
     
     resolve: {
-      extensions: ['.ts', '.js']
+      extensions: ['.ts', '.js'],
+      fallback: {
+        // sax guards this optional Node stream import and uses its parser API in browsers.
+        stream: false
+      }
     },
     
     plugins: [

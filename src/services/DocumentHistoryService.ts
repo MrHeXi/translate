@@ -22,7 +22,9 @@ export type DocumentHistorySourceKind =
   | 'ssa'
   | 'pdf'
   | 'docx'
-  | 'epub';
+  | 'epub'
+  | 'mobi'
+  | 'azw3';
 
 export interface DocumentHistoryResult {
   block: DocumentBlock;
@@ -76,7 +78,9 @@ const SOURCE_KINDS = new Set<DocumentHistorySourceKind>([
   'ssa',
   'pdf',
   'docx',
-  'epub'
+  'epub',
+  'mobi',
+  'azw3'
 ]);
 const TEXT_SOURCE_KINDS = new Set<DocumentHistorySourceKind>([
   'manual',
@@ -244,6 +248,16 @@ const isValidEpubMetadata = (value: unknown): boolean => (
   && isNonNegativeInteger(value.blockIndex)
 );
 
+const isValidMobiMetadata = (value: unknown): boolean => (
+  isRecord(value)
+  && (value.format === 'mobi' || value.format === 'kf8')
+  && typeof value.chapterId === 'string'
+  && value.chapterId.length > 0
+  && isNonNegativeInteger(value.chapterIndex)
+  && isNonNegativeInteger(value.blockIndex)
+  && isNonNegativeInteger(value.chunkIndex)
+);
+
 const normalizeBlock = (value: unknown): DocumentBlock | null => {
   if (!isRecord(value) || !isJsonData(value)) return null;
   if (!Number.isInteger(value.id) || (value.id as number) < 0 || typeof value.originalText !== 'string') {
@@ -255,6 +269,7 @@ const normalizeBlock = (value: unknown): DocumentBlock | null => {
   if (value.json !== undefined && !isValidJsonMetadata(value.json)) return null;
   if (value.docx !== undefined && !isValidDocxMetadata(value.docx)) return null;
   if (value.epub !== undefined && !isValidEpubMetadata(value.epub)) return null;
+  if (value.mobi !== undefined && !isValidMobiMetadata(value.mobi)) return null;
   return cloneJson(value) as unknown as DocumentBlock;
 };
 

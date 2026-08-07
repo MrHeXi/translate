@@ -211,6 +211,34 @@ describe('TranslationService', () => {
       expect(myMemoryResult.translatedText).toBe('MyMemory result');
     });
 
+    it('passes AbortSignal to provider fetch and never falls back after cancellation', async () => {
+      const controller = new AbortController();
+      const fetchMock = jest.fn((_input: RequestInfo | URL, init?: RequestInit) => (
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          expect(signal).toBe(controller.signal);
+          signal?.addEventListener('abort', () => {
+            const error = new Error('request cancelled');
+            error.name = 'AbortError';
+            reject(error);
+          }, { once: true });
+        })
+      ));
+      (global as any).fetch = fetchMock;
+
+      const translation = translationService.translate({
+        text: 'Cancel this block',
+        sourceLang: 'en',
+        targetLang: 'zh-CN',
+        provider: 'google',
+        signal: controller.signal
+      });
+      controller.abort();
+
+      await expect(translation).rejects.toMatchObject({ name: 'AbortError' });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
     it('calls DeepL with local credentials and provider-specific language codes', async () => {
       const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
         ok: true,
@@ -967,7 +995,7 @@ describe('TranslationService', () => {
           providerConfig: { clientId: `${provider}-ak`, apiKey: `${provider}-sk` }
         })).rejects.toThrow('text exceeds the 5000-character limit');
       }
-      Object.defineProperty(globalThis, 'crypto', { configurable: true, value: {} });
+      Object.defineProperty(globalThis.crypto, 'subtle', { configurable: true, value: undefined });
       await expect(translationService.translate({
         text: 'Requires cloud signing',
         targetLang: 'en',

@@ -23,7 +23,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Short description explains web translation plus vocabulary review.
 - [ ] Detailed description mentions manual page translation, selection translation, built-in dictionaries, vocabulary notebook, review, import/export, and Chrome storage sync.
 - [ ] Site-rule and translation-style claims remain limited to manual page translation; do not imply page-load auto translation.
-- [ ] Claim only verified, bounded document, video subtitle, explicit local-media/current-tab transcription, live caption, and image text features; describe PDF output as flattened, bundled OCR as local but accuracy-dependent, and do not claim editable PDF reflow, guaranteed scanned-PDF OCR, automatic manga translation, image inpainting, background or automatic tab-audio capture, meeting bots, or account cloud sync.
+- [ ] Claim only verified, bounded document, explicit document-batch, video subtitle, explicit local-media/current-tab transcription, live caption, and image text features; describe MOBI/AZW3 as bounded text import rather than eBook rewriting, PDF output as flattened, bundled OCR as local but accuracy-dependent, and do not claim editable PDF reflow, guaranteed scanned-PDF OCR, automatic manga translation, image inpainting, background or automatic tab-audio capture, meeting bots, or account cloud sync.
 - [ ] Include support contact or repository issue link.
 
 ## Screenshots
@@ -35,6 +35,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Control-hover paragraph translation.
 - [ ] Input box translation shortcut.
 - [ ] Side-panel text translation with provider/target controls and a translated result.
+- [ ] Document translator with either a bounded MOBI/AZW3 import or an idle multi-file batch queue before Start.
 - [ ] Vocabulary notebook page.
 - [ ] Review page.
 - [ ] Options page with dictionary settings.
@@ -45,7 +46,7 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Disclose Chrome storage and Chrome sync use.
 - [ ] Disclose all 29 implemented provider adapters and distinguish pre-granted hosts from provider hosts requested when configuration is saved.
 - [ ] Disclose that provider API keys, client/application IDs, and temporary session tokens stay in local Chrome storage and are excluded from Chrome sync and learning-data exports.
-- [ ] Disclose that document history is created only by Save history, stays in local storage, is size/retention bounded, and excludes binary PDF, DOCX, and EPUB source bytes.
+- [ ] Disclose that document history is created only by Save history, stays in local storage, is size/retention bounded, and excludes binary PDF, DOCX, EPUB, MOBI, and AZW3 source bytes.
 - [ ] Confirm AI neighboring context is off by default, is sent only for manual page/document translation when enabled, and is bounded before provider requests.
 - [ ] Confirm AI-capable provider requests include the selected domain, normalized glossary, and custom instructions while keeping source/context in a separate untrusted-data message.
 - [ ] Confirm changing AI translation settings clears the background translation cache and different contexts cannot share a cached result.
@@ -80,9 +81,12 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Load a PDF with standalone equations; confirm likely formulas are labeled as preserved, send no translation request, remain visible in preview, and are not painted over in exported pages.
 - [ ] Confirm an image-only PDF tries local browser OCR first, falls back to bundled Tesseract OCR, reports per-page progress, and reports pages without detected text.
 - [ ] Confirm English, Simplified Chinese, Traditional Chinese, Japanese, and Korean OCR choices persist and are shared by PDF and image translation.
+- [ ] Load representative SRT and VTT files; confirm selecting either file sends no translation request, translation starts only after Translate document, and export replaces cue text while preserving original timing, cue identifiers/settings, WEBVTT metadata and NOTE/STYLE/REGION sections, line endings, and other non-cue content.
 - [ ] Load representative ASS and SSA files; confirm selecting the file sends no translation request, only Dialogue text is translated after Translate document, edited translations are exported, and sections/timing/styles/comments/inline tags remain unchanged while vector drawings remain original.
+- [ ] Load representative MOBI and KF8-based AZW3 files; confirm selection only loads bounded content, no provider request occurs before Translate document, the 64 MiB file/4,096 chapter/8 MiB per-chapter/64 MiB extracted-HTML limits are enforced, chapters follow deterministic spine order, repeated paragraphs are retained, and translated content exports as text without claiming MOBI/AZW3 rewriting.
+- [ ] Select multiple supported documents; confirm the 100-file/64 MiB per-file/128 MiB total limits are enforced, the queue remains idle and sends no provider request until Start batch, concurrency is limited to the selected 1/2/3 value, Cancel stops active work and prevents new items from starting, failed files require Queue failed plus another explicit Start, and Download ZIP is enabled only after all files succeed and produces the same deterministic archive for identical results.
 - [ ] Save an edited document result to history, confirm no entry exists before Save history, reopen it without a translation request, export JSON, change 10/25/50 retention, delete an entry, and clear all history.
-- [ ] Reopen PDF, DOCX, and EPUB results from history; confirm results remain readable but source-format export is disabled because binary source bytes were not persisted.
+- [ ] Reopen PDF, DOCX, EPUB, MOBI, and AZW3 results from history; confirm results remain readable but source-format export is disabled because binary source bytes were not persisted.
 - [ ] Confirm `dist/ocr` includes the worker, SIMD/non-SIMD LSTM core files, five compressed language models, and license files.
 - [ ] Confirm Stop terminates an active image OCR session and removes all image overlays without starting work on another image.
 - [ ] Confirm selected text shows a translation tooltip.

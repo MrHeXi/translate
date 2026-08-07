@@ -63,9 +63,11 @@ Current batch:
 - JSON document string-value extraction in the document translator.
 - Structure-preserving translated JSON export from the document translator.
 - DOCX paragraph text and EPUB spine text extraction in the document translator.
+- Bounded MOBI/KF8-based AZW3 text import with deterministic spine ordering and duplicate paragraph preservation.
 - DOCX translated paragraph export by rewriting text into the original document archive.
 - EPUB translated block export by rewriting readable spine documents into the original book archive.
-- Timing-preserving subtitle file export from the document translator.
+- Structure-preserving SRT/VTT subtitle export that changes cue text only and retains timing, identifiers/settings, WEBVTT metadata sections, non-cue content, and original line endings.
+- Explicit multi-file document batch translation that remains idle after selection, starts only on command, limits concurrency to 1/2/3, supports cancellation and explicit failed-file retry, and emits a deterministic ZIP only after all files succeed.
 - Manual document entry prompt on detected document URLs.
 - Manual video subtitle translation for pages that expose caption or subtitle text tracks.
 - User-invoked local-media transcription through configured OpenAI/Groq endpoints with optional caption translation and SRT/VTT export.
@@ -132,7 +134,7 @@ Current batch:
 - Done: support EPUB files by extracting readable spine document text.
 - Done: export translated DOCX files by rewriting translated paragraph text into the original document archive.
 - Done: export translated EPUB files by rewriting translated readable blocks into the original book archive.
-- Done: export translated SRT and VTT subtitle files while preserving cue timing.
+- Done: export translated SRT and VTT subtitle files by replacing cue text only while preserving timing, identifiers/settings, WEBVTT metadata and NOTE/STYLE/REGION sections, line endings, and other non-cue content.
 - Done: render translated document blocks with bilingual, translation-only, or original-only display.
 - Done: preserve page and coordinate metadata for simple text-based PDF layout blocks.
 - Done: parse standards-compliant PDFs with bundled Mozilla PDF.js, including compressed content streams, page dimensions, font maps, and positioned text lines.
@@ -209,9 +211,9 @@ Current batch:
 - Done: add ASS/SSA subtitle import/export while preserving script structure, timing, style/comment fields, inline override tags, and comma-bearing dialogue text; leave vector-drawing dialogue untouched.
 - Done: make translated document blocks editable and use the edited values for subtitle, JSON, DOCX, EPUB, PDF, and history exports.
 - Done: add explicit local translation history with source metadata, provider/language identity, reopen/export/delete/clear controls, configurable 10/25/50 retention, bounded storage, and no cloud synchronization or binary source persistence.
-- Remaining: add MOBI import with bounded parsing and deterministic text/spine ordering.
-- Add explicit multi-file batch translation with bounded concurrency, per-file status, cancellation, retry, and deterministic exports.
-- Add BabelDOC-compatible PDF workflow guidance and a Zotero-oriented handoff without claiming unsupported third-party integration.
+- Done: add bounded MOBI and KF8-based AZW3 import with a 64 MiB file limit, 4,096-chapter limit, 8 MiB per-chapter limit, 64 MiB extracted-HTML limit, deterministic spine/text ordering, duplicate paragraph preservation, cancellation, and translated-text export without claiming eBook container rewriting.
+- Done: add explicit multi-file batch translation with 100-file, 64 MiB per-file, and 128 MiB total limits that stays idle after file selection, starts only after Start batch, limits concurrency to 1/2/3, reports per-file status, supports cancellation and explicit failed-file retry, and creates a deterministic ZIP only after all files succeed.
+- Remaining: add BabelDOC-compatible PDF workflow guidance and a Zotero-oriented handoff without claiming unsupported third-party integration.
 
 ### Batch J: Video and Site Adapter Parity
 
@@ -236,6 +238,7 @@ Current batch:
 
 - Do not auto-translate a page on load.
 - Do not copy Immersive Translate's automatic or per-site automatic translation behavior; this is an intentional user-required parity exception.
+- Do not translate because the document page opens, files are selected, the queue changes, or failed files are queued for retry; only an explicit Translate document or Start batch command may begin document translation.
 - Do not capture tab audio on page load, from Video subtitles, or from Live captions.
 - Keep the required tab-audio API unused until Capture current tab; keep recordings local until Stop and generate and discard them on cancel, page close, failure, or limit overflow.
 - Do not weaken existing learning functions.
