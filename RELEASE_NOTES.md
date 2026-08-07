@@ -52,6 +52,9 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Non-destructive image fallback for cross-origin-tainted pixels, whole-image OCR boxes, CSS transforms or non-fill object fitting, oversized images, textured artwork, unsafe masks, and translations that cannot fit; Stop aborts provider/reconstruction work and rejects late canvas commits.
 - Content-owned visible-image batch progress survives popup closure and duplicate batch commands coalesce into one operation.
 - Image results follow source movement, invalidate when the source URL, dimensions, or DOM connection changes, and never replace or rewrite source image nodes.
+- Dedicated local Image Translator workspace for up to 12 bounded JPG/JPEG, PNG, or WEBP files loaded by picker, drop, or clipboard paste. Serialized loading enforces the 100 MB/32-million-decoded-pixel queue limits; previews and control changes stay idle until Translate image or Translate all.
+- Local-image Retranslate, Apply/Undo original-versus-translated preview switching, completed PNG download, proportional 3-megapixel OCR working canvases, source-object-URL cleanup, and optional per-image local-only quality ratings that omit source text, translated text, pixels, and file names.
+- A real local-image Translate/Stop toggle aborts OCR and background provider requests, cancels pending PNG encoding, yields between bounded reconstruction stages so Stop can run, and rejects late OCR/provider/render/download results.
 - Content, image, video-subtitle, and live-caption translation caches include provider, target language, settings revision, source text, and context; a single MessageManager listener owns content-script command dispatch so each toggle executes once.
 - 100+ target language choices in settings.
 - 29 implemented provider adapters: Google Translate, MyMemory, DeepL, Microsoft Translator, OpenAI-compatible, Gemini, DeepSeek, OpenRouter, Groq, Qwen, Zhipu GLM/ChatGLM, SiliconFlow, Ollama, Claude, Azure OpenAI, LibreTranslate, Yandex Cloud Translate, NiuTrans, Caiyun Translate, ModernMT, Lingvanex, Naver Papago, Baidu Translate, Volcengine Translate, Alibaba Machine Translation, Amazon Translate, IBM Watson Language Translator, Youdao Translate, and SYSTRAN Translate.
@@ -72,13 +75,13 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 
 ### Verification
 
-Verified on 2026-08-07:
+Verified on 2026-08-08:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand`: passed, 65 test suites and 625 tests.
+- `jest --runInBand`: passed, 68 test suites and 645 tests.
 - `webpack --mode=production`: passed.
-- Runtime source fingerprint: `D4DD7E3EA81F437CE2695F500303F8575C1A18301DAB60E191AFF25CC9AC3D86` in `dist/build-meta.json`.
+- Runtime source fingerprint: `368B68FAA171850158095DC3D2C61C96BF6C845CC3E55EE0E35EF90203180FC8` in `dist/build-meta.json`.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 
 Expected build warnings:
@@ -92,7 +95,7 @@ Expected build warnings:
 
 - Unpacked extension folder: `dist`
 - Test package: `chrome-translation-extension.zip`
-- ZIP size: `17,849,162` bytes
-- SHA-256: `8FA780397DF6A33A306880FFC18026EA7B11C5D91C62C76C5FF4336D54A2658B`
+- ZIP size: `17,885,626` bytes
+- SHA-256: `631B513B29091A3D7FD54F5D052AC9338A33648B85DB1DBBD6929F35D775BC70`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Image Translator - LexiBridge Translate</title>
+  <link rel="stylesheet" href="image.css">
+</head>
+<body>
+  <div id="imageWorkspace" class="image-workspace">
+    <header class="workspace-header">
+      <div>
+        <p class="brand">LexiBridge Translate</p>
+        <h1>Image Translator</h1>
+      </div>
+      <button id="openOptions" class="icon-button" type="button" title="Settings" aria-label="Settings">&#9881;</button>
+    </header>
+
+    <section class="workspace-toolbar" aria-label="Image translation settings">
+      <label>
+        Target
+        <select id="targetLanguage"></select>
+      </label>
+      <label>
+        Provider
+        <select id="translationProvider"></select>
+      </label>
+      <label>
+        OCR language
+        <select id="ocrLanguage"></select>
+      </label>
+    </section>
+
+    <section id="imageDropZone" class="image-input" tabindex="0" aria-label="Choose, drop, or paste images">
+      <label class="file-picker">
+        <input id="imageFiles" type="file" multiple accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp">
+        Choose images
+      </label>
+      <span class="input-separator">or</span>
+      <span>drop or paste JPG, PNG, or WEBP</span>
+    </section>
+
+    <section class="batch-actions" aria-label="Image translation actions">
+      <button id="translateAllImages" class="primary-button" type="button" disabled>Translate all</button>
+      <button id="clearImages" class="secondary-button" type="button" disabled>Clear</button>
+      <p id="workspaceStatus" class="workspace-status" role="status">No images selected</p>
+    </section>
+
+    <main class="workspace-main">
+      <aside class="image-queue" aria-label="Selected images">
+        <div class="queue-heading">
+          <h2>Images</h2>
+          <span id="queueCount">0</span>
+        </div>
+        <div id="imageQueue" class="queue-list"></div>
+      </aside>
+
+      <section class="image-stage" aria-label="Image preview">
+        <div id="emptyStage" class="empty-stage">Select an image</div>
+        <div id="activeStage" class="active-stage" hidden>
+          <header class="stage-heading">
+            <div>
+              <h2 id="activeImageName"></h2>
+              <p id="activeImageMeta"></p>
+            </div>
+            <div class="view-switch" role="group" aria-label="Preview mode">
+              <button id="showOriginal" type="button" class="view-button is-active" aria-pressed="true">Original</button>
+              <button id="showTranslation" type="button" class="view-button" aria-pressed="false" disabled>Translated</button>
+            </div>
+          </header>
+
+          <div id="previewSurface" class="preview-surface">
+            <img id="sourcePreview" alt="Selected source">
+            <div id="translatedPreview" class="translated-preview" hidden></div>
+          </div>
+
+          <div class="image-actions">
+            <button id="translateImage" class="primary-button" type="button">Translate image</button>
+            <button id="applyTranslation" class="secondary-button" type="button" disabled>Apply</button>
+            <button id="undoTranslation" class="secondary-button" type="button" disabled>Undo</button>
+            <button id="downloadTranslation" class="secondary-button" type="button" disabled>Download PNG</button>
+          </div>
+
+          <div class="result-footer">
+            <p id="imageStatus" class="image-status" role="status">Ready</p>
+            <div class="quality-actions" aria-label="Translation quality">
+              <span>Quality</span>
+              <button id="qualityGood" class="icon-button" type="button" title="Good result" aria-label="Good result" disabled>+</button>
+              <button id="qualityPoor" class="icon-button" type="button" title="Poor result" aria-label="Poor result" disabled>-</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="image.js"></script>
+</body>
+</html>

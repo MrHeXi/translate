@@ -60,13 +60,13 @@ class PopupController {
   }
 
   private async initialize(): Promise<void> {
+    this.bindWorkspaceEntry();
     // 加载当前状态
     await this.loadCurrentState();
     await this.loadLiveCaptionTranscriptStatus();
-    
-    // 绑定事件监听器
     this.bindEventListeners();
     
+    // 绑定事件监听器
     // 更新学习统计
     await this.updateLearningStats();
     
@@ -985,6 +985,15 @@ class PopupController {
     }
 
     chrome.tabs.create({ url: documentUrl });
+  }
+
+  private openImageTranslator(): void {
+    chrome.tabs.create({ url: chrome.runtime.getURL('image.html') });
+  }
+
+  private bindWorkspaceEntry(): void {
+    const button = document.getElementById('openImageTranslator') as HTMLButtonElement | null;
+    button?.addEventListener('click', () => this.openImageTranslator(), { once: true });
   }
 
   private isDocumentUrl(url: string): boolean {

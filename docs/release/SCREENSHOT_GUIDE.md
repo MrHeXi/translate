@@ -149,6 +149,13 @@ Capture a safe sample page after explicitly starting an image action by using Im
 - No hidden, offscreen, tiny, or extension-owned graphic presented as a translated batch result.
 - No claim that every scanned document, manga page, or image can be recognized accurately or translated automatically.
 
+Capture the dedicated Image Translator separately:
+
+- First show chosen, dropped, or pasted JPG/JPEG, PNG, or WEBP files in Ready state with no OCR or provider progress; the screenshot must make clear that loading a preview does not start translation.
+- Then show a completed translated canvas with Original/Translated, Retranslate, Apply, Undo, Download PNG, and quality controls visible.
+- Use a separate running screenshot only when the command visibly reads Stop. Do not imply that file selection, paste, opening the workspace, or changing a language starts OCR.
+- Do not include private source images or claim that source pixels or local quality feedback are uploaded.
+
 ### Vocabulary Notebook
 
 Capture the vocabulary page with:

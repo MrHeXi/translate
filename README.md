@@ -138,7 +138,10 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Keep the source image untouched. Reconstruction is limited to 1.5 megapixels and 64 positioned blocks; canvas elements, cross-origin-tainted pixels, whole-image OCR fallback boxes, CSS-transformed or non-fill images, oversized images, complex artwork, and translations that cannot fit safely use the separate DOM text-block overlay instead.
 - Scope content, image, video-subtitle, and live-caption translation caches to the current provider, target language, settings revision, source text, and context.
 - Keep every OCR action explicit; opening or scrolling a page never starts image translation.
-- Whole-chapter site adapters, upload/paste image entry points, manual Apply/Undo, retranslate/feedback, and Download PNG remain planned for later batches.
+- Open the dedicated image workspace to choose, drop, or paste up to 12 JPG/JPEG, PNG, or WEBP files. Loading and changing settings never starts OCR; Translate image or Translate all is required.
+- Stop a local-image run immediately, retranslate one image, switch between the untouched original and translated canvas with Apply/Undo, download a completed PNG, and record optional quality feedback in local Chrome storage without source text or file names.
+- Local uploads are bounded to 20 MB each, 100 MB and 32 million decoded pixels per queue, and 16 million pixels per image. OCR uses a proportional working copy capped at 3 megapixels, while source files remain untouched and are never uploaded as image pixels.
+- Source polygons beyond rectangles, vertical typesetting, and whole-chapter site adapters remain planned for later batches.
 
 ### Vocabulary Learning
 
@@ -333,6 +336,8 @@ In Main content scope, LexiBridge prefers semantic `article`, `main`, and `[role
 2. Open the extension popup and click Start in Image text.
 3. Click an image, canvas, or SVG, drag over a specific image region, or click Translate visible images to process eligible graphics in the current viewport.
 4. Click Stop to cancel active recognition or a visible-image batch, terminate its local OCR session, remove overlays, and exit image text translation mode.
+
+For local files, click Open image translator in the popup, choose, drop, or paste JPG/JPEG, PNG, or WEBP files, then click Translate image or Translate all. Use the same button as Stop while work is active; Apply/Undo switches the preview without changing the source file.
 
 ### Study Vocabulary
 

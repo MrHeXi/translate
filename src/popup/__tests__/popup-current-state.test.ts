@@ -13,6 +13,7 @@ const setupPopupDom = (): void => {
     <button id="openSubtitleGenerator"></button>
     <button id="toggleLiveCaptions"></button>
     <button id="toggleImageTranslation"></button>
+    <button id="openImageTranslator"></button>
     <button id="translateBtn"></button>
     <button id="vocabularyBtn"></button>
     <button id="reviewBtn"></button>
@@ -178,5 +179,46 @@ describe('Popup current tab state', () => {
     expect((global as any).chrome.tabs.create).toHaveBeenCalledWith({
       url: 'chrome-extension://test/subtitles.html?sourceTabId=1'
     });
+  });
+
+  it('opens the image workspace only after its popup button is clicked', async () => {
+    require('../popup');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    expect((global as any).chrome.tabs.create).not.toHaveBeenCalled();
+    document.getElementById('openImageTranslator')!.dispatchEvent(new Event('click'));
+
+    expect((global as any).chrome.runtime.getURL).toHaveBeenCalledWith('image.html');
+    expect((global as any).chrome.tabs.create).toHaveBeenCalledWith({
+      url: 'chrome-extension://test/image.html'
+    });
+  });
+
+  it('binds only the image workspace entry while current-tab status is pending', async () => {
+    const pendingStatus: { release?: (response: any) => void } = {};
+    const sendTabMessage = jest.fn((_tabId: number, _message: any, callback: (response?: any) => void) => {
+      if (!pendingStatus.release) {
+        pendingStatus.release = callback;
+      } else {
+        callback({ success: true, data: {} });
+      }
+    });
+    (global as any).chrome.tabs.sendMessage = sendTabMessage;
+    require('../popup');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await Promise.resolve();
+    await Promise.resolve();
+    const pendingCallCount = sendTabMessage.mock.calls.length;
+
+    document.getElementById('toggleTranslation')!.dispatchEvent(new Event('click'));
+    document.getElementById('openImageTranslator')!.dispatchEvent(new Event('click'));
+
+    expect(sendTabMessage).toHaveBeenCalledTimes(pendingCallCount);
+    expect((global as any).chrome.tabs.create).toHaveBeenCalledWith({
+      url: 'chrome-extension://test/image.html'
+    });
+    pendingStatus.release?.({ success: true, data: { isActive: false } });
+    await flushPromises();
   });
 });

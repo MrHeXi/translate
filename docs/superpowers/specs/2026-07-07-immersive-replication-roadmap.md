@@ -190,7 +190,9 @@ Current batch:
 - Done: add an HTTP/HTTPS-only frame-aware image context menu with one-time content injection for eligible older tabs, initialization polling, recent-target validation, unique-URL fallback, and no persistent page-wide image handlers for one-shot commands.
 - Done: add a closeable hover toolbar after manual Image text Start, a global explicit `Z` one-shot region arm that runs no OCR before a valid drag, editable/IME/modifier protection, and Escape/Stop cancellation.
 - Done: add per-image cache-bypassing Retranslate, non-destructive Apply/Undo, reconstructed-canvas-only Download PNG with object-URL cleanup, overlay movement synchronization, and stale source invalidation.
-- Remaining: source polygons beyond rectangles, vertical typesetting, image upload/paste workflow, whole-chapter site adapters, and per-image quality feedback.
+- Done: add a dedicated local image workspace for bounded JPG/JPEG, PNG, and WEBP choose/drop/paste queues; selection and settings changes stay idle until Translate image or Translate all, and the active command becomes an immediate Stop.
+- Done: scale only the local OCR working canvas to 3 megapixels, keep source pixels local and untouched, cancel OCR/provider/reconstruction work by run ID, support per-image Retranslate and Apply/Undo preview switching, download completed PNG results, and store optional per-image quality ratings locally without source text, pixels, or file names.
+- Remaining: source polygons beyond rectangles, vertical typesetting, and whole-chapter site adapters.
 
 ### Batch G: Meeting Subtitle Translation
 
@@ -250,6 +252,7 @@ Current batch:
 - Do not auto-translate a page on load.
 - Do not copy Immersive Translate's automatic or per-site automatic translation behavior; this is an intentional user-required parity exception.
 - Do not translate because the document page opens, files are selected, the queue changes, or failed files are queued for retry; only an explicit Translate document or Start batch command may begin document translation.
+- Do not OCR or translate because the image workspace opens, files are chosen/dropped/pasted, previews are switched, or provider/language settings change; only Translate image, Retranslate, or Translate all may begin local-image work.
 - Do not capture tab audio on page load, from Video subtitles, or from Live captions.
 - Do not keep Video subtitles active across a YouTube SPA change to another video; restore the previous track and require another explicit Start.
 - Keep the required tab-audio API unused until Capture current tab; keep recordings local until Stop and generate and discard them on cancel, page close, failure, or limit overflow.

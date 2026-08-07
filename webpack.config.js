@@ -47,6 +47,8 @@ module.exports = (env, argv) => {
       vocabulary: './src/options/vocabulary.ts',
       review: './src/options/review.ts',
       document: './src/options/document.ts',
+      image: './src/image/image.ts',
+      'image-processor-worker': './src/image/image-processor-worker.ts',
       sidepanel: './src/sidepanel/sidepanel.ts',
       subtitles: './src/subtitles/subtitles.ts'
     },
@@ -135,6 +137,14 @@ module.exports = (env, argv) => {
           {
             from: 'src/options/document.css',
             to: 'document.css'
+          },
+          {
+            from: 'src/image/image.html',
+            to: 'image.html'
+          },
+          {
+            from: 'src/image/image.css',
+            to: 'image.css'
           },
           {
             from: 'src/sidepanel/sidepanel.html',

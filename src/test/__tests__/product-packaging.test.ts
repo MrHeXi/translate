@@ -133,6 +133,9 @@ describe('product packaging contract', () => {
     expect(readme).toContain('Image Text Translation');
     expect(readme).toContain('Translate visible images');
     expect(readme).toContain('opening or scrolling a page never starts image translation');
+    expect(readme).toContain('Open the dedicated image workspace');
+    expect(readme).toContain('Loading and changing settings never starts OCR');
+    expect(readme).toContain('quality feedback in local Chrome storage without source text or file names');
     expect(readme).toContain('`.html`, `.htm`');
     expect(readme).toContain('`.json`');
     expect(readme).toContain('`.docx`, `.epub`');
@@ -216,6 +219,8 @@ describe('product packaging contract', () => {
     expect(privacy).toContain('excluded from translation-provider requests');
     expect(privacy).toContain('do not contact an OCR server');
     expect(privacy).toContain('local OCR worker is terminated');
+    expect(privacy).toContain('Choosing, dropping, or pasting JPG/JPEG, PNG, or WEBP files only loads local previews');
+    expect(privacy).toContain('Local image quality feedback is optional, stays in local Chrome storage');
     expect(privacy).toContain('Neighboring page or document context is disabled by default');
     expect(privacy).toContain('Glossary and prompt settings may sync through Chrome storage');
 
@@ -285,6 +290,8 @@ describe('product packaging contract', () => {
     expect(listing).toContain('separate non-destructive text overlays');
     expect(listing).toContain('frame-aware right-click menu');
     expect(listing).toContain('Per-image Retranslate');
+    expect(listing).toContain('Dedicated local image workspace');
+    expect(listing).toContain('remains idle after choose/drop/paste');
     expect(listing).toContain('Download PNG is offered only for safe reconstructed canvases');
     expect(listing).toContain('does not record audio, join calls, or transcribe speech');
     expect(listing).toContain('100+ target language choices');
@@ -323,10 +330,10 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('65 test suites and 625 tests');
-    expect(releaseNotes).toContain('17,849,162');
-    expect(releaseNotes).toContain('8FA780397DF6A33A306880FFC18026EA7B11C5D91C62C76C5FF4336D54A2658B');
-    expect(releaseNotes).toContain('D4DD7E3EA81F437CE2695F500303F8575C1A18301DAB60E191AFF25CC9AC3D86');
+    expect(releaseNotes).toContain('68 test suites and 645 tests');
+    expect(releaseNotes).toContain('17,885,626');
+    expect(releaseNotes).toContain('631B513B29091A3D7FD54F5D052AC9338A33648B85DB1DBBD6929F35D775BC70');
+    expect(releaseNotes).toContain('368B68FAA171850158095DC3D2C61C96BF6C845CC3E55EE0E35EF90203180FC8');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -353,6 +360,8 @@ describe('product packaging contract', () => {
     expect(releaseNotes).toContain('frame-aware right-click command');
     expect(releaseNotes).toContain('one-shot `Z` region selector');
     expect(releaseNotes).toContain('Per-image Retranslate, Apply, Undo');
+    expect(releaseNotes).toContain('Dedicated local Image Translator workspace');
+    expect(releaseNotes).toContain('optional per-image local-only quality ratings');
 
     expect(screenshotGuide).toContain('Popup Overview');
     expect(screenshotGuide).toContain('Floating Button');
@@ -394,6 +403,8 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('non-destructive region overlay fallback');
     expect(screenshotGuide).toContain('completed `Z`-armed region drag');
     expect(screenshotGuide).toContain('Download PNG');
+    expect(screenshotGuide).toContain('dedicated Image Translator');
+    expect(screenshotGuide).toContain('loading a preview does not start translation');
     expect(screenshotGuide).toContain('Vocabulary Notebook');
     expect(screenshotGuide).toContain('Review Page');
     expect(screenshotGuide).toContain('Options');
@@ -467,6 +478,8 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('fall back to non-destructive DOM overlays');
     expect(roadmap).toContain('visible-image batch state content-owned and recoverable after popup closure');
     expect(roadmap).toContain('cache-bypassing Retranslate, non-destructive Apply/Undo');
+    expect(roadmap).toContain('dedicated local image workspace');
+    expect(roadmap).toContain('quality ratings locally without source text, pixels, or file names');
     expect(roadmap).toContain('Multiple translation engines');
     expect(roadmap).toContain('29 implemented provider adapters');
     expect(roadmap).toContain('Papago, Baidu, Volcengine, Alibaba, Amazon, IBM Watson, Youdao, and SYSTRAN');
@@ -497,6 +510,7 @@ describe('product packaging contract', () => {
     const packageJson = JSON.parse(readProjectFile('package.json'));
     const webpackConfig = readProjectFile('webpack.config.js');
     const documentHtml = readProjectFile('src/options/document.html');
+    const imageHtml = readProjectFile('src/image/image.html');
 
     expect(packageJson.dependencies).toEqual(expect.objectContaining({
       '@lingo-reader/mobi-parser': '0.4.6',
@@ -540,6 +554,15 @@ describe('product packaging contract', () => {
     expect(optionsHtml).toContain('id="aiCustomPrompt"');
     expect(optionsHtml).toContain('Save provider configuration');
     expect(optionsHtml).toContain('Remove configuration');
+    expect(webpackConfig).toContain("image: './src/image/image.ts'");
+    expect(webpackConfig).toContain("'image-processor-worker': './src/image/image-processor-worker.ts'");
+    expect(webpackConfig).toContain("from: 'src/image/image.html'");
+    expect(webpackConfig).toContain("from: 'src/image/image.css'");
+    expect(imageHtml).toContain('id="imageFiles"');
+    expect(imageHtml).toContain('id="translateAllImages"');
+    expect(imageHtml).toContain('id="translateImage"');
+    expect(imageHtml).toContain('id="downloadTranslation"');
+    expect(imageHtml).toContain('id="qualityGood"');
     expect(webpackConfig).toContain("sidepanel: './src/sidepanel/sidepanel.ts'");
     expect(webpackConfig).toContain("from: 'src/sidepanel/sidepanel.html'");
     const sidePanelHtml = readProjectFile('src/sidepanel/sidepanel.html');
