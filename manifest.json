@@ -9,6 +9,7 @@
     "activeTab",
     "scripting",
     "tabs",
+    "contextMenus",
     "sidePanel",
     "tabCapture"
   ],

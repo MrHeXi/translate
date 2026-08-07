@@ -139,9 +139,11 @@ Capture a safe sample page where captions are already visible after manually sta
 
 ### Image Text
 
-Capture a safe sample page after manually starting Image text from the popup and clicking an image, dragging over a region, or clicking Translate visible images:
+Capture a safe sample page after explicitly starting an image action by using Image text, the image right-click menu, a completed `Z`-armed region drag, or Translate visible images:
 
 - The Translate visible images command visible in the popup, or multiple image text results visible after that explicit command.
+- In a separate close-up, show the image hover toolbar with Retranslate, Apply, Undo, and, for a safe reconstructed canvas only, Download PNG. Do not show a download control for a DOM-overlay fallback.
+- A `Z` screenshot may show the armed selection rectangle before release, but must not imply that pressing `Z` alone starts OCR.
 - For a safe same-origin regular comic sample with positioned OCR, the temporary reconstructed canvas may show source text removed and translated text fitted inside the bubble. For unsafe/unsupported samples, show the non-destructive region overlay fallback instead.
 - The source images, canvases, or SVGs visible enough to show the user-triggered targets.
 - No hidden, offscreen, tiny, or extension-owned graphic presented as a translated batch result.

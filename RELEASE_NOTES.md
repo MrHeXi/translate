@@ -42,12 +42,16 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Live caption translation for caption text already visible in the page DOM, with Google Meet, Zoom, Microsoft Teams, and Webex-style speaker label handling.
 - Timestamped bilingual live-caption transcripts with incremental-caption coalescing, in-memory session retention after Stop, explicit Clear, and local TXT/SRT/VTT/JSON export.
 - Manual image text translation for selected images, canvases, SVGs, dragged image regions, and eligible graphics currently visible in the viewport, using browser OCR first and bundled offline OCR otherwise while retaining separate per-image or OCR-block overlays.
+- Explicit image entry points for a frame-aware right-click command, hover actions available only after Image text is started, and a one-shot `Z` region selector; opening a page, showing the hover controls, or pressing `Z` does not run OCR until the user chooses Translate or completes a valid drag selection.
+- Per-image Retranslate, Apply, Undo, and reconstructed-canvas Download PNG actions. Retranslate bypasses completed and pending translation caches, Apply commits only extension-owned overlays, Undo restores the untouched source, and object URLs are revoked after downloads.
+- Right-click image commands target the originating frame, inject the content bundle once into eligible pre-existing tabs when needed, wait for content initialization, reject ambiguous duplicate image URLs, and never enable persistent page-wide image click handlers.
 - Persisted offline OCR language selection for English, Simplified Chinese, Traditional Chinese, Japanese, and Korean, with PDF page progress and local worker cleanup on Stop.
 - Explicit Translate visible images command with hidden/offscreen/tiny/extension-owned filtering, duplicate-text request caching, and immediate batch cancellation when Image text stops.
 - Deterministic local comic reconstruction for safe regular bubbles: bounded panel/bubble detection, OCR line grouping, contrast text masks, flat/smooth-background repair, and measured CJK/word/RTL-aware text fitting in a temporary canvas overlay without changing the source image.
 - Image OCR surfaces are capped at 3 megapixels, distinct OCR blocks at 200, provider concurrency at four, and synchronous comic reconstruction at 1.5 megapixels/64 positioned blocks; final glyph painting is clipped to each bubble.
 - Non-destructive image fallback for cross-origin-tainted pixels, whole-image OCR boxes, CSS transforms or non-fill object fitting, oversized images, textured artwork, unsafe masks, and translations that cannot fit; Stop aborts provider/reconstruction work and rejects late canvas commits.
 - Content-owned visible-image batch progress survives popup closure and duplicate batch commands coalesce into one operation.
+- Image results follow source movement, invalidate when the source URL, dimensions, or DOM connection changes, and never replace or rewrite source image nodes.
 - Content, image, video-subtitle, and live-caption translation caches include provider, target language, settings revision, source text, and context; a single MessageManager listener owns content-script command dispatch so each toggle executes once.
 - 100+ target language choices in settings.
 - 29 implemented provider adapters: Google Translate, MyMemory, DeepL, Microsoft Translator, OpenAI-compatible, Gemini, DeepSeek, OpenRouter, Groq, Qwen, Zhipu GLM/ChatGLM, SiliconFlow, Ollama, Claude, Azure OpenAI, LibreTranslate, Yandex Cloud Translate, NiuTrans, Caiyun Translate, ModernMT, Lingvanex, Naver Papago, Baidu Translate, Volcengine Translate, Alibaba Machine Translation, Amazon Translate, IBM Watson Language Translator, Youdao Translate, and SYSTRAN Translate.
@@ -72,9 +76,9 @@ Verified on 2026-08-07:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand`: passed, 65 test suites and 612 tests.
+- `jest --runInBand`: passed, 65 test suites and 625 tests.
 - `webpack --mode=production`: passed.
-- Runtime source fingerprint: `4CD34B7C68A9F4A2B257E5E9AD0A26352267ABCA45FC2F72321D2E33F98CEC89` in `dist/build-meta.json`.
+- Runtime source fingerprint: `D4DD7E3EA81F437CE2695F500303F8575C1A18301DAB60E191AFF25CC9AC3D86` in `dist/build-meta.json`.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 
 Expected build warnings:
@@ -88,7 +92,7 @@ Expected build warnings:
 
 - Unpacked extension folder: `dist`
 - Test package: `chrome-translation-extension.zip`
-- ZIP size: `17,843,997` bytes
-- SHA-256: `804FA16F0182204541ADC48C0BEE59FD72547943E6AA4B7C4A8A034ACE3000B1`
+- ZIP size: `17,849,162` bytes
+- SHA-256: `8FA780397DF6A33A306880FFC18026EA7B11C5D91C62C76C5FF4336D54A2658B`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

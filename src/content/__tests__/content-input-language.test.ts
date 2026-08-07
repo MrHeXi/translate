@@ -126,6 +126,7 @@ describe('content input-language integration', () => {
     }));
     jest.doMock('../components/ImageTranslator', () => ({
       ImageTranslator: jest.fn().mockImplementation(() => ({
+        configure: jest.fn(),
         getStatus: jest.fn(() => ({ isActive: false })),
         cleanup: jest.fn()
       }))

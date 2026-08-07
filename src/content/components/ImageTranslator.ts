@@ -42,6 +42,12 @@ export interface VisibleImageTranslationResult {
   message: string;
 }
 
+export interface SingleImageTranslationResult {
+  isActive: boolean;
+  translated: boolean;
+  message: string;
+}
+
 export interface ImageTranslationRequest {
   requestId: string;
   signal: AbortSignal;
@@ -124,6 +130,7 @@ const MAX_IMAGE_TEXT_BLOCKS = COMIC_IMAGE_LIMITS.maxBubbles;
 const MAX_IMAGE_TRANSLATION_CONCURRENCY = 4;
 const MAX_COMIC_RECONSTRUCTION_BLOCKS = 64;
 const MAX_COMIC_RECONSTRUCTION_PIXELS = 1_500_000;
+const CONTEXT_MENU_TARGET_MAX_AGE_MS = 5_000;
 
 declare global {
   interface Window {
@@ -144,6 +151,7 @@ export class ImageTranslator {
   private suppressNextClick = false;
   private translationCache: Map<string, string> = new Map();
   private pendingTranslationCache: Map<string, Promise<string>> = new Map();
+  private translationCacheGenerations: Map<string, number> = new Map();
   private targetTranslationRuns: WeakMap<Element, number> = new WeakMap();
   private nextTargetTranslationRun = 0;
   private visibleImageRun = 0;
@@ -152,6 +160,8 @@ export class ImageTranslator {
   private requestSequence = 0;
   private activeRequestControllers = new Set<AbortController>();
   private activeProcessingControllers = new Set<AbortController>();
+  private activeBlobCancellations = new Set<() => void>();
+  private activeObjectUrls = new Set<string>();
   private activeVisibleImageBatch: {
     operationId: string;
     promise: Promise<VisibleImageTranslationResult>;
@@ -162,6 +172,23 @@ export class ImageTranslator {
   private statusMessage = 'Image translation stopped';
   private ocrLanguage: BundledOcrLanguageCode = 'eng';
   private bundledOcrSession: BundledOcrSession | null = null;
+  private isInitialized = false;
+  private interactionMode: 'off' | 'page' | 'context-once' | 'region-once' = 'off';
+  private lastContextMenuTarget: Element | null = null;
+  private lastContextMenuCapturedAt = 0;
+  private hoveredTarget: Element | null = null;
+  private hoverToolbar: HTMLElement | null = null;
+  private hoverEntryDismissedForDocument = false;
+  private regionSelectionArmedTarget: Element | null = null;
+  private resultStates: Map<Element, 'preview' | 'applied'> = new Map();
+  private overlayAnchors: Map<Element, {
+    left: number;
+    top: number;
+    scrollX: number;
+    scrollY: number;
+  }> = new Map();
+  private resultSourceIdentities: Map<Element, string> = new Map();
+  private resultObserver: MutationObserver | null = null;
   private boundHandleClick = (event: MouseEvent): void => {
     void this.handleImageClick(event);
   };
@@ -174,8 +201,49 @@ export class ImageTranslator {
   private boundHandleMouseUp = (event: MouseEvent): void => {
     void this.handleMouseUp(event);
   };
+  private boundHandleContextMenu = (event: MouseEvent): void => {
+    const target = this.getImageTarget(event);
+    if (target) {
+      this.lastContextMenuTarget = target;
+      this.lastContextMenuCapturedAt = Date.now();
+    }
+  };
+  private boundHandleMouseOver = (event: MouseEvent): void => {
+    this.handleImageHover(event);
+  };
+  private boundHandleMouseOut = (event: MouseEvent): void => {
+    this.handleImageOut(event);
+  };
+  private boundHandleKeyDown = (event: KeyboardEvent): void => {
+    void this.handleImageShortcut(event);
+  };
+  private boundHandleViewportChange = (): void => {
+    this.hideHoverToolbar();
+    this.pruneStaleResults();
+    this.refreshOverlayPositions();
+  };
 
   constructor(private readonly imageOcrService: BundledOcrService = bundledOcrService) {}
+
+  initialize(): void {
+    if (this.isInitialized) return;
+    this.isInitialized = true;
+    document.addEventListener('contextmenu', this.boundHandleContextMenu, true);
+    document.addEventListener('mouseover', this.boundHandleMouseOver, true);
+    document.addEventListener('mouseout', this.boundHandleMouseOut, true);
+    document.addEventListener('keydown', this.boundHandleKeyDown, true);
+  }
+
+  configure(
+    translateText: TranslateText,
+    ocrLanguage: BundledOcrLanguageCode = 'eng',
+    createTranslationCacheKey: CreateTranslationCacheKey = text => text
+  ): void {
+    this.initialize();
+    this.translateText = translateText;
+    this.createTranslationCacheKey = createTranslationCacheKey;
+    this.updateOcrLanguage(ocrLanguage);
+  }
 
   async toggle(
     translateText: TranslateText,
@@ -203,18 +271,25 @@ export class ImageTranslator {
     ocrLanguage: BundledOcrLanguageCode = 'eng',
     createTranslationCacheKey: CreateTranslationCacheKey = text => text
   ): ImageTranslatorState {
+    this.configure(translateText, ocrLanguage, createTranslationCacheKey);
+    if (this.isActive) {
+      return this.getStatus();
+    }
+
     this.interactionEpoch += 1;
     this.isActive = true;
-    this.translateText = translateText;
-    this.createTranslationCacheKey = createTranslationCacheKey;
-    this.ocrLanguage = ocrLanguage;
+    this.interactionMode = 'page';
     this.statusMessage = 'Image translation started';
+    this.hoverEntryDismissedForDocument = false;
     this.createStyleElement();
     document.body.classList.add('lexibridge-image-translation-mode');
     document.addEventListener('mousedown', this.boundHandleMouseDown, true);
     document.addEventListener('mousemove', this.boundHandleMouseMove, true);
     document.addEventListener('mouseup', this.boundHandleMouseUp, true);
     document.addEventListener('click', this.boundHandleClick, true);
+    window.addEventListener('scroll', this.boundHandleViewportChange, true);
+    window.addEventListener('resize', this.boundHandleViewportChange);
+    this.ensureResultObserver();
 
     const hasImage = this.findImageCandidates().length > 0;
 
@@ -229,9 +304,38 @@ export class ImageTranslator {
     };
   }
 
+  enableContextMode(
+    translateText: TranslateText,
+    ocrLanguage: BundledOcrLanguageCode = 'eng',
+    createTranslationCacheKey: CreateTranslationCacheKey = text => text
+  ): ImageTranslatorState {
+    this.configure(translateText, ocrLanguage, createTranslationCacheKey);
+    if (this.isActive) return this.getStatus();
+
+    this.interactionEpoch += 1;
+    this.isActive = true;
+    this.interactionMode = 'context-once';
+    this.statusMessage = 'Context image translation started';
+    this.createStyleElement();
+    this.ensureResultObserver();
+    window.addEventListener('scroll', this.boundHandleViewportChange, true);
+    window.addEventListener('resize', this.boundHandleViewportChange);
+    const hasImage = this.findImageCandidates().length > 0;
+    return {
+      isActive: true,
+      hasImage,
+      isBatchRunning: false,
+      operationId: null,
+      processedImageCount: 0,
+      totalImageCount: 0,
+      message: hasImage ? 'Context image translation started' : 'No image found'
+    };
+  }
+
   disable(): void {
     this.interactionEpoch += 1;
     this.isActive = false;
+    this.interactionMode = 'off';
     this.visibleImageRun += 1;
     this.activeVisibleImageBatch = null;
     this.processedImageCount = 0;
@@ -239,17 +343,31 @@ export class ImageTranslator {
     this.statusMessage = 'Image translation stopped';
     this.abortActiveRequests();
     this.abortActiveProcessing();
+    this.cancelActiveDownloads();
     this.pendingTranslationCache.clear();
     this.translationCache.clear();
+    this.translationCacheGenerations.clear();
     document.removeEventListener('mousedown', this.boundHandleMouseDown, true);
     document.removeEventListener('mousemove', this.boundHandleMouseMove, true);
     document.removeEventListener('mouseup', this.boundHandleMouseUp, true);
     document.removeEventListener('click', this.boundHandleClick, true);
+    window.removeEventListener('scroll', this.boundHandleViewportChange, true);
+    window.removeEventListener('resize', this.boundHandleViewportChange);
     document.body.classList.remove('lexibridge-image-translation-mode');
+    document.body.classList.remove('lexibridge-image-region-armed');
     this.removeAllOverlays();
     this.removeSelectionBox();
     this.selectionState = null;
     this.suppressNextClick = false;
+    this.hoveredTarget = null;
+    this.hoverEntryDismissedForDocument = false;
+    this.regionSelectionArmedTarget = null;
+    this.hideHoverToolbar();
+    this.resultStates.clear();
+    this.overlayAnchors.clear();
+    this.resultSourceIdentities.clear();
+    this.resultObserver?.disconnect();
+    this.resultObserver = null;
     this.styleElement?.remove();
     this.styleElement = null;
     this.targetTranslationRuns = new WeakMap();
@@ -276,6 +394,7 @@ export class ImageTranslator {
 
   clearTranslationCache(): void {
     this.translationCache.clear();
+    this.translationCacheGenerations.clear();
   }
 
   invalidateForSettingsChange(): void {
@@ -286,8 +405,10 @@ export class ImageTranslator {
     this.totalImageCount = 0;
     this.abortActiveRequests();
     this.abortActiveProcessing();
+    this.cancelActiveDownloads();
     this.pendingTranslationCache.clear();
     this.translationCache.clear();
+    this.translationCacheGenerations.clear();
     this.targetTranslationRuns = new WeakMap();
     this.removeAllOverlays();
     this.statusMessage = this.isActive ? 'Image translation settings updated' : 'Image translation stopped';
@@ -295,8 +416,39 @@ export class ImageTranslator {
 
   cleanup(): void {
     this.disable();
+    if (this.isInitialized) {
+      document.removeEventListener('contextmenu', this.boundHandleContextMenu, true);
+      document.removeEventListener('mouseover', this.boundHandleMouseOver, true);
+      document.removeEventListener('mouseout', this.boundHandleMouseOut, true);
+      document.removeEventListener('keydown', this.boundHandleKeyDown, true);
+      this.isInitialized = false;
+    }
+    this.lastContextMenuTarget = null;
+    this.lastContextMenuCapturedAt = 0;
     this.translationCache.clear();
     this.pendingTranslationCache.clear();
+    this.translationCacheGenerations.clear();
+  }
+
+  async translateImageFromSourceUrl(srcUrl: string): Promise<SingleImageTranslationResult> {
+    if (!this.isActive || !this.translateText) {
+      return { isActive: false, translated: false, message: 'Start image translation first' };
+    }
+
+    const target = this.resolveImageTarget(srcUrl);
+    if (!target) {
+      return { isActive: true, translated: false, message: 'Image is no longer available' };
+    }
+
+    const outcome = await this.translateTarget(target, false);
+    const translated = outcome === 'translated';
+    return {
+      isActive: this.isActive,
+      translated,
+      message: translated
+        ? 'Image translated'
+        : outcome === 'cancelled' ? 'Image translation stopped' : 'Image translation failed'
+    };
   }
 
   translateVisibleImages(): Promise<VisibleImageTranslationResult> {
@@ -313,7 +465,7 @@ export class ImageTranslator {
   }
 
   private async runVisibleImageTranslation(operationId: string): Promise<VisibleImageTranslationResult> {
-    if (!this.isActive || !this.translateText) {
+    if (!this.isActive || this.interactionMode !== 'page' || !this.translateText) {
       return {
         isActive: false,
         visibleImageCount: 0,
@@ -418,18 +570,406 @@ export class ImageTranslator {
 
     event.preventDefault();
     event.stopPropagation();
+    await this.translateTarget(target, false);
+  }
+
+  private async translateTarget(
+    target: Element,
+    forceRefresh: boolean,
+    region?: ImageSelectionRegion
+  ): Promise<ImageTranslationOutcome> {
+    if (!this.isActive || !this.translateText || !target.isConnected) return 'cancelled';
+
+    const targetRunId = ++this.nextTargetTranslationRun;
+    this.targetTranslationRuns.set(target, targetRunId);
+    const sourceFingerprint = this.getSourceFingerprint(target, region);
     const interactionEpoch = this.interactionEpoch;
+    this.renderStatus(
+      target,
+      region ? 'Reading selected image area...' : 'Reading image text...',
+      region
+    );
 
-    this.renderStatus(target, 'Reading image text...');
-
-    const imageBlocks = await this.extractImageTextBlocks(target);
-    if (!this.isInteractionEpochActive(interactionEpoch)) return;
+    const imageBlocks = await this.extractImageTextBlocks(target, region);
+    if (!this.isInteractionEpochActive(interactionEpoch)) return 'cancelled';
+    if (!this.isTargetTranslationRunActive(target, targetRunId)) return 'cancelled';
+    if (!this.isSourceFingerprintCurrent(target, sourceFingerprint, region)) {
+      this.removeTargetOverlays(target);
+      return 'cancelled';
+    }
     if (imageBlocks.length === 0) {
-      this.renderStatus(target, 'No readable image text found');
+      this.renderStatus(
+        target,
+        region ? 'No readable text found in selection' : 'No readable image text found',
+        region
+      );
+      return 'failed';
+    }
+
+    return this.translateImageBlocks(
+      target,
+      imageBlocks,
+      region,
+      forceRefresh,
+      targetRunId,
+      sourceFingerprint
+    );
+  }
+
+  private handleImageHover(event: MouseEvent): void {
+    const target = this.getImageTarget(event);
+    if (!target) return;
+    this.hoveredTarget = target;
+    if (!this.isActive || this.interactionMode !== 'page' || this.hoverEntryDismissedForDocument) return;
+    this.showHoverToolbar(target);
+  }
+
+  private handleImageOut(event: MouseEvent): void {
+    const target = this.getImageTarget(event);
+    if (!target || this.hoveredTarget !== target) return;
+    const relatedTarget = event.relatedTarget;
+    if (
+      relatedTarget instanceof Element &&
+      (target.contains(relatedTarget) || relatedTarget.closest('.lexibridge-image-hover-toolbar'))
+    ) return;
+    this.hoveredTarget = null;
+    this.hideHoverToolbar();
+  }
+
+  private async handleImageShortcut(event: KeyboardEvent): Promise<void> {
+    if (event.defaultPrevented || event.isComposing || this.isEditableEvent(event)) return;
+
+    if (event.key === 'Escape' && this.regionSelectionArmedTarget) {
+      if (this.interactionMode === 'region-once') {
+        this.disable();
+      } else {
+        this.disarmRegionSelection();
+      }
       return;
     }
 
-    await this.translateImageBlocks(target, imageBlocks);
+    if (
+      !this.translateText ||
+      this.interactionMode === 'context-once' ||
+      event.repeat ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      event.key.toLowerCase() !== 'z' ||
+      !this.hoveredTarget?.isConnected
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (!this.isActive) this.enableRegionMode();
+    if (this.interactionMode !== 'page' && this.interactionMode !== 'region-once') return;
+    this.regionSelectionArmedTarget = this.hoveredTarget;
+    document.body.classList.add('lexibridge-image-region-armed');
+  }
+
+  private enableRegionMode(): void {
+    this.interactionEpoch += 1;
+    this.isActive = true;
+    this.interactionMode = 'region-once';
+    this.statusMessage = 'Image region selection ready';
+    this.createStyleElement();
+    this.ensureResultObserver();
+    window.addEventListener('scroll', this.boundHandleViewportChange, true);
+    window.addEventListener('resize', this.boundHandleViewportChange);
+    document.addEventListener('mousedown', this.boundHandleMouseDown, true);
+    document.addEventListener('mousemove', this.boundHandleMouseMove, true);
+    document.addEventListener('mouseup', this.boundHandleMouseUp, true);
+  }
+
+  private isEditableEvent(event: KeyboardEvent): boolean {
+    return event.composedPath().some(target => {
+      if (!(target instanceof Element)) return false;
+      if (target instanceof HTMLElement && target.isContentEditable) return true;
+      return Boolean(target.closest(
+        'input, textarea, select, [contenteditable]:not([contenteditable="false"])'
+      ));
+    });
+  }
+
+  private showHoverToolbar(target: Element): void {
+    if (
+      !this.isActive ||
+      this.interactionMode !== 'page' ||
+      !target.isConnected ||
+      this.hoverEntryDismissedForDocument
+    ) return;
+
+    this.hideHoverToolbar();
+    const toolbar = document.createElement('div');
+    toolbar.className = 'lexibridge-image-hover-toolbar';
+    toolbar.setAttribute('data-lexibridge-owned', 'true');
+    toolbar.setAttribute('role', 'toolbar');
+    toolbar.setAttribute('aria-label', 'Image translation actions');
+
+    const state = this.resultStates.get(target);
+    this.appendToolbarButton(toolbar, state ? 'retranslate' : 'translate', state ? 'Retranslate image' : 'Translate image', state ? 'R' : 'T');
+    if (state === 'preview') this.appendToolbarButton(toolbar, 'apply', 'Apply translation', '\u2713');
+    if (state) this.appendToolbarButton(toolbar, 'undo', 'Undo translation', '\u21b6');
+    if (this.getReconstructedCanvas(target)) {
+      this.appendToolbarButton(toolbar, 'download', 'Download translated PNG', '\u2193');
+    }
+    this.appendToolbarButton(toolbar, 'close', 'Close image actions', '\u00d7');
+
+    toolbar.addEventListener('mousedown', event => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    toolbar.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      const button = (event.target as Element | null)?.closest<HTMLButtonElement>('button[data-action]');
+      if (!button) return;
+      void this.handleToolbarAction(target, button.dataset.action || '');
+    });
+
+    const rect = target.getBoundingClientRect();
+    Object.assign(toolbar.style, {
+      left: `${Math.max(8, Math.min(window.innerWidth - 224, rect.right - 216))}px`,
+      top: `${Math.max(8, rect.top + 8)}px`
+    });
+    document.body.appendChild(toolbar);
+    this.hoverToolbar = toolbar;
+  }
+
+  private appendToolbarButton(
+    toolbar: HTMLElement,
+    action: string,
+    label: string,
+    icon: string
+  ): void {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.action = action;
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    button.textContent = icon;
+    toolbar.appendChild(button);
+  }
+
+  private async handleToolbarAction(target: Element, action: string): Promise<void> {
+    if (!this.isActive || !target.isConnected) return;
+
+    if (action === 'close') {
+      this.hoverEntryDismissedForDocument = true;
+      this.hideHoverToolbar();
+      return;
+    }
+    if (action === 'apply') {
+      this.applyTargetTranslation(target);
+    } else if (action === 'undo') {
+      this.undoTargetTranslation(target);
+    } else if (action === 'download') {
+      await this.downloadTargetTranslation(target);
+    } else if (action === 'translate' || action === 'retranslate') {
+      await this.translateTarget(target, action === 'retranslate');
+    }
+
+    if (this.isActive && target.isConnected) this.showHoverToolbar(target);
+  }
+
+  private applyTargetTranslation(target: Element): void {
+    const overlays = this.overlayElements.get(target);
+    if (!overlays?.length) return;
+    this.resultStates.set(target, 'applied');
+    overlays.forEach(overlay => {
+      overlay.dataset.lexibridgeImageState = 'applied';
+      overlay.classList.add('lexibridge-image-translation-applied');
+    });
+    this.statusMessage = 'Image translation applied';
+  }
+
+  private undoTargetTranslation(target: Element): void {
+    this.targetTranslationRuns.set(target, ++this.nextTargetTranslationRun);
+    this.removeTargetOverlays(target);
+    this.statusMessage = 'Image translation removed';
+  }
+
+  private getReconstructedCanvas(target: Element): HTMLCanvasElement | null {
+    return this.overlayElements.get(target)?.find(
+      overlay => overlay instanceof HTMLCanvasElement && overlay.classList.contains('lexibridge-image-comic-overlay')
+    ) as HTMLCanvasElement | undefined || null;
+  }
+
+  private async downloadTargetTranslation(target: Element): Promise<boolean> {
+    const canvas = this.getReconstructedCanvas(target);
+    if (!canvas || typeof canvas.toBlob !== 'function' || typeof URL.createObjectURL !== 'function') {
+      this.statusMessage = 'PNG download is available for reconstructed images only';
+      return false;
+    }
+
+    const blob = await this.createCanvasPngBlob(canvas);
+    if (!blob || !this.isActive || !canvas.isConnected) return false;
+
+    let objectUrl: string;
+    try {
+      objectUrl = URL.createObjectURL(blob);
+      this.activeObjectUrls.add(objectUrl);
+    } catch {
+      this.statusMessage = 'Could not prepare translated PNG';
+      return false;
+    }
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = `lexibridge-image-translation-${Date.now()}.png`;
+    anchor.style.display = 'none';
+    try {
+      document.body.appendChild(anchor);
+      anchor.click();
+      this.statusMessage = 'Translated PNG downloaded';
+      return true;
+    } catch {
+      this.statusMessage = 'Could not download translated PNG';
+      return false;
+    } finally {
+      anchor.remove();
+      window.setTimeout(() => this.revokeObjectUrl(objectUrl), 0);
+    }
+  }
+
+  private createCanvasPngBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
+    return new Promise(resolve => {
+      let settled = false;
+      const finish = (blob: Blob | null): void => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeoutId);
+        this.activeBlobCancellations.delete(cancel);
+        resolve(blob);
+      };
+      const cancel = (): void => finish(null);
+      const timeoutId = window.setTimeout(cancel, 5_000);
+      this.activeBlobCancellations.add(cancel);
+      try {
+        canvas.toBlob(blob => finish(blob), 'image/png');
+      } catch {
+        finish(null);
+      }
+    });
+  }
+
+  private revokeObjectUrl(objectUrl: string): void {
+    if (!this.activeObjectUrls.delete(objectUrl)) return;
+    try {
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      // The browser may already have invalidated the URL during teardown.
+    }
+  }
+
+  private cancelActiveDownloads(): void {
+    this.activeBlobCancellations.forEach(cancel => cancel());
+    this.activeBlobCancellations.clear();
+    this.activeObjectUrls.forEach(url => this.revokeObjectUrl(url));
+  }
+
+  private hideHoverToolbar(): void {
+    this.hoverToolbar?.remove();
+    this.hoverToolbar = null;
+  }
+
+  private ensureResultObserver(): void {
+    if (this.resultObserver || !document.documentElement) return;
+    this.resultObserver = new MutationObserver(() => this.pruneStaleResults());
+    this.resultObserver.observe(document.documentElement, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['src', 'srcset', 'width', 'height', 'viewBox']
+    });
+  }
+
+  private pruneStaleResults(): void {
+    this.resultSourceIdentities.forEach((identity, target) => {
+      if (!target.isConnected || this.getResultSourceIdentity(target) !== identity) {
+        this.removeTargetOverlays(target);
+      }
+    });
+  }
+
+  private getResultSourceIdentity(target: Element): string {
+    const rect = target.getBoundingClientRect();
+    const renderedSize = [
+      Math.round(rect.width * 100) / 100,
+      Math.round(rect.height * 100) / 100
+    ];
+    if (target instanceof HTMLImageElement) {
+      return JSON.stringify([
+        'img',
+        target.currentSrc,
+        target.getAttribute('src'),
+        target.getAttribute('srcset'),
+        target.naturalWidth,
+        target.naturalHeight,
+        renderedSize
+      ]);
+    }
+    if (target instanceof HTMLCanvasElement) {
+      return JSON.stringify(['canvas', target.width, target.height, renderedSize]);
+    }
+    return JSON.stringify([
+      target.tagName,
+      target.getAttribute('viewBox'),
+      target.getAttribute('width'),
+      target.getAttribute('height'),
+      (target.textContent || '').slice(0, 2048),
+      renderedSize
+    ]);
+  }
+
+  private recordOverlayAnchor(target: Element): void {
+    const rect = target.getBoundingClientRect();
+    this.overlayAnchors.set(target, {
+      left: rect.left,
+      top: rect.top,
+      scrollX: window.scrollX,
+      scrollY: window.scrollY
+    });
+  }
+
+  private refreshOverlayPositions(): void {
+    this.overlayElements.forEach((overlays, target) => {
+      if (!target.isConnected) {
+        this.removeTargetOverlays(target);
+        return;
+      }
+
+      const previous = this.overlayAnchors.get(target);
+      const rect = target.getBoundingClientRect();
+      if (!previous) {
+        this.recordOverlayAnchor(target);
+        return;
+      }
+
+      overlays.forEach(overlay => {
+        const fixed = overlay.style.position === 'fixed';
+        const deltaX = fixed
+          ? rect.left - previous.left
+          : rect.left + window.scrollX - previous.left - previous.scrollX;
+        const deltaY = fixed
+          ? rect.top - previous.top
+          : rect.top + window.scrollY - previous.top - previous.scrollY;
+        const left = Number.parseFloat(overlay.style.left);
+        const top = Number.parseFloat(overlay.style.top);
+        if (Number.isFinite(left)) overlay.style.left = `${left + deltaX}px`;
+        if (Number.isFinite(top)) overlay.style.top = `${top + deltaY}px`;
+      });
+      this.recordOverlayAnchor(target);
+    });
+  }
+
+  private disarmRegionSelection(): void {
+    this.regionSelectionArmedTarget = null;
+    document.body.classList.remove('lexibridge-image-region-armed');
+    this.removeSelectionBox();
+    this.selectionState = null;
   }
 
   private handleMouseDown(event: MouseEvent): void {
@@ -437,6 +977,8 @@ export class ImageTranslator {
 
     const target = this.getImageTarget(event);
     if (!target) return;
+    if (this.interactionMode === 'region-once' && this.regionSelectionArmedTarget !== target) return;
+    if (this.regionSelectionArmedTarget && this.regionSelectionArmedTarget !== target) return;
 
     this.selectionState = {
       target,
@@ -467,6 +1009,7 @@ export class ImageTranslator {
 
     const region = this.getSelectionRegion(selectionState);
     this.removeSelectionBox();
+    this.disarmRegionSelection();
 
     if (!region) return;
 
@@ -474,34 +1017,33 @@ export class ImageTranslator {
     event.stopPropagation();
     this.suppressNextClick = true;
 
-    this.renderStatus(selectionState.target, 'Reading selected image area...', region);
-
-    const imageBlocks = await this.extractImageTextBlocks(selectionState.target, region);
     if (!this.isInteractionEpochActive(selectionState.interactionEpoch)) return;
-    if (imageBlocks.length === 0) {
-      this.renderStatus(selectionState.target, 'No readable text found in selection', region);
-      return;
-    }
-
-    await this.translateImageBlocks(selectionState.target, imageBlocks, region);
+    await this.translateTarget(selectionState.target, false, region);
   }
 
   private async translateImageBlocks(
     target: Element,
     imageBlocks: ImageTextBlock[],
-    region?: ImageSelectionRegion
+    region?: ImageSelectionRegion,
+    forceRefresh = false,
+    existingTargetRunId?: number,
+    existingSourceFingerprint?: string
   ): Promise<ImageTranslationOutcome> {
     if (!this.translateText || !this.isActive) return 'cancelled';
 
-    const targetRunId = ++this.nextTargetTranslationRun;
-    this.targetTranslationRuns.set(target, targetRunId);
-    const sourceFingerprint = this.getSourceFingerprint(target, region);
+    const targetRunId = existingTargetRunId ?? ++this.nextTargetTranslationRun;
+    if (existingTargetRunId === undefined) this.targetTranslationRuns.set(target, targetRunId);
+    const sourceFingerprint = existingSourceFingerprint ?? this.getSourceFingerprint(target, region);
     this.renderImageBlocks(target, imageBlocks, imageBlocks.map(() => 'Translating...'), region);
 
     try {
-      const translatedBlocks = await this.translateImageTextBlocks(imageBlocks);
+      const translatedBlocks = await this.translateImageTextBlocks(imageBlocks, forceRefresh);
 
       if (this.isTargetTranslationRunActive(target, targetRunId)) {
+        if (!this.isSourceFingerprintCurrent(target, sourceFingerprint, region)) {
+          this.removeTargetOverlays(target);
+          return 'cancelled';
+        }
         const renderedComic = await this.tryRenderComicImage(
           target,
           imageBlocks,
@@ -511,7 +1053,15 @@ export class ImageTranslator {
           region
         );
         if (!this.isTargetTranslationRunActive(target, targetRunId)) return 'cancelled';
+        if (!this.isSourceFingerprintCurrent(target, sourceFingerprint, region)) {
+          this.removeTargetOverlays(target);
+          return 'cancelled';
+        }
         if (!renderedComic) this.renderImageBlocks(target, imageBlocks, translatedBlocks, region);
+        this.resultStates.set(target, 'preview');
+        this.resultSourceIdentities.set(target, this.getResultSourceIdentity(target));
+        this.recordOverlayAnchor(target);
+        if (this.hoveredTarget === target) this.showHoverToolbar(target);
         return 'translated';
       }
 
@@ -530,6 +1080,7 @@ export class ImageTranslator {
     if (!this.translateText) return '';
 
     const cacheKey = this.createTranslationCacheKey(text);
+    const cacheGeneration = this.translationCacheGenerations.get(cacheKey) || 0;
     let translatedText = this.translationCache.get(cacheKey);
     if (translatedText === undefined) {
       let pendingTranslation = this.pendingTranslationCache.get(cacheKey);
@@ -545,7 +1096,9 @@ export class ImageTranslator {
             if (controller.signal.aborted || !this.isActive) {
               throw new DOMException('Canceled', 'AbortError');
             }
-            this.translationCache.set(cacheKey, result);
+            if ((this.translationCacheGenerations.get(cacheKey) || 0) === cacheGeneration) {
+              this.translationCache.set(cacheKey, result);
+            }
             return result;
           })
           .finally(() => {
@@ -562,7 +1115,12 @@ export class ImageTranslator {
     return translatedText;
   }
 
-  private async translateImageTextBlocks(blocks: ImageTextBlock[]): Promise<string[]> {
+  private async translateImageTextBlocks(
+    blocks: ImageTextBlock[],
+    forceRefresh = false
+  ): Promise<string[]> {
+    if (forceRefresh) this.invalidateTranslationCacheForBlocks(blocks);
+
     const results = new Array<string>(blocks.length);
     let nextIndex = 0;
     const workerCount = Math.min(MAX_IMAGE_TRANSLATION_CONCURRENCY, blocks.length);
@@ -579,6 +1137,17 @@ export class ImageTranslator {
     return results;
   }
 
+  private invalidateTranslationCacheForBlocks(blocks: ImageTextBlock[]): void {
+    new Set(blocks.map(block => this.createTranslationCacheKey(block.text))).forEach(cacheKey => {
+      this.translationCacheGenerations.set(
+        cacheKey,
+        (this.translationCacheGenerations.get(cacheKey) || 0) + 1
+      );
+      this.translationCache.delete(cacheKey);
+      this.pendingTranslationCache.delete(cacheKey);
+    });
+  }
+
   private abortActiveRequests(): void {
     this.activeRequestControllers.forEach(controller => controller.abort());
     this.activeRequestControllers.clear();
@@ -590,17 +1159,56 @@ export class ImageTranslator {
   }
 
   private getImageTarget(event: MouseEvent): Element | null {
-    const target = event.target as Element | null;
-    if (!target || this.isExtensionOwnedElement(target)) {
-      return null;
+    for (const pathTarget of event.composedPath()) {
+      if (!(pathTarget instanceof Element) || this.isExtensionOwnedElement(pathTarget)) continue;
+      const imageTarget = pathTarget.matches('img, canvas, svg, picture')
+        ? pathTarget
+        : pathTarget.closest('img, canvas, svg, picture');
+      if (!imageTarget) continue;
+      if (imageTarget instanceof HTMLPictureElement) {
+        return imageTarget.querySelector('img') || imageTarget;
+      }
+      return imageTarget;
+    }
+    return null;
+  }
+
+  private resolveImageTarget(srcUrl: string): Element | null {
+    const normalizedSourceUrl = this.normalizeImageUrl(srcUrl);
+    const rememberedTarget = this.lastContextMenuTarget;
+    const rememberedAt = this.lastContextMenuCapturedAt;
+    this.lastContextMenuTarget = null;
+    this.lastContextMenuCapturedAt = 0;
+
+    if (
+      rememberedTarget?.isConnected &&
+      Date.now() - rememberedAt <= CONTEXT_MENU_TARGET_MAX_AGE_MS &&
+      (!normalizedSourceUrl || this.getImageSourceUrls(rememberedTarget).includes(normalizedSourceUrl))
+    ) {
+      return rememberedTarget;
     }
 
-    const imageTarget = target.closest('img, canvas, svg, picture');
-    if (imageTarget instanceof HTMLPictureElement) {
-      return imageTarget.querySelector('img') || imageTarget;
-    }
+    if (!normalizedSourceUrl) return null;
+    const matches = this.findImageCandidates().filter(target => (
+      this.getImageSourceUrls(target).includes(normalizedSourceUrl)
+    ));
+    return matches.length === 1 ? matches[0] : null;
+  }
 
-    return imageTarget;
+  private getImageSourceUrls(target: Element): string[] {
+    if (!(target instanceof HTMLImageElement)) return [];
+    return [target.currentSrc, target.src, target.getAttribute('src') || '']
+      .map(value => this.normalizeImageUrl(value))
+      .filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index);
+  }
+
+  private normalizeImageUrl(value: string): string {
+    if (!value) return '';
+    try {
+      return new URL(value, document.baseURI).href;
+    } catch {
+      return value;
+    }
   }
 
   private findImageCandidates(): Element[] {
@@ -1087,6 +1695,7 @@ export class ImageTranslator {
       this.removeTargetOverlays(target);
       document.body.appendChild(outputCanvas);
       this.overlayElements.set(target, [outputCanvas]);
+      this.recordOverlayAnchor(target);
       return true;
     } catch {
       return false;
@@ -1301,6 +1910,12 @@ export class ImageTranslator {
       body.lexibridge-image-translation-mode picture {
         cursor: crosshair !important;
       }
+      body.lexibridge-image-region-armed img,
+      body.lexibridge-image-region-armed canvas,
+      body.lexibridge-image-region-armed svg,
+      body.lexibridge-image-region-armed picture {
+        cursor: crosshair !important;
+      }
       body.lexibridge-image-translation-mode img:hover,
       body.lexibridge-image-translation-mode canvas:hover,
       body.lexibridge-image-translation-mode svg:hover,
@@ -1330,6 +1945,42 @@ export class ImageTranslator {
         pointer-events: none;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
         white-space: pre-wrap;
+      }
+      .lexibridge-image-hover-toolbar {
+        position: fixed;
+        z-index: 2147483000;
+        display: flex;
+        gap: 4px;
+        padding: 4px;
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        border-radius: 6px;
+        background: rgba(17, 24, 39, 0.94);
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+        pointer-events: auto;
+      }
+      .lexibridge-image-hover-toolbar button {
+        width: 30px;
+        height: 30px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        color: #ffffff;
+        font: 600 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .lexibridge-image-hover-toolbar button:hover,
+      .lexibridge-image-hover-toolbar button:focus-visible {
+        background: rgba(255, 255, 255, 0.16);
+        outline: 2px solid #93c5fd;
+        outline-offset: -2px;
+      }
+      .lexibridge-image-translation-applied {
+        opacity: 1 !important;
       }
     `;
 
@@ -1413,6 +2064,7 @@ export class ImageTranslator {
     });
 
     this.overlayElements.set(target, overlays);
+    this.recordOverlayAnchor(target);
   }
 
   private createOverlay(target: Element, region?: ImageSelectionRegion): HTMLElement {
@@ -1445,6 +2097,7 @@ export class ImageTranslator {
     overlay.style.top = `${top}px`;
     document.body.appendChild(overlay);
     this.overlayElements.set(target, [overlay]);
+    this.recordOverlayAnchor(target);
 
     return overlay;
   }
@@ -1478,11 +2131,17 @@ export class ImageTranslator {
   private removeTargetOverlays(target: Element): void {
     this.overlayElements.get(target)?.forEach(overlay => overlay.remove());
     this.overlayElements.delete(target);
+    this.resultStates.delete(target);
+    this.overlayAnchors.delete(target);
+    this.resultSourceIdentities.delete(target);
   }
 
   private removeAllOverlays(): void {
     this.overlayElements.forEach(overlays => overlays.forEach(overlay => overlay.remove()));
     this.overlayElements.clear();
+    this.resultStates.clear();
+    this.overlayAnchors.clear();
+    this.resultSourceIdentities.clear();
   }
 
   private isTargetTranslationRunActive(target: Element, runId: number): boolean {

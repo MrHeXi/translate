@@ -788,7 +788,17 @@ describe('Content script MessageManager contract', () => {
             targetLang: request.data.targetLang,
             confidence: 0.95
           }
-        }))
+        })),
+        sendMessage: jest.fn(async (request) => request.action === 'translate' ? ({
+          success: true,
+          data: {
+            originalText: request.data.text,
+            translatedText: `translated: ${request.data.text}`,
+            sourceLang: 'en',
+            targetLang: request.data.targetLang,
+            confidence: 0.95
+          }
+        }) : ({ success: true }))
       }
     }));
 
@@ -1077,5 +1087,29 @@ describe('Content script MessageManager contract', () => {
         message: 'Image translation stopped'
       }
     });
+
+    const contextImage = document.createElement('img');
+    contextImage.src = '/context-image.png';
+    contextImage.alt = 'Context command text';
+    Object.defineProperty(contextImage, 'complete', { value: true, configurable: true });
+    Object.defineProperty(contextImage, 'naturalWidth', { value: 100, configurable: true });
+    Object.defineProperty(contextImage, 'naturalHeight', { value: 50, configurable: true });
+    document.body.appendChild(contextImage);
+    contextImage.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    const contextImageResponse = await registeredHandlers.translateImageFromContextMenu({
+      data: { srcUrl: contextImage.src }
+    });
+    expect(contextImageResponse).toEqual({
+      success: true,
+      data: {
+        isActive: true,
+        translated: true,
+        message: 'Image translated'
+      },
+      error: undefined
+    });
+    expect(document.body.classList.contains('lexibridge-image-translation-mode')).toBe(false);
+    expect(document.body.textContent).toContain('translated: Context command text');
+    await registeredHandlers.toggleImageTranslation();
   });
 });

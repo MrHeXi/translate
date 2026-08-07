@@ -21,6 +21,7 @@ import {
 import {
   ImageTranslator,
   ImageTranslatorState,
+  SingleImageTranslationResult,
   VisibleImageTranslationResult
 } from './components/ImageTranslator';
 import { messageManager } from '../services/MessageManager';
@@ -153,6 +154,11 @@ class ContentScript {
         this.translateInteractiveText(text, targetLanguage)
       ));
       this.documentPagePrompt.initialize();
+      this.imageTranslator.configure(
+        (text, request) => this.translateInteractiveText(text, undefined, request),
+        this.userSettings?.documentOcrLanguage || 'eng',
+        (text) => this.createTranslationCacheKey(text)
+      );
 
       // 如果启用了学习模式，初始化词汇高亮
       if (this.userSettings?.learningModeEnabled) {
@@ -229,6 +235,10 @@ class ContentScript {
       'translateVisibleImages': async () => {
         const result = await this.translateVisibleImages();
         return { success: true, data: result };
+      },
+      'translateImageFromContextMenu': async (request) => {
+        const result = await this.translateImageFromContextMenu(request.data?.srcUrl);
+        return { success: result.translated, data: result, error: result.translated ? undefined : result.message };
       },
       'updateSettings': async (request) => {
         this.userSettings = { ...this.userSettings, ...request.data };
@@ -407,6 +417,28 @@ class ContentScript {
 
   private async translateVisibleImages(): Promise<VisibleImageTranslationResult> {
     return this.imageTranslator.translateVisibleImages();
+  }
+
+  private async translateImageFromContextMenu(srcUrl: unknown): Promise<SingleImageTranslationResult> {
+    if (!this.isInitialized) {
+      return {
+        isActive: false,
+        translated: false,
+        message: 'Image translation is still initializing'
+      };
+    }
+
+    if (!this.imageTranslator.getStatus().isActive) {
+      this.imageTranslator.enableContextMode(
+        (text, request) => this.translateInteractiveText(text, undefined, request),
+        this.userSettings?.documentOcrLanguage || 'eng',
+        (text) => this.createTranslationCacheKey(text)
+      );
+    }
+
+    return this.imageTranslator.translateImageFromSourceUrl(
+      typeof srcUrl === 'string' ? srcUrl : ''
+    );
   }
 
   private async initializeLearningMode(): Promise<void> {

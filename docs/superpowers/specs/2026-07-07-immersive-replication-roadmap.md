@@ -187,7 +187,10 @@ Current batch:
 - Done: reconstruct regular flat or smooth bubbles locally with contrast masks, bounded solid/diffusion repair, clipped CJK/word/RTL-aware line fitting, and a temporary translated canvas that never mutates the source image.
 - Done: fall back to non-destructive DOM overlays for cross-origin-tainted pixels, CSS transforms/non-fill object fitting, oversized sources, page-level OCR geometry, textured artwork, unsafe masks, or translations that cannot fit.
 - Done: make visible-image batch state content-owned and recoverable after popup closure, coalesce duplicate commands, abort provider/reconstruction work on Stop, terminate OCR, and reject late canvas commits by run ID and source fingerprint.
-- Remaining: source polygons beyond rectangles, vertical typesetting, hover/right-click/`Z` region entry points, upload/paste workflow, whole-chapter site adapters, per-image retranslate/quality feedback, and Apply, Undo, Download PNG controls.
+- Done: add an HTTP/HTTPS-only frame-aware image context menu with one-time content injection for eligible older tabs, initialization polling, recent-target validation, unique-URL fallback, and no persistent page-wide image handlers for one-shot commands.
+- Done: add a closeable hover toolbar after manual Image text Start, a global explicit `Z` one-shot region arm that runs no OCR before a valid drag, editable/IME/modifier protection, and Escape/Stop cancellation.
+- Done: add per-image cache-bypassing Retranslate, non-destructive Apply/Undo, reconstructed-canvas-only Download PNG with object-URL cleanup, overlay movement synchronization, and stale source invalidation.
+- Remaining: source polygons beyond rectangles, vertical typesetting, image upload/paste workflow, whole-chapter site adapters, and per-image quality feedback.
 
 ### Batch G: Meeting Subtitle Translation
 

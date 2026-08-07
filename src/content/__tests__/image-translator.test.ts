@@ -968,4 +968,375 @@ describe('ImageTranslator', () => {
     expect(document.getElementById('lexibridge-image-translation-overlay')).toBeNull();
     expect(document.getElementById('lexibridge-image-translation-style')).toBeNull();
   });
+
+  it('tracks a right-clicked image without OCR and translates it only after the explicit command', async () => {
+    document.body.innerHTML = '<img id="target" src="/comic.png" alt="Context image text">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    const translateText = jest.fn(async text => `Translated: ${text}`);
+
+    translator.initialize();
+    image.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    await flushPromises();
+    expect(translateText).not.toHaveBeenCalled();
+    expect(recognize).not.toHaveBeenCalled();
+
+    translator.enableContextMode(translateText);
+    const result = await translator.translateImageFromSourceUrl(new URL('/comic.png', document.baseURI).href);
+
+    expect(result).toEqual({
+      isActive: true,
+      translated: true,
+      message: 'Image translated'
+    });
+    expect(translateText).toHaveBeenCalledTimes(1);
+    expect(document.body.classList.contains('lexibridge-image-translation-mode')).toBe(false);
+    click(image);
+    await flushPromises();
+    expect(translateText).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('.lexibridge-image-translation-result')?.textContent)
+      .toBe('Translated: Context image text');
+  });
+
+  it('refuses an ambiguous context-image URL instead of translating the wrong duplicate', async () => {
+    document.body.innerHTML = `
+      <img src="/shared.png" alt="First duplicate">
+      <img src="/shared.png" alt="Second duplicate">
+    `;
+    const translateText = jest.fn(async text => `Translated: ${text}`);
+    translator.enableContextMode(translateText);
+
+    const result = await translator.translateImageFromSourceUrl(
+      new URL('/shared.png', document.baseURI).href
+    );
+
+    expect(result).toEqual({
+      isActive: true,
+      translated: false,
+      message: 'Image is no longer available'
+    });
+    expect(translateText).not.toHaveBeenCalled();
+    expect(recognize).not.toHaveBeenCalled();
+  });
+
+  it('arms one-shot Z selection without OCR and ignores Z inside editable fields', async () => {
+    document.body.innerHTML = '<input id="editor"><img id="target" alt="Shortcut image text">';
+    const input = document.getElementById('editor') as HTMLInputElement;
+    const image = document.getElementById('target') as HTMLImageElement;
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 200, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 100, configurable: true });
+    setRect(image, 10, 20, 200, 100);
+    const detect = jest.fn(async () => [{
+      rawValue: 'Selected shortcut text',
+      boundingBox: { x: 10, y: 10, width: 80, height: 20 }
+    }]);
+    Object.defineProperty(window, 'createImageBitmap', {
+      value: jest.fn(async () => ({ close: jest.fn() })),
+      configurable: true
+    });
+    (window as any).TextDetector = jest.fn(() => ({ detect }));
+    const translateText = jest.fn(async text => `Translated: ${text}`);
+    translator.configure(translateText);
+
+    image.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    expect(document.querySelector('.lexibridge-image-hover-toolbar')).toBeNull();
+    expect(translateText).not.toHaveBeenCalled();
+    expect(recognize).not.toHaveBeenCalled();
+
+    input.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'z',
+      bubbles: true,
+      cancelable: true
+    }));
+    await flushPromises();
+    expect(translateText).not.toHaveBeenCalled();
+
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'z',
+      bubbles: true,
+      cancelable: true
+    }));
+    await flushPromises();
+    expect(detect).not.toHaveBeenCalled();
+    expect(translateText).not.toHaveBeenCalled();
+    expect(document.body.classList.contains('lexibridge-image-region-armed')).toBe(true);
+
+    mouse(image, 'mousedown', 30, 40);
+    mouse(document, 'mousemove', 100, 80);
+    mouse(document, 'mouseup', 100, 80);
+    await flushPromises();
+    expect(detect).toHaveBeenCalledTimes(1);
+    expect(translateText).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).toContain('Translated: Selected shortcut text');
+    expect(document.body.classList.contains('lexibridge-image-region-armed')).toBe(false);
+  });
+
+  it('retranslates with a fresh provider request instead of reusing the completed cache', async () => {
+    document.body.innerHTML = '<img id="target" alt="Refresh image text">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    let request = 0;
+    const translateText = jest.fn(async () => `Translation ${++request}`);
+    translator.enable(translateText);
+
+    image.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    click(image);
+    await flushPromises();
+    expect(translateText).toHaveBeenCalledTimes(1);
+
+    const retranslate = document.querySelector<HTMLButtonElement>('button[data-action="retranslate"]');
+    expect(retranslate).not.toBeNull();
+    click(retranslate!);
+    await flushPromises();
+
+    expect(translateText).toHaveBeenCalledTimes(2);
+    expect(document.querySelector('.lexibridge-image-translation-result')?.textContent)
+      .toBe('Translation 2');
+  });
+
+  it('invalidates the old target run before a retranslation OCR scan completes', async () => {
+    document.body.innerHTML = '<img id="target" src="race.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 200, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 100, configurable: true });
+    setRect(image, 10, 20, 200, 100);
+    let resolveSecondOcr!: (value: any[]) => void;
+    const secondOcr = new Promise<any[]>(resolve => {
+      resolveSecondOcr = resolve;
+    });
+    const detect = jest.fn()
+      .mockResolvedValueOnce([{
+        rawValue: 'Race text',
+        boundingBox: { x: 10, y: 10, width: 80, height: 20 }
+      }])
+      .mockReturnValueOnce(secondOcr);
+    Object.defineProperty(window, 'createImageBitmap', {
+      value: jest.fn(async () => ({ close: jest.fn() })),
+      configurable: true
+    });
+    (window as any).TextDetector = jest.fn(() => ({ detect }));
+    let resolveFirstTranslation!: (value: string) => void;
+    const firstTranslation = new Promise<string>(resolve => {
+      resolveFirstTranslation = resolve;
+    });
+    const translateText = jest.fn()
+      .mockReturnValueOnce(firstTranslation)
+      .mockResolvedValueOnce('Fresh translation');
+    translator.enable(translateText);
+
+    const oldRun = (translator as any).translateTarget(image, false);
+    await flushPromises();
+    expect(translateText).toHaveBeenCalledTimes(1);
+    const freshRun = (translator as any).translateTarget(image, true);
+    await Promise.resolve();
+    resolveFirstTranslation('Stale translation');
+    await flushPromises();
+
+    expect(document.body.textContent).not.toContain('Stale translation');
+    resolveSecondOcr([{
+      rawValue: 'Race text',
+      boundingBox: { x: 10, y: 10, width: 80, height: 20 }
+    }]);
+    const [oldOutcome, freshOutcome] = await Promise.all([oldRun, freshRun]);
+
+    expect(oldOutcome).toBe('cancelled');
+    expect(freshOutcome).toBe('translated');
+    expect(document.body.textContent).toContain('Fresh translation');
+  });
+
+  it('does not fall back to a stale DOM result when the source changes during reconstruction', async () => {
+    document.body.innerHTML = '<img id="target" src="before.png" alt="Source changes">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 100, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 50, configurable: true });
+    setRect(image, 10, 20, 100, 50);
+    jest.spyOn(translator as any, 'tryRenderComicImage').mockImplementation(async () => {
+      image.src = 'after.png';
+      return false;
+    });
+    translator.enable(async text => `Translated: ${text}`);
+
+    click(image);
+    await flushPromises();
+
+    expect(document.querySelector('.lexibridge-image-comic-overlay')).toBeNull();
+    expect(document.querySelector('.lexibridge-image-translation-overlay')).toBeNull();
+    expect(document.querySelector('.lexibridge-image-region-translation')).toBeNull();
+    expect(document.body.textContent).not.toContain('Translated: Source changes');
+  });
+
+  it('closes the image hover entry for the document without starting OCR or translation', async () => {
+    document.body.innerHTML = '<img id="first" alt="First"><img id="second" alt="Second">';
+    const first = document.getElementById('first') as HTMLImageElement;
+    const second = document.getElementById('second') as HTMLImageElement;
+    const translateText = jest.fn(async text => `Translated: ${text}`);
+    translator.enable(translateText);
+
+    first.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    const closeButton = document.querySelector<HTMLButtonElement>('button[data-action="close"]');
+    expect(closeButton).not.toBeNull();
+    click(closeButton!);
+    second.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+
+    expect(document.querySelector('.lexibridge-image-hover-toolbar')).toBeNull();
+    expect(translateText).not.toHaveBeenCalled();
+    expect(recognize).not.toHaveBeenCalled();
+  });
+
+  it('clears stale hover targets and leaves IME Escape untouched', async () => {
+    document.body.innerHTML = '<img id="target" alt="Hover target"><div id="outside"></div>';
+    const image = document.getElementById('target') as HTMLImageElement;
+    const outside = document.getElementById('outside')!;
+    const translateText = jest.fn(async text => `Translated: ${text}`);
+    translator.configure(translateText);
+
+    image.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    image.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: outside }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', bubbles: true, cancelable: true }));
+    expect(document.body.classList.contains('lexibridge-image-region-armed')).toBe(false);
+
+    image.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', bubbles: true, cancelable: true }));
+    expect(document.body.classList.contains('lexibridge-image-region-armed')).toBe(true);
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+      isComposing: true
+    }));
+    expect(document.body.classList.contains('lexibridge-image-region-armed')).toBe(true);
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true
+    }));
+    expect(document.body.classList.contains('lexibridge-image-region-armed')).toBe(false);
+    expect(translateText).not.toHaveBeenCalled();
+    expect(recognize).not.toHaveBeenCalled();
+  });
+
+  it('finds a hovered image through a Shadow DOM composed event path', () => {
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const shadowRoot = host.attachShadow({ mode: 'open' });
+    const image = document.createElement('img');
+    shadowRoot.appendChild(image);
+    translator.configure(async text => `Translated: ${text}`);
+
+    image.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, composed: true }));
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'z',
+      bubbles: true,
+      cancelable: true,
+      composed: true
+    }));
+
+    expect(document.body.classList.contains('lexibridge-image-region-armed')).toBe(true);
+  });
+
+  it('applies and undoes only extension overlays without mutating the source image', async () => {
+    document.body.innerHTML = '<div id="host"><img id="target" src="source.png" srcset="source-2x.png 2x" alt="Keep source"></div>';
+    const image = document.getElementById('target') as HTMLImageElement;
+    const sourceSnapshot = {
+      src: image.getAttribute('src'),
+      srcset: image.getAttribute('srcset'),
+      style: image.getAttribute('style'),
+      parent: image.parentNode
+    };
+    translator.enable(async text => `Translated: ${text}`);
+
+    image.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    click(image);
+    await flushPromises();
+    const apply = document.querySelector<HTMLButtonElement>('button[data-action="apply"]');
+    expect(apply).not.toBeNull();
+    click(apply!);
+
+    expect(document.querySelector('[data-lexibridge-image-state="applied"]')).not.toBeNull();
+    expect(image.getAttribute('src')).toBe(sourceSnapshot.src);
+    expect(image.getAttribute('srcset')).toBe(sourceSnapshot.srcset);
+    expect(image.getAttribute('style')).toBe(sourceSnapshot.style);
+    expect(image.parentNode).toBe(sourceSnapshot.parent);
+
+    const undo = document.querySelector<HTMLButtonElement>('button[data-action="undo"]');
+    expect(undo).not.toBeNull();
+    click(undo!);
+    expect(document.querySelector('.lexibridge-image-translation-overlay')).toBeNull();
+    expect(image.getAttribute('src')).toBe(sourceSnapshot.src);
+    expect(image.getAttribute('srcset')).toBe(sourceSnapshot.srcset);
+    expect(image.getAttribute('style')).toBe(sourceSnapshot.style);
+    expect(image.parentNode).toBe(sourceSnapshot.parent);
+  });
+
+  it('moves overlays with their source and removes stale results after the source changes', async () => {
+    document.body.innerHTML = '<img id="target" alt="Moving source">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    setRect(image, 50, 60, 200, 100);
+    translator.enable(async text => `Translated: ${text}`);
+    click(image);
+    await flushPromises();
+
+    const overlay = document.querySelector<HTMLElement>('.lexibridge-image-translation-overlay')!;
+    const initialLeft = Number.parseFloat(overlay.style.left);
+    const initialTop = Number.parseFloat(overlay.style.top);
+    setRect(image, 80, 100, 200, 100);
+    window.dispatchEvent(new Event('scroll'));
+
+    expect(Number.parseFloat(overlay.style.left)).toBe(initialLeft + 30);
+    expect(Number.parseFloat(overlay.style.top)).toBe(initialTop + 40);
+
+    image.setAttribute('src', 'replacement.png');
+    await flushPromises();
+    expect(document.querySelector('.lexibridge-image-translation-overlay')).toBeNull();
+  });
+
+  it('offers PNG download only for reconstructed canvases and revokes its object URL', async () => {
+    document.body.innerHTML = '<img id="target" alt="Download source">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    translator.enable(async text => `Translated: ${text}`);
+    const createObjectURL = jest.fn(() => 'blob:translated-image');
+    const revokeObjectURL = jest.fn();
+    Object.defineProperty(URL, 'createObjectURL', { value: createObjectURL, configurable: true });
+    Object.defineProperty(URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true });
+
+    expect(await (translator as any).downloadTargetTranslation(image)).toBe(false);
+    expect(createObjectURL).not.toHaveBeenCalled();
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'lexibridge-image-comic-overlay';
+    document.body.appendChild(canvas);
+    (translator as any).overlayElements.set(image, [canvas]);
+    jest.spyOn(canvas, 'toBlob').mockImplementation(callback => {
+      callback(new Blob(['png'], { type: 'image/png' }));
+    });
+    const anchorClick = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    expect(await (translator as any).downloadTargetTranslation(image)).toBe(true);
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(anchorClick).toHaveBeenCalledTimes(1);
+    await flushPromises();
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:translated-image');
+    anchorClick.mockRestore();
+  });
+
+  it('cancels a pending canvas PNG encode on Stop before creating an object URL', async () => {
+    document.body.innerHTML = '<img id="target" alt="Pending download">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    translator.enable(async text => `Translated: ${text}`);
+    const createObjectURL = jest.fn(() => 'blob:should-not-exist');
+    Object.defineProperty(URL, 'createObjectURL', { value: createObjectURL, configurable: true });
+    const canvas = document.createElement('canvas');
+    canvas.className = 'lexibridge-image-comic-overlay';
+    document.body.appendChild(canvas);
+    (translator as any).overlayElements.set(image, [canvas]);
+    jest.spyOn(canvas, 'toBlob').mockImplementation(() => undefined);
+
+    const pendingDownload = (translator as any).downloadTargetTranslation(image);
+    await Promise.resolve();
+    translator.disable();
+
+    await expect(pendingDownload).resolves.toBe(false);
+    expect(createObjectURL).not.toHaveBeenCalled();
+  });
 });

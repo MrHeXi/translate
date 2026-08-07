@@ -28,7 +28,26 @@ describe('BackgroundService initialization', () => {
       sendResponse: (response: any) => void
     ) => boolean | void> = [];
     const commandListeners: Array<(command: string) => void> = [];
+    const installedListeners: Array<(details: chrome.runtime.InstalledDetails) => void> = [];
+    const contextMenuListeners: Array<(
+      info: chrome.contextMenus.OnClickData,
+      tab?: chrome.tabs.Tab
+    ) => void> = [];
     const openSidePanel = jest.fn().mockResolvedValue(undefined);
+    const createContextMenu = jest.fn((_properties, callback?: () => void) => callback?.());
+    const removeContextMenu = jest.fn((_id, callback?: () => void) => callback?.());
+    let readinessCheckCount = 0;
+    const sendTabMessage = jest.fn((_tabId, message, _options, callback?: (response: any) => void) => {
+      if (message.action === 'getTranslationStatus') {
+        readinessCheckCount += 1;
+        callback?.(readinessCheckCount === 1
+          ? undefined
+          : { success: true, data: { isInitialized: true } });
+        return;
+      }
+      callback?.({ success: true });
+    });
+    const executeScript = jest.fn().mockResolvedValue([]);
     const vocabularyLoad = createDeferred<void>();
     const reviewItems = [{
       word: 'ability',
@@ -49,7 +68,9 @@ describe('BackgroundService initialization', () => {
           })
         },
         onConnect: { addListener: jest.fn() },
-        onInstalled: { addListener: jest.fn() },
+        onInstalled: {
+          addListener: jest.fn(listener => installedListeners.push(listener))
+        },
         onStartup: { addListener: jest.fn() },
         openOptionsPage: jest.fn()
       },
@@ -57,6 +78,19 @@ describe('BackgroundService initialization', () => {
         onCommand: {
           addListener: jest.fn(listener => commandListeners.push(listener))
         }
+      },
+      contextMenus: {
+        create: createContextMenu,
+        remove: removeContextMenu,
+        onClicked: {
+          addListener: jest.fn(listener => contextMenuListeners.push(listener))
+        }
+      },
+      tabs: {
+        sendMessage: sendTabMessage
+      },
+      scripting: {
+        executeScript
       },
       sidePanel: { open: openSidePanel },
       windows: { WINDOW_ID_CURRENT: -2 },
@@ -145,6 +179,19 @@ describe('BackgroundService initialization', () => {
 
     require('../background');
 
+    expect(removeContextMenu).not.toHaveBeenCalled();
+    expect(createContextMenu).not.toHaveBeenCalled();
+    expect(installedListeners).toHaveLength(1);
+    installedListeners[0]!({ reason: 'update' } as chrome.runtime.InstalledDetails);
+    expect(removeContextMenu).toHaveBeenCalledWith('lexibridge-translate-image', expect.any(Function));
+    expect(createContextMenu).toHaveBeenCalledWith({
+      id: 'lexibridge-translate-image',
+      title: 'Translate text in this image',
+      contexts: ['image'],
+      documentUrlPatterns: ['http://*/*', 'https://*/*']
+    }, expect.any(Function));
+    expect(sendTabMessage).not.toHaveBeenCalled();
+
     const mainListener = listeners[0];
     expect(mainListener).toBeDefined();
 
@@ -189,5 +236,31 @@ describe('BackgroundService initialization', () => {
     commandListeners[0]!('openTranslationSidePanel');
     await flushPromises();
     expect(openSidePanel).toHaveBeenCalledWith({ windowId: -2 });
+
+    expect(contextMenuListeners).toHaveLength(1);
+    contextMenuListeners[0]!({
+      menuItemId: 'lexibridge-translate-image',
+      frameId: 7,
+      srcUrl: 'https://example.com/comic.png'
+    } as chrome.contextMenus.OnClickData, { id: 42 } as chrome.tabs.Tab);
+    contextMenuListeners[0]!({
+      menuItemId: 'lexibridge-translate-image',
+      frameId: 7,
+      srcUrl: 'https://example.com/comic.png'
+    } as chrome.contextMenus.OnClickData, { id: 42 } as chrome.tabs.Tab);
+    await flushPromises();
+    expect(executeScript).toHaveBeenCalledTimes(1);
+    expect(executeScript).toHaveBeenCalledWith({
+      target: { tabId: 42, frameIds: [7] },
+      files: ['content.js']
+    });
+    expect(sendTabMessage).toHaveBeenCalledTimes(3);
+    expect(sendTabMessage).toHaveBeenNthCalledWith(1, 42, {
+      action: 'getTranslationStatus'
+    }, { frameId: 7 }, expect.any(Function));
+    expect(sendTabMessage).toHaveBeenCalledWith(42, {
+      action: 'translateImageFromContextMenu',
+      data: { srcUrl: 'https://example.com/comic.png' }
+    }, { frameId: 7 }, expect.any(Function));
   });
 });

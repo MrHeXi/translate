@@ -41,6 +41,7 @@ describe('product packaging contract', () => {
       'activeTab',
       'scripting',
       'tabs',
+      'contextMenus',
       'sidePanel',
       'tabCapture'
     ]);
@@ -282,6 +283,9 @@ describe('product packaging contract', () => {
     expect(listing).toContain('selected OCR language');
     expect(listing).toContain('bounded local comic-bubble reconstruction when safe');
     expect(listing).toContain('separate non-destructive text overlays');
+    expect(listing).toContain('frame-aware right-click menu');
+    expect(listing).toContain('Per-image Retranslate');
+    expect(listing).toContain('Download PNG is offered only for safe reconstructed canvases');
     expect(listing).toContain('does not record audio, join calls, or transcribe speech');
     expect(listing).toContain('100+ target language choices');
     expect(listing).toContain('29 implemented provider adapters');
@@ -301,6 +305,7 @@ describe('product packaging contract', () => {
     expect(listing).toContain('Permission Justifications');
     expect(listing).toContain('Privacy Questionnaire Notes');
     expect(listing).toContain('`tabCapture`: required so Chrome can authorize the source tab');
+    expect(listing).toContain('`contextMenus`: show Translate text in this image');
     expect(listing).toContain('uploads only after Generate subtitles or Stop and generate');
     expect(listing).toContain('Stop and generate is required before provider upload');
     expect(listing).toContain('does not start automatically or join meetings');
@@ -318,10 +323,10 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('65 test suites and 612 tests');
-    expect(releaseNotes).toContain('17,843,997');
-    expect(releaseNotes).toContain('804FA16F0182204541ADC48C0BEE59FD72547943E6AA4B7C4A8A034ACE3000B1');
-    expect(releaseNotes).toContain('4CD34B7C68A9F4A2B257E5E9AD0A26352267ABCA45FC2F72321D2E33F98CEC89');
+    expect(releaseNotes).toContain('65 test suites and 625 tests');
+    expect(releaseNotes).toContain('17,849,162');
+    expect(releaseNotes).toContain('8FA780397DF6A33A306880FFC18026EA7B11C5D91C62C76C5FF4336D54A2658B');
+    expect(releaseNotes).toContain('D4DD7E3EA81F437CE2695F500303F8575C1A18301DAB60E191AFF25CC9AC3D86');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -345,6 +350,9 @@ describe('product packaging contract', () => {
     expect(releaseNotes).toContain('Sync-failure user-data fallback');
     expect(releaseNotes).toContain('Deterministic local comic reconstruction for safe regular bubbles');
     expect(releaseNotes).toContain('Content-owned visible-image batch progress survives popup closure');
+    expect(releaseNotes).toContain('frame-aware right-click command');
+    expect(releaseNotes).toContain('one-shot `Z` region selector');
+    expect(releaseNotes).toContain('Per-image Retranslate, Apply, Undo');
 
     expect(screenshotGuide).toContain('Popup Overview');
     expect(screenshotGuide).toContain('Floating Button');
@@ -384,6 +392,8 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('Translate visible images');
     expect(screenshotGuide).toContain('temporary reconstructed canvas');
     expect(screenshotGuide).toContain('non-destructive region overlay fallback');
+    expect(screenshotGuide).toContain('completed `Z`-armed region drag');
+    expect(screenshotGuide).toContain('Download PNG');
     expect(screenshotGuide).toContain('Vocabulary Notebook');
     expect(screenshotGuide).toContain('Review Page');
     expect(screenshotGuide).toContain('Options');
@@ -456,7 +466,7 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('reconstruct regular flat or smooth bubbles locally');
     expect(roadmap).toContain('fall back to non-destructive DOM overlays');
     expect(roadmap).toContain('visible-image batch state content-owned and recoverable after popup closure');
-    expect(roadmap).toContain('Apply, Undo, Download PNG controls');
+    expect(roadmap).toContain('cache-bypassing Retranslate, non-destructive Apply/Undo');
     expect(roadmap).toContain('Multiple translation engines');
     expect(roadmap).toContain('29 implemented provider adapters');
     expect(roadmap).toContain('Papago, Baidu, Volcengine, Alibaba, Amazon, IBM Watson, Youdao, and SYSTRAN');

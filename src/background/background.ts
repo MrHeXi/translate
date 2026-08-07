@@ -55,6 +55,7 @@ interface MessageResponse {
 }
 
 const CANCELLABLE_REQUEST_ID_PATTERN = /^[A-Za-z0-9:_-]{1,128}$/;
+const TRANSLATE_IMAGE_CONTEXT_MENU_ID = 'lexibridge-translate-image';
 
 class BackgroundService {
   private translationService: TranslationService;
@@ -68,6 +69,8 @@ class BackgroundService {
   private readonly activeTranslationRequests = new Map<string, AbortController>();
   private readonly cancelledTranslationRequestIds = new Set<string>();
   private readonly maxCancelledTranslationRequestIds = 256;
+  private readonly activeContextImageCommands = new Map<string, Promise<void>>();
+  private readonly contentFrameReadiness = new Map<string, Promise<boolean>>();
 
   constructor() {
     this.translationService = new TranslationService();
@@ -164,6 +167,7 @@ class BackgroundService {
   private initializeExtensionHandlers(): void {
     // 扩展安装时的处理
     chrome.runtime.onInstalled.addListener((details) => {
+      this.ensureImageContextMenu();
       this.handleExtensionInstalled(details);
     });
 
@@ -183,6 +187,147 @@ class BackgroundService {
           .catch(error => {
             console.error('Could not open translation side panel:', error);
           });
+      }
+    });
+
+    chrome.contextMenus?.onClicked?.addListener((info, tab) => {
+      if (info.menuItemId !== TRANSLATE_IMAGE_CONTEXT_MENU_ID || tab?.id === undefined) return;
+
+      this.queueContextImageTranslationCommand(
+        tab.id,
+        typeof info.frameId === 'number' && Number.isInteger(info.frameId) ? info.frameId : 0,
+        typeof info.srcUrl === 'string' ? info.srcUrl : ''
+      );
+    });
+  }
+
+  private queueContextImageTranslationCommand(tabId: number, frameId: number, srcUrl: string): void {
+    const commandKey = `${tabId}:${frameId}:${srcUrl}`;
+    if (this.activeContextImageCommands.has(commandKey)) return;
+
+    const command = this.sendContextImageTranslationCommand(tabId, frameId, srcUrl)
+      .then(succeeded => {
+        if (!succeeded) this.showContextImageCommandError(tabId);
+      })
+      .finally(() => {
+        if (this.activeContextImageCommands.get(commandKey) === command) {
+          this.activeContextImageCommands.delete(commandKey);
+        }
+      });
+    this.activeContextImageCommands.set(commandKey, command);
+  }
+
+  private ensureImageContextMenu(): void {
+    if (!chrome.contextMenus?.create || !chrome.contextMenus?.remove) return;
+
+    chrome.contextMenus.remove(TRANSLATE_IMAGE_CONTEXT_MENU_ID, () => {
+      void chrome.runtime.lastError;
+      chrome.contextMenus.create({
+        id: TRANSLATE_IMAGE_CONTEXT_MENU_ID,
+        title: 'Translate text in this image',
+        contexts: ['image'],
+        documentUrlPatterns: ['http://*/*', 'https://*/*']
+      }, () => {
+        void chrome.runtime.lastError;
+      });
+    });
+  }
+
+  private async sendContextImageTranslationCommand(
+    tabId: number,
+    frameId: number,
+    srcUrl: string
+  ): Promise<boolean> {
+    if (!await this.ensureContentFrameReady(tabId, frameId)) return false;
+
+    const response = await this.sendMessageToContentFrame(tabId, frameId, {
+      action: 'translateImageFromContextMenu',
+      data: { srcUrl }
+    });
+    return response?.success === true;
+  }
+
+  private ensureContentFrameReady(tabId: number, frameId: number): Promise<boolean> {
+    const frameKey = `${tabId}:${frameId}`;
+    const existing = this.contentFrameReadiness.get(frameKey);
+    if (existing) return existing;
+
+    const readiness = this.prepareContentFrame(tabId, frameId).finally(() => {
+      if (this.contentFrameReadiness.get(frameKey) === readiness) {
+        this.contentFrameReadiness.delete(frameKey);
+      }
+    });
+    this.contentFrameReadiness.set(frameKey, readiness);
+    return readiness;
+  }
+
+  private async prepareContentFrame(tabId: number, frameId: number): Promise<boolean> {
+    let readiness = await this.getContentFrameReadiness(tabId, frameId);
+    if (readiness === 'missing') {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId, frameIds: [frameId] },
+          files: ['content.js']
+        });
+      } catch {
+        return false;
+      }
+      readiness = 'initializing';
+    }
+
+    if (readiness !== 'ready') {
+      let ready = false;
+      const deadline = Date.now() + 5_000;
+      while (!ready && Date.now() < deadline) {
+        ready = await this.getContentFrameReadiness(tabId, frameId) === 'ready';
+        if (!ready) await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      if (!ready) return false;
+    }
+    return true;
+  }
+
+  private showContextImageCommandError(tabId: number): void {
+    console.warn('Could not translate the selected image.');
+    if (!chrome.action?.setBadgeText) return;
+    void chrome.action.setBadgeBackgroundColor?.({ tabId, color: '#b91c1c' });
+    void chrome.action.setBadgeText({ tabId, text: '!' });
+    setTimeout(() => {
+      void chrome.action.setBadgeText({ tabId, text: '' });
+    }, 3_000);
+  }
+
+  private async getContentFrameReadiness(
+    tabId: number,
+    frameId: number
+  ): Promise<'missing' | 'initializing' | 'ready'> {
+    const response = await this.sendMessageToContentFrame(
+      tabId,
+      frameId,
+      { action: 'getTranslationStatus' }
+    );
+    if (!response) return 'missing';
+    return response.success === true && response.data?.isInitialized === true
+      ? 'ready'
+      : 'initializing';
+  }
+
+  private sendMessageToContentFrame(
+    tabId: number,
+    frameId: number,
+    message: Record<string, unknown>
+  ): Promise<any | null> {
+    return new Promise(resolve => {
+      try {
+        chrome.tabs.sendMessage(tabId, message, { frameId }, response => {
+          if (chrome.runtime.lastError) {
+            resolve(null);
+            return;
+          }
+          resolve(response || null);
+        });
+      } catch {
+        resolve(null);
       }
     });
   }
