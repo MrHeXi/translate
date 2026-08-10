@@ -1,5 +1,6 @@
 import { ImageTranslationRequest, ImageTranslator } from '../components/ImageTranslator';
 import { BundledOcrService } from '../../services/BundledOcrService';
+import type { PixelRect } from '../../services/ComicImageProcessor';
 
 const flushPromises = async (): Promise<void> => {
   await Promise.resolve();
@@ -539,6 +540,34 @@ describe('ImageTranslator', () => {
     expect(result.message).toContain('partial result');
   });
 
+  it('passes the exact remaining chapter patch budget to each reconstructed image', async () => {
+    document.body.innerHTML = `
+      <main class="reader">
+        <img id="page-1" src="/page-1.jpg" alt="First page text">
+        <img id="page-2" src="/page-2.jpg" alt="Second page text">
+      </main>
+    `;
+    const images = Array.from(document.querySelectorAll('img')) as HTMLImageElement[];
+    images.forEach((image, index) => {
+      Object.defineProperty(image, 'complete', { configurable: true, value: true });
+      Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 800 });
+      Object.defineProperty(image, 'naturalHeight', { configurable: true, value: 1_200 });
+      setRect(image, 0, 1_000 + index * 1_300, 800, 1_200);
+    });
+    const render = jest.spyOn(translator as any, 'tryRenderComicImage')
+      .mockResolvedValueOnce(10_000_000)
+      .mockResolvedValueOnce(6_000_000);
+    translator.enable(async text => `Translated: ${text}`);
+    const discovery = translator.discoverComicChapter();
+
+    const result = await translator.startComicChapterTranslation(discovery.discoveryId);
+
+    expect(result.phase).toBe('completed');
+    expect(render).toHaveBeenCalledTimes(2);
+    expect(render.mock.calls[0][6]).toBe(16_000_000);
+    expect(render.mock.calls[1][6]).toBe(6_000_000);
+  });
+
   it('bounds page-controlled accessible image text before provider dispatch', async () => {
     document.body.innerHTML = `<img id="target" alt="${'x'.repeat(9_000)}">`;
     const image = document.getElementById('target') as HTMLImageElement;
@@ -629,28 +658,42 @@ describe('ImageTranslator', () => {
     expect(overlay?.textContent).toContain('Translated: OCR detected line');
   });
 
-  it('bounds browser and bundled OCR inputs before allocating recognition surfaces', async () => {
+  it('tiles browser and bundled OCR inputs at source resolution before allocating recognition surfaces', async () => {
     document.body.innerHTML = '<img id="target" src="huge-comic.png">';
     const image = document.getElementById('target') as HTMLImageElement;
     Object.defineProperty(image, 'complete', { value: true, configurable: true });
-    Object.defineProperty(image, 'naturalWidth', { value: 12_000, configurable: true });
-    Object.defineProperty(image, 'naturalHeight', { value: 8_000, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 2_000, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 4_000, configurable: true });
     setRect(image, 10, 20, 300, 200);
-    const createImageBitmap = jest.fn(async (_source: ImageBitmapSource, _options?: ImageBitmapOptions) => ({
-      close: jest.fn()
-    }));
+    const createImageBitmap = jest.fn(async (
+      _source: ImageBitmapSource,
+      _sourceX: number,
+      _sourceY: number,
+      _sourceWidth: number,
+      _sourceHeight: number,
+      _options: ImageBitmapOptions
+    ) => ({ close: jest.fn() }));
     Object.defineProperty(window, 'createImageBitmap', { value: createImageBitmap, configurable: true });
+    let detectionCount = 0;
     (window as any).TextDetector = jest.fn(() => ({
-      detect: jest.fn(async () => [{ rawValue: 'Bounded browser OCR' }])
+      detect: jest.fn(async () => (++detectionCount === 1 ? [{
+        rawValue: 'Tiled browser OCR',
+        boundingBox: { x: 100, y: 100, width: 200, height: 40 }
+      }] : []))
     }));
 
     translator.enable(async text => `Translated: ${text}`);
     click(image);
     await flushPromises();
 
-    const bitmapOptions = createImageBitmap.mock.calls[0][1]!;
-    expect((bitmapOptions.resizeWidth || Infinity) * (bitmapOptions.resizeHeight || Infinity))
-      .toBeLessThanOrEqual(3_000_000);
+    expect(createImageBitmap.mock.calls.length).toBeGreaterThan(1);
+    createImageBitmap.mock.calls.forEach(call => {
+      const options = call[5] as ImageBitmapOptions;
+      expect((options.resizeWidth || Infinity) * (options.resizeHeight || Infinity))
+        .toBeLessThanOrEqual(3_000_000);
+      expect(call[3]).toBe(options.resizeWidth);
+      expect(call[4]).toBe(options.resizeHeight);
+    });
 
     translator.disable();
     delete (window as any).TextDetector;
@@ -661,6 +704,105 @@ describe('ImageTranslator', () => {
 
     const ocrCanvas = recognize.mock.calls[0][0] as HTMLCanvasElement;
     expect(ocrCanvas.width * ocrCanvas.height).toBeLessThanOrEqual(3_000_000);
+    expect(recognize.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it('uses tile core ownership to translate one OCR version at an overlap boundary', async () => {
+    document.body.innerHTML = '<img id="target" src="long-comic.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 1_000, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 4_000, configurable: true });
+    setRect(image, 10, 20, 500, 2_000);
+    Object.defineProperty(window, 'createImageBitmap', {
+      value: jest.fn(async () => ({ close: jest.fn() })),
+      configurable: true
+    });
+    let tileIndex = 0;
+    const detect = jest.fn(async () => {
+      tileIndex += 1;
+      if (tileIndex === 1) {
+        return [{ rawValue: 'Wait!', boundingBox: { x: 100, y: 1_440, width: 100, height: 20 } }];
+      }
+      if (tileIndex === 2) {
+        return [{ rawValue: 'Wait?', boundingBox: { x: 100, y: 340, width: 100, height: 20 } }];
+      }
+      return [];
+    });
+    (window as any).TextDetector = jest.fn(() => ({ detect }));
+    const translateText = jest.fn(async text => `Translated: ${text}`);
+    jest.spyOn(translator as any, 'tryRenderComicImage').mockResolvedValue(false);
+
+    translator.enable(translateText);
+    click(image);
+    await flushPromises();
+
+    expect(detect).toHaveBeenCalledTimes(3);
+    expect(translateText).toHaveBeenCalledTimes(1);
+    expect(translateText).toHaveBeenCalledWith('Wait?', expectImageTranslationRequest());
+    expect(document.querySelectorAll('.lexibridge-image-region-translation')).toHaveLength(1);
+    expect(document.querySelector('.lexibridge-image-region-translation')?.textContent).toContain('Wait?');
+  });
+
+  it('stops tiled browser OCR before another tile starts and ignores the late result', async () => {
+    document.body.innerHTML = '<img id="target" src="long-comic.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 1_000, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 4_000, configurable: true });
+    setRect(image, 10, 20, 500, 2_000);
+    Object.defineProperty(window, 'createImageBitmap', {
+      value: jest.fn(async () => ({ close: jest.fn() })),
+      configurable: true
+    });
+    let resolveDetection!: (value: Array<{ rawValue: string; boundingBox: PixelRect }>) => void;
+    const pendingDetection = new Promise<Array<{ rawValue: string; boundingBox: PixelRect }>>(resolve => {
+      resolveDetection = resolve;
+    });
+    const detect = jest.fn(() => pendingDetection);
+    (window as any).TextDetector = jest.fn(() => ({ detect }));
+    const translateText = jest.fn(async text => text);
+
+    translator.enable(translateText);
+    click(image);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(detect).toHaveBeenCalledTimes(1);
+
+    translator.disable();
+    resolveDetection([{
+      rawValue: 'Late tile text',
+      boundingBox: { x: 100, y: 100, width: 200, height: 40 }
+    }]);
+    await flushPromises();
+
+    expect(detect).toHaveBeenCalledTimes(1);
+    expect(translateText).not.toHaveBeenCalled();
+    expect(document.querySelector('.lexibridge-image-region-translation')).toBeNull();
+  });
+
+  it('reports a bounded tiled OCR failure instead of silently translating only alt text', async () => {
+    document.body.innerHTML = '<img id="target" src="unsafe-comic.png" alt="Incomplete fallback">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 1_000_000, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 1_001, configurable: true });
+    setRect(image, 10, 20, 1_000, 1_000);
+    const createImageBitmap = jest.fn();
+    const detect = jest.fn();
+    Object.defineProperty(window, 'createImageBitmap', { value: createImageBitmap, configurable: true });
+    (window as any).TextDetector = jest.fn(() => ({ detect }));
+    const translateText = jest.fn(async text => text);
+
+    translator.enable(translateText);
+    click(image);
+    await flushPromises();
+
+    expect(createImageBitmap).not.toHaveBeenCalled();
+    expect(detect).not.toHaveBeenCalled();
+    expect(translateText).not.toHaveBeenCalled();
+    expect(document.getElementById('lexibridge-image-translation-overlay')?.textContent)
+      .toBe('Image exceeds safe tiled OCR limits');
   });
 
   it('invalidates OCR started by an older image-mode epoch after Stop and Start', async () => {
@@ -1187,6 +1329,116 @@ describe('ImageTranslator', () => {
     expect(fillText.mock.calls[0][2]).toBeLessThanOrEqual(33);
     expect(outputContext.clip).toHaveBeenCalledTimes(1);
     expect(outputContext.rect).toHaveBeenCalledWith(5, 5, 35, 28);
+  });
+
+  it('reconstructs a large image as source-positioned bubble patches instead of a full-image canvas', async () => {
+    document.body.innerHTML = '<img id="target" src="long-comic.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 1_501, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 1_000, configurable: true });
+    setRect(image, 10, 20, 1_501, 1_000);
+    Object.defineProperty(window, 'createImageBitmap', {
+      value: jest.fn(async () => ({ close: jest.fn() })),
+      configurable: true
+    });
+    (window as any).TextDetector = jest.fn(() => ({
+      detect: jest.fn(async () => [{
+        rawValue: 'PATCH',
+        boundingBox: { x: 14, y: 15, width: 10, height: 5 }
+      }])
+    }));
+
+    const pixels = createPixelBuffer(100, 40, [120, 120, 120, 255]);
+    paintPixelRect(pixels, 100, { x: 5, y: 5, width: 35, height: 28 }, [248, 248, 248, 255]);
+    paintPixelRect(pixels, 100, { x: 14, y: 15, width: 10, height: 5 }, [5, 5, 5, 255]);
+    const captureTile = jest.spyOn(translator as any, 'captureComicTilePixels').mockReturnValue({
+      image: { width: 100, height: 40, data: pixels },
+      mapping: {
+        sourceX: 0,
+        sourceY: 0,
+        sourceWidth: 1_501,
+        sourceHeight: 999,
+        viewportLeft: 10,
+        viewportTop: 20,
+        viewportWidth: 1_501,
+        viewportHeight: 999,
+        pixelWidth: 1_501,
+        pixelHeight: 999
+      }
+    });
+    const putImageData = jest.fn();
+    const fillText = jest.fn();
+    const drawComposite = jest.fn();
+    getContext.mockReturnValue({
+      createImageData: jest.fn((width: number, height: number) => ({
+        data: new Uint8ClampedArray(width * height * 4)
+      })),
+      putImageData,
+      drawImage: drawComposite,
+      measureText: jest.fn((text: string) => ({ width: Array.from(text).length * 5 })),
+      fillText,
+      save: jest.fn(),
+      restore: jest.fn(),
+      beginPath: jest.fn(),
+      rect: jest.fn(),
+      clip: jest.fn(),
+      font: '',
+      fillStyle: '',
+      direction: 'ltr',
+      textAlign: 'left',
+      textBaseline: 'alphabetic'
+    } as unknown as CanvasRenderingContext2D);
+
+    translator.enable(async () => 'LOCALIZED');
+    const outcome = await (translator as any).translateTarget(image, false);
+
+    const patches = Array.from(document.querySelectorAll(
+      '.lexibridge-image-comic-tile-overlay'
+    )) as HTMLCanvasElement[];
+    expect(outcome).toBe('translated');
+    expect(captureTile).toHaveBeenCalledTimes(1);
+    expect(patches).toHaveLength(1);
+    expect(patches[0].dataset.lexibridgeComposite).toBe('tile');
+    expect(patches[0].width).toBe(35);
+    expect(patches[0].height).toBe(28);
+    expect(patches[0].style.left).toBe('15px');
+    expect(patches[0].style.top).toBe('25px');
+    expect(putImageData).toHaveBeenCalledTimes(1);
+    expect(fillText.mock.calls.map(([text]) => text).join('')).toBe('LOCALIZED');
+    expect(document.querySelector('.lexibridge-image-region-translation')).toBeNull();
+    expect((translator as any).getReconstructedCanvas(image)).toBeNull();
+    const composite = (translator as any).composeTiledDownloadCanvas(image) as HTMLCanvasElement;
+    expect(composite.width).toBe(1_501);
+    expect(composite.height).toBe(1_000);
+    expect(drawComposite).toHaveBeenCalledWith(image, 0, 0, 1_501, 1_000);
+    expect(drawComposite).toHaveBeenCalledWith(patches[0], 5, 5, 35, 28);
+    (translator as any).showHoverToolbar(image);
+    expect(document.querySelector('button[data-action="download"]')).not.toBeNull();
+  });
+
+  it('rejects a reconstruction bubble near an internal tile edge but permits a real image edge', () => {
+    const mapping = {
+      pixelWidth: 3_000,
+      pixelHeight: 2_000
+    };
+    const internalTile = {
+      sourceRect: { x: 0, y: 0, width: 1_600, height: 1_000 }
+    };
+    const finalTile = {
+      sourceRect: { x: 1_400, y: 1_000, width: 1_600, height: 1_000 }
+    };
+
+    expect((translator as any).isBubbleSafelyInsideTile(
+      { x: 1_575, y: 100, width: 24, height: 40 },
+      internalTile,
+      mapping
+    )).toBe(false);
+    expect((translator as any).isBubbleSafelyInsideTile(
+      { x: 1_575, y: 950, width: 24, height: 40 },
+      finalTile,
+      mapping
+    )).toBe(true);
   });
 
   it('falls back to positioned DOM translation when source pixels are cross-origin tainted', async () => {

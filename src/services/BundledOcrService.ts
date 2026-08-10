@@ -88,6 +88,7 @@ const defaultWorkerFactory: TesseractWorkerFactory = async (language, options) =
 
 export class BundledOcrSession {
   private workerPromise: Promise<TesseractWorkerLike> | null = null;
+  private workerCreationPromise: Promise<TesseractWorkerLike> | null = null;
   private activeProgressCallback: BundledOcrProgressCallback | null = null;
 
   constructor(
@@ -97,17 +98,33 @@ export class BundledOcrSession {
 
   async recognize(
     canvas: HTMLCanvasElement,
-    onProgress?: BundledOcrProgressCallback
+    onProgress?: BundledOcrProgressCallback,
+    signal?: AbortSignal
   ): Promise<BundledOcrLine[]> {
+    this.throwIfAborted(signal);
     this.activeProgressCallback = onProgress || null;
-    const worker = await this.getWorker();
+    let rejectAbort: ((error: DOMException) => void) | null = null;
+    const abortPromise = new Promise<never>((_resolve, reject) => {
+      rejectAbort = reject;
+    });
+    const handleAbort = (): void => {
+      void this.terminate();
+      rejectAbort?.(new DOMException('Canceled', 'AbortError'));
+    };
+    signal?.addEventListener('abort', handleAbort, { once: true });
 
     try {
-      const result = await worker.recognize(
-        canvas,
-        { rotateAuto: true },
-        { blocks: true, text: true, hocr: false, tsv: false }
-      );
+      const worker = await Promise.race([this.getWorker(), abortPromise]);
+      this.throwIfAborted(signal);
+      const result = await Promise.race([
+        worker.recognize(
+          canvas,
+          { rotateAuto: true },
+          { blocks: true, text: true, hocr: false, tsv: false }
+        ),
+        abortPromise
+      ]);
+      this.throwIfAborted(signal);
       const lines = (result.data.lines || [])
         .map(line => this.mapLine(line))
         .filter((line): line is BundledOcrLine => Boolean(line));
@@ -122,13 +139,20 @@ export class BundledOcrSession {
         boundingBox: { x: 0, y: 0, width: canvas.width, height: canvas.height }
       }];
     } finally {
+      signal?.removeEventListener('abort', handleAbort);
+      rejectAbort = null;
       this.activeProgressCallback = null;
     }
   }
 
+  private throwIfAborted(signal?: AbortSignal): void {
+    if (signal?.aborted) throw new DOMException('Canceled', 'AbortError');
+  }
+
   async terminate(): Promise<void> {
-    const workerPromise = this.workerPromise;
+    const workerPromise = this.workerCreationPromise || this.workerPromise;
     this.workerPromise = null;
+    this.workerCreationPromise = null;
     this.activeProgressCallback = null;
     if (!workerPromise) return;
 
@@ -142,7 +166,7 @@ export class BundledOcrSession {
 
   private async getWorker(): Promise<TesseractWorkerLike> {
     if (!this.workerPromise) {
-      this.workerPromise = this.workerFactory(this.language, {
+      const creationPromise = this.workerFactory(this.language, {
         workerPath: extensionUrl('ocr/worker.min.js'),
         corePath: extensionUrl('ocr/core/'),
         langPath: extensionUrl('ocr/lang/'),
@@ -150,14 +174,20 @@ export class BundledOcrSession {
         cacheMethod: 'none',
         gzip: true,
         logger: message => this.reportProgress(message)
-      }).then(async worker => {
+      });
+      this.workerCreationPromise = creationPromise;
+      const configuredPromise = creationPromise.then(async worker => {
         await worker.setParameters({
           tessedit_pageseg_mode: PSM.AUTO,
           preserve_interword_spaces: '1',
           user_defined_dpi: '200'
         });
+        if (this.workerPromise !== configuredPromise) {
+          throw new DOMException('Canceled', 'AbortError');
+        }
         return worker;
       });
+      this.workerPromise = configuredPromise;
     }
     return this.workerPromise;
   }

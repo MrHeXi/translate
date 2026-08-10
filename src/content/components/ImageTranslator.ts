@@ -12,6 +12,14 @@ import {
   comicSiteAdapterRegistry
 } from '../../services/ComicSiteAdapterRegistry';
 import {
+  ComicImageTile,
+  ComicImageTilingLimitError,
+  MappedComicOcrLine,
+  deduplicateOverlappingOcrLines,
+  mapTileOcrLinesToSource,
+  planComicImageTiles
+} from '../../services/ComicImageTiling';
+import {
   applyInpaintToImage,
   assessInpaintSafety,
   buildTextMask,
@@ -28,6 +36,7 @@ import {
   PixelPoint,
   PixelRect,
   RgbaColor,
+  TextGroup,
   TypesetPlan
 } from '../../services/ComicImageProcessor';
 
@@ -137,6 +146,8 @@ interface ImageTextBlock {
   viewportRect?: DOMRect;
   sourceRect?: PixelRect;
   sourcePolygon?: readonly PixelPoint[];
+  sourceTileRect?: PixelRect;
+  sourceTileCoreRect?: PixelRect;
   confidence?: number;
   level?: OcrTokenLevel;
 }
@@ -191,6 +202,7 @@ export class ImageTranslator {
   private translateText: TranslateText | null = null;
   private createTranslationCacheKey: CreateTranslationCacheKey = text => text;
   private overlayElements: Map<Element, HTMLElement[]> = new Map();
+  private reconstructionPixelCounts: Map<Element, number> = new Map();
   private styleElement: HTMLStyleElement | null = null;
   private selectionElement: HTMLElement | null = null;
   private selectionState: ImageSelectionState | null = null;
@@ -810,11 +822,23 @@ export class ImageTranslator {
         staleCount += 1;
         this.removeTargetOverlays(candidate.element);
       } else {
-        const imageBlocks = await this.extractImageTextBlocks(candidate.element);
+        let tileLimitFailed = false;
+        let imageBlocks: ImageTextBlock[] = [];
+        try {
+          imageBlocks = await this.extractImageTextBlocks(candidate.element);
+        } catch (error) {
+          if (!(error instanceof ComicImageTilingLimitError)) throw error;
+          tileLimitFailed = true;
+          limitReached = true;
+          failedCount += 1;
+          this.removeTargetOverlays(candidate.element);
+        }
         if (!this.isComicChapterRunActive(runId)) break;
         if (!this.comicAdapters.isCandidateCurrent(candidate, window.location, snapshot.discovery.navigationKey)) {
           staleCount += 1;
           this.removeTargetOverlays(candidate.element);
+        } else if (tileLimitFailed) {
+          // The completed state reports a partial result instead of treating a bounded skip as unreadable OCR.
         } else if (imageBlocks.length === 0) {
           unreadableCount += 1;
         } else {
@@ -837,13 +861,10 @@ export class ImageTranslator {
           if (acceptedBlocks.length === 0) break chapterImages;
           textBlockCount += acceptedBlocks.length;
 
-          const sourceWidth = Math.max(1, candidate.element.naturalWidth || candidate.element.width);
-          const sourceHeight = Math.max(1, candidate.element.naturalHeight || candidate.element.height);
-          const sourcePixels = sourceWidth * sourceHeight;
-          const allowReconstruction = Number.isSafeInteger(sourcePixels) &&
-            sourcePixels <= MAX_COMIC_RECONSTRUCTION_PIXELS &&
-            retainedReconstructionPixels + sourcePixels <= COMIC_CHAPTER_LIMITS.maxRetainedReconstructionPixels;
-          if (allowReconstruction) retainedReconstructionPixels += sourcePixels;
+          const reconstructionBudget = Math.max(
+            0,
+            COMIC_CHAPTER_LIMITS.maxRetainedReconstructionPixels - retainedReconstructionPixels
+          );
 
           const outcome = await this.translateImageBlocks(
             candidate.element,
@@ -852,10 +873,13 @@ export class ImageTranslator {
             false,
             undefined,
             undefined,
-            allowReconstruction,
+            reconstructionBudget,
             this.chapterNamespace
           );
-          if (outcome === 'translated') translatedCount += 1;
+          if (outcome === 'translated') {
+            translatedCount += 1;
+            retainedReconstructionPixels += this.reconstructionPixelCounts.get(candidate.element) || 0;
+          }
           else if (outcome === 'failed') failedCount += 1;
           else if (!this.isComicChapterRunActive(runId)) break;
           else staleCount += 1;
@@ -937,7 +961,16 @@ export class ImageTranslator {
       region
     );
 
-    const imageBlocks = await this.extractImageTextBlocks(target, region);
+    let imageBlocks: ImageTextBlock[];
+    try {
+      imageBlocks = await this.extractImageTextBlocks(target, region);
+    } catch (error) {
+      if (!(error instanceof ComicImageTilingLimitError)) throw error;
+      if (this.isTargetTranslationRunActive(target, targetRunId)) {
+        this.renderStatus(target, 'Image exceeds safe tiled OCR limits', region);
+      }
+      return 'failed';
+    }
     if (!this.isInteractionEpochActive(interactionEpoch)) return 'cancelled';
     if (!this.isTargetTranslationRunActive(target, targetRunId)) return 'cancelled';
     if (!this.isSourceFingerprintCurrent(target, sourceFingerprint, region)) {
@@ -1060,7 +1093,7 @@ export class ImageTranslator {
     this.appendToolbarButton(toolbar, state ? 'retranslate' : 'translate', state ? 'Retranslate image' : 'Translate image', state ? 'R' : 'T');
     if (state === 'preview') this.appendToolbarButton(toolbar, 'apply', 'Apply translation', '\u2713');
     if (state) this.appendToolbarButton(toolbar, 'undo', 'Undo translation', '\u21b6');
-    if (this.getReconstructedCanvas(target)) {
+    if (this.getReconstructedCanvas(target) || this.hasTiledReconstruction(target)) {
       this.appendToolbarButton(toolbar, 'download', 'Download translated PNG', '\u2193');
     }
     this.appendToolbarButton(toolbar, 'close', 'Close image actions', '\u00d7');
@@ -1141,19 +1174,23 @@ export class ImageTranslator {
 
   private getReconstructedCanvas(target: Element): HTMLCanvasElement | null {
     return this.overlayElements.get(target)?.find(
-      overlay => overlay instanceof HTMLCanvasElement && overlay.classList.contains('lexibridge-image-comic-overlay')
+      overlay => overlay instanceof HTMLCanvasElement &&
+        overlay.classList.contains('lexibridge-image-comic-overlay') &&
+        overlay.dataset.lexibridgeComposite !== 'tile'
     ) as HTMLCanvasElement | undefined || null;
   }
 
   private async downloadTargetTranslation(target: Element): Promise<boolean> {
-    const canvas = this.getReconstructedCanvas(target);
+    const canvas = this.getReconstructedCanvas(target) || this.composeTiledDownloadCanvas(target);
     if (!canvas || typeof canvas.toBlob !== 'function' || typeof URL.createObjectURL !== 'function') {
-      this.statusMessage = 'PNG download is available for reconstructed images only';
+      this.statusMessage = this.hasTiledReconstruction(target)
+        ? 'This translated image is too large for safe PNG export'
+        : 'PNG download is available for reconstructed images only';
       return false;
     }
 
     const blob = await this.createCanvasPngBlob(canvas);
-    if (!blob || !this.isActive || !canvas.isConnected) return false;
+    if (!blob || !this.isActive || !target.isConnected) return false;
 
     let objectUrl: string;
     try {
@@ -1200,6 +1237,55 @@ export class ImageTranslator {
         finish(null);
       }
     });
+  }
+
+  private hasTiledReconstruction(target: Element): boolean {
+    return Boolean(this.overlayElements.get(target)?.some(
+      overlay => overlay instanceof HTMLCanvasElement && overlay.dataset.lexibridgeComposite === 'tile'
+    ));
+  }
+
+  private composeTiledDownloadCanvas(target: Element): HTMLCanvasElement | null {
+    if (!(target instanceof HTMLImageElement)) return null;
+    const patches = this.overlayElements.get(target)?.filter(
+      (overlay): overlay is HTMLCanvasElement => (
+        overlay instanceof HTMLCanvasElement && overlay.dataset.lexibridgeComposite === 'tile'
+      )
+    ) || [];
+    const width = target.naturalWidth || target.width;
+    const height = target.naturalHeight || target.height;
+    const pixels = width * height;
+    if (
+      patches.length === 0 ||
+      width <= 0 ||
+      height <= 0 ||
+      width > 16_384 ||
+      height > 16_384 ||
+      !Number.isSafeInteger(pixels) ||
+      pixels > COMIC_IMAGE_LIMITS.maxCompositePixels
+    ) {
+      return null;
+    }
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context || typeof context.drawImage !== 'function') return null;
+      context.drawImage(target, 0, 0, width, height);
+      for (const patch of patches) {
+        const x = Number.parseFloat(patch.dataset.lexibridgeSourceX || '');
+        const y = Number.parseFloat(patch.dataset.lexibridgeSourceY || '');
+        const patchWidth = Number.parseFloat(patch.dataset.lexibridgeSourceWidth || '');
+        const patchHeight = Number.parseFloat(patch.dataset.lexibridgeSourceHeight || '');
+        if (![x, y, patchWidth, patchHeight].every(Number.isFinite)) return null;
+        context.drawImage(patch, x, y, patchWidth, patchHeight);
+      }
+      return canvas;
+    } catch {
+      return null;
+    }
   }
 
   private revokeObjectUrl(objectUrl: string): void {
@@ -1378,7 +1464,7 @@ export class ImageTranslator {
     forceRefresh = false,
     existingTargetRunId?: number,
     existingSourceFingerprint?: string,
-    allowReconstruction = true,
+    reconstructionPixelBudget: number = COMIC_CHAPTER_LIMITS.maxRetainedReconstructionPixels,
     requestNamespace = this.requestNamespace
   ): Promise<ImageTranslationOutcome> {
     if (!this.translateText || !this.isActive) return 'cancelled';
@@ -1396,20 +1482,28 @@ export class ImageTranslator {
           this.removeTargetOverlays(target);
           return 'cancelled';
         }
-        const renderedComic = allowReconstruction && !region?.isFreeform && await this.tryRenderComicImage(
-          target,
-          imageBlocks,
-          translatedBlocks,
-          targetRunId,
-          sourceFingerprint,
-          region
-        );
+        const reconstructedPixels = reconstructionPixelBudget > 0 && !region?.isFreeform
+          ? await this.tryRenderComicImage(
+            target,
+            imageBlocks,
+            translatedBlocks,
+            targetRunId,
+            sourceFingerprint,
+            region,
+            reconstructionPixelBudget
+          )
+          : 0;
+        const renderedComic = reconstructedPixels > 0;
         if (!this.isTargetTranslationRunActive(target, targetRunId)) return 'cancelled';
         if (!this.isSourceFingerprintCurrent(target, sourceFingerprint, region)) {
           this.removeTargetOverlays(target);
           return 'cancelled';
         }
-        if (!renderedComic) this.renderImageBlocks(target, imageBlocks, translatedBlocks, region);
+        if (renderedComic) this.reconstructionPixelCounts.set(target, reconstructedPixels);
+        else {
+          this.reconstructionPixelCounts.delete(target);
+          this.renderImageBlocks(target, imageBlocks, translatedBlocks, region);
+        }
         this.resultStates.set(target, 'preview');
         this.resultSourceIdentities.set(target, this.getResultSourceIdentity(target));
         this.recordOverlayAnchor(target);
@@ -1630,24 +1724,36 @@ export class ImageTranslator {
   }
 
   private async extractImageTextBlocks(element: Element, region?: ImageSelectionRegion): Promise<ImageTextBlock[]> {
-    const detectedBlocks = await this.extractWithTextDetector(element, region);
-    if (detectedBlocks.length > 0) {
-      return this.uniqueImageTextBlocks(detectedBlocks);
+    const controller = new AbortController();
+    this.activeProcessingControllers.add(controller);
+    try {
+      const detectedBlocks = await this.extractWithTextDetector(element, region, controller.signal);
+      if (controller.signal.aborted) return [];
+      if (detectedBlocks.length > 0) {
+        return this.uniqueImageTextBlocks(detectedBlocks);
+      }
+
+      const bundledBlocks = await this.extractWithBundledOcr(element, region, controller.signal);
+      if (controller.signal.aborted) return [];
+      if (bundledBlocks.length > 0) {
+        return this.uniqueImageTextBlocks(bundledBlocks);
+      }
+
+      const svgText = this.extractSvgText(element);
+      const accessibleText = region ? '' : this.extractAccessibleText(element);
+
+      return this.uniqueTextBlocks([svgText, accessibleText])
+        .map(text => ({ text }));
+    } finally {
+      this.activeProcessingControllers.delete(controller);
     }
-
-    const bundledBlocks = await this.extractWithBundledOcr(element, region);
-    if (bundledBlocks.length > 0) {
-      return this.uniqueImageTextBlocks(bundledBlocks);
-    }
-
-    const svgText = this.extractSvgText(element);
-    const accessibleText = region ? '' : this.extractAccessibleText(element);
-
-    return this.uniqueTextBlocks([svgText, accessibleText])
-      .map(text => ({ text }));
   }
 
-  private async extractWithTextDetector(element: Element, region?: ImageSelectionRegion): Promise<ImageTextBlock[]> {
+  private async extractWithTextDetector(
+    element: Element,
+    region: ImageSelectionRegion | undefined,
+    signal: AbortSignal
+  ): Promise<ImageTextBlock[]> {
     if (!window.TextDetector || typeof window.createImageBitmap !== 'function') {
       return [];
     }
@@ -1660,8 +1766,15 @@ export class ImageTranslator {
       if (element instanceof HTMLImageElement && !element.complete && typeof element.decode === 'function') {
         await element.decode();
       }
+      if (signal.aborted) return [];
 
-      const mapping = this.getBoundedOcrMapping(this.getImageBitmapMapping(element, region));
+      const sourceMapping = this.getImageBitmapMapping(element, region);
+      const sourcePixels = sourceMapping.pixelWidth * sourceMapping.pixelHeight;
+      if (!region?.isFreeform && Number.isSafeInteger(sourcePixels) && sourcePixels > COMIC_IMAGE_LIMITS.maxAnalysisPixels) {
+        return await this.extractTiledWithTextDetector(element, sourceMapping, signal);
+      }
+
+      const mapping = this.getBoundedOcrMapping(sourceMapping);
       const bitmap = region
         ? await this.createRegionBitmap(element, region, mapping)
         : await window.createImageBitmap(element, {
@@ -1672,6 +1785,7 @@ export class ImageTranslator {
       try {
         const detector = new window.TextDetector();
         const detections = await detector.detect(bitmap);
+        if (signal.aborted) return [];
 
         return detections
           .map(item => {
@@ -1693,13 +1807,15 @@ export class ImageTranslator {
         bitmap.close();
       }
     } catch (error) {
+      if (error instanceof ComicImageTilingLimitError) throw error;
       return [];
     }
   }
 
   private async extractWithBundledOcr(
     element: Element,
-    region?: ImageSelectionRegion
+    region: ImageSelectionRegion | undefined,
+    signal: AbortSignal
   ): Promise<ImageTextBlock[]> {
     if (!(element instanceof HTMLImageElement) && !(element instanceof HTMLCanvasElement)) {
       return [];
@@ -1709,8 +1825,15 @@ export class ImageTranslator {
       if (element instanceof HTMLImageElement && !element.complete && typeof element.decode === 'function') {
         await element.decode();
       }
+      if (signal.aborted) return [];
 
-      const mapping = this.getBoundedOcrMapping(this.getImageBitmapMapping(element, region));
+      const sourceMapping = this.getImageBitmapMapping(element, region);
+      const sourcePixels = sourceMapping.pixelWidth * sourceMapping.pixelHeight;
+      if (!region?.isFreeform && Number.isSafeInteger(sourcePixels) && sourcePixels > COMIC_IMAGE_LIMITS.maxAnalysisPixels) {
+        return await this.extractTiledWithBundledOcr(element, sourceMapping, signal);
+      }
+
+      const mapping = this.getBoundedOcrMapping(sourceMapping);
       const canvas = document.createElement('canvas');
       canvas.width = mapping.pixelWidth;
       canvas.height = mapping.pixelHeight;
@@ -1719,7 +1842,8 @@ export class ImageTranslator {
 
       if (!this.drawImageToOcrCanvas(context, element, mapping, region)) return [];
       const session = this.getBundledOcrSession();
-      const lines = await session.recognize(canvas);
+      const lines = await session.recognize(canvas, undefined, signal);
+      if (signal.aborted) return [];
 
       return lines.map(line => {
         const sourceRect = this.mapDetectedTextBoxToSource(line.boundingBox, mapping);
@@ -1731,9 +1855,160 @@ export class ImageTranslator {
           level: sourceRect ? this.getOcrTokenLevel(sourceRect, mapping) : 'page-fallback' as OcrTokenLevel
         };
       }).filter(block => Boolean(block.text));
-    } catch {
+    } catch (error) {
+      if (error instanceof ComicImageTilingLimitError) throw error;
       return [];
     }
+  }
+
+  private async extractTiledWithTextDetector(
+    element: HTMLImageElement | HTMLCanvasElement,
+    sourceMapping: ImageBitmapMapping,
+    signal: AbortSignal
+  ): Promise<ImageTextBlock[]> {
+    const plan = planComicImageTiles({
+      width: sourceMapping.pixelWidth,
+      height: sourceMapping.pixelHeight
+    }, { signal });
+    const TextDetectorConstructor = window.TextDetector;
+    if (!TextDetectorConstructor) return [];
+    const detector = new TextDetectorConstructor();
+    const mappedLines: MappedComicOcrLine[] = [];
+
+    for (const tile of plan.tiles) {
+      if (signal.aborted) return [];
+      const tileMapping = this.getTileMapping(sourceMapping, tile);
+      const bitmap = await window.createImageBitmap(
+        element,
+        Math.round(tileMapping.sourceX),
+        Math.round(tileMapping.sourceY),
+        Math.max(1, Math.round(tileMapping.sourceWidth)),
+        Math.max(1, Math.round(tileMapping.sourceHeight)),
+        {
+          resizeWidth: tile.sourceRect.width,
+          resizeHeight: tile.sourceRect.height,
+          resizeQuality: 'high'
+        }
+      );
+      try {
+        const detections = await detector.detect(bitmap);
+        if (signal.aborted) return [];
+        const localLines = detections.flatMap((item, index) => {
+          const rect = this.mapDetectedTextBoxToSource(item.boundingBox, tileMapping);
+          const text = this.normalizeText(item.rawValue || '');
+          if (!rect || !text) return [];
+          return [{
+            id: `detected-${index + 1}`,
+            text,
+            confidence: 100,
+            rect,
+            sourcePolygon: this.mapDetectedPolygonToSource(item.cornerPoints, tileMapping)
+          }];
+        });
+        mappedLines.push(...mapTileOcrLinesToSource(tile, localLines, { signal }));
+      } finally {
+        bitmap.close();
+      }
+    }
+
+    return this.mapTiledOcrLinesToBlocks(
+      deduplicateOverlappingOcrLines(mappedLines, { signal }),
+      sourceMapping
+    );
+  }
+
+  private async extractTiledWithBundledOcr(
+    element: HTMLImageElement | HTMLCanvasElement,
+    sourceMapping: ImageBitmapMapping,
+    signal: AbortSignal
+  ): Promise<ImageTextBlock[]> {
+    const plan = planComicImageTiles({
+      width: sourceMapping.pixelWidth,
+      height: sourceMapping.pixelHeight
+    }, { signal });
+    const session = this.getBundledOcrSession();
+    const mappedLines: MappedComicOcrLine[] = [];
+
+    for (const tile of plan.tiles) {
+      if (signal.aborted) return [];
+      const tileMapping = this.getTileMapping(sourceMapping, tile);
+      const canvas = document.createElement('canvas');
+      canvas.width = tile.sourceRect.width;
+      canvas.height = tile.sourceRect.height;
+      const context = canvas.getContext('2d', { alpha: false });
+      if (!context || !this.drawImageToOcrCanvas(context, element, tileMapping)) return [];
+      const lines = await session.recognize(canvas, undefined, signal);
+      if (signal.aborted) return [];
+      const localLines = lines.flatMap((line, index) => {
+        const rect = this.mapDetectedTextBoxToSource(line.boundingBox, tileMapping);
+        const text = this.normalizeText(line.text);
+        if (!rect || !text) return [];
+        return [{
+          id: `line-${index + 1}`,
+          text,
+          confidence: Math.max(0, Math.min(100, line.confidence || 0)),
+          rect
+        }];
+      });
+      mappedLines.push(...mapTileOcrLinesToSource(tile, localLines, { signal }));
+      canvas.width = 1;
+      canvas.height = 1;
+    }
+
+    return this.mapTiledOcrLinesToBlocks(
+      deduplicateOverlappingOcrLines(mappedLines, { signal }),
+      sourceMapping
+    );
+  }
+
+  private mapTiledOcrLinesToBlocks(
+    lines: readonly MappedComicOcrLine[],
+    sourceMapping: ImageBitmapMapping
+  ): ImageTextBlock[] {
+    return lines.map(line => ({
+      text: line.text,
+      viewportRect: this.mapSourceRectToViewport(line.rect, sourceMapping),
+      sourceRect: line.rect,
+      sourcePolygon: line.sourcePolygon,
+      sourceTileRect: line.sourceTileRect,
+      sourceTileCoreRect: line.sourceTileCoreRect,
+      confidence: line.confidence,
+      level: this.getOcrTokenLevel(
+        {
+          x: line.rect.x - line.sourceTileRect.x,
+          y: line.rect.y - line.sourceTileRect.y,
+          width: line.rect.width,
+          height: line.rect.height
+        },
+        {
+          ...sourceMapping,
+          pixelWidth: line.sourceTileRect.width,
+          pixelHeight: line.sourceTileRect.height
+        }
+      )
+    }));
+  }
+
+  private getTileMapping(
+    sourceMapping: ImageBitmapMapping,
+    tile: ComicImageTile
+  ): ImageBitmapMapping {
+    const sourceScaleX = sourceMapping.sourceWidth / sourceMapping.pixelWidth;
+    const sourceScaleY = sourceMapping.sourceHeight / sourceMapping.pixelHeight;
+    const viewportScaleX = sourceMapping.viewportWidth / sourceMapping.pixelWidth;
+    const viewportScaleY = sourceMapping.viewportHeight / sourceMapping.pixelHeight;
+    return {
+      sourceX: sourceMapping.sourceX + tile.sourceRect.x * sourceScaleX,
+      sourceY: sourceMapping.sourceY + tile.sourceRect.y * sourceScaleY,
+      sourceWidth: tile.sourceRect.width * sourceScaleX,
+      sourceHeight: tile.sourceRect.height * sourceScaleY,
+      viewportLeft: sourceMapping.viewportLeft + tile.sourceRect.x * viewportScaleX,
+      viewportTop: sourceMapping.viewportTop + tile.sourceRect.y * viewportScaleY,
+      viewportWidth: tile.sourceRect.width * viewportScaleX,
+      viewportHeight: tile.sourceRect.height * viewportScaleY,
+      pixelWidth: tile.sourceRect.width,
+      pixelHeight: tile.sourceRect.height
+    };
   }
 
   private getBundledOcrSession(): BundledOcrSession {
@@ -2002,19 +2277,38 @@ export class ImageTranslator {
     translatedTexts: string[],
     targetRunId: number,
     sourceFingerprint: string,
-    region?: ImageSelectionRegion
-  ): Promise<boolean> {
+    region: ImageSelectionRegion | undefined,
+    reconstructionPixelBudget: number
+  ): Promise<number> {
     if (
       blocks.length === 0 ||
       blocks.length > MAX_COMIC_RECONSTRUCTION_BLOCKS ||
       blocks.length !== translatedTexts.length ||
       blocks.some(block => !block.sourceRect || block.level === 'page-fallback')
     ) {
-      return false;
+      return 0;
     }
 
     const snapshot = this.captureComicPixels(target, region);
-    if (!snapshot) return false;
+    if (!snapshot) {
+      if (!(target instanceof HTMLImageElement)) return 0;
+      const sourceMapping = this.getImageBitmapMapping(target, region);
+      const sourcePixels = sourceMapping.pixelWidth * sourceMapping.pixelHeight;
+      if (!Number.isSafeInteger(sourcePixels) || sourcePixels <= MAX_COMIC_RECONSTRUCTION_PIXELS) {
+        return 0;
+      }
+      return this.tryRenderTiledComicImage(
+        target,
+        blocks,
+        translatedTexts,
+        targetRunId,
+        sourceFingerprint,
+        region,
+        reconstructionPixelBudget
+      );
+    }
+    const snapshotPixels = snapshot.image.width * snapshot.image.height;
+    if (!Number.isSafeInteger(snapshotPixels) || snapshotPixels > reconstructionPixelBudget) return 0;
 
     const controller = new AbortController();
     this.activeProcessingControllers.add(controller);
@@ -2033,7 +2327,7 @@ export class ImageTranslator {
       const panels = detectPanels(snapshot.image, { signal });
       const bubbles = detectBubbles(snapshot.image, tokens, panels, { signal });
       const groups = groupTextTokens(tokens, bubbles, signal);
-      if (groups.length === 0) return false;
+      if (groups.length === 0) return 0;
 
       const outputCanvas = document.createElement('canvas');
       outputCanvas.width = snapshot.image.width;
@@ -2051,7 +2345,7 @@ export class ImageTranslator {
         typeof outputContext.rect !== 'function' ||
         typeof outputContext.clip !== 'function'
       ) {
-        return false;
+        return 0;
       }
 
       const bubbleById = new Map(bubbles.map(bubble => [bubble.id, bubble]));
@@ -2062,16 +2356,16 @@ export class ImageTranslator {
       };
 
       for (const group of groups) {
-        if (signal.aborted) return false;
+        if (signal.aborted) return 0;
         const bubble = group.bubbleId ? bubbleById.get(group.bubbleId) : undefined;
-        if (!bubble) return false;
+        if (!bubble) return 0;
 
         const translatedText = group.tokenIds
           .map(tokenId => translatedTexts[Number.parseInt(tokenId.slice('block-'.length), 10)] || '')
           .filter(Boolean)
           .join('\n')
           .trim();
-        if (!translatedText) return false;
+        if (!translatedText) return 0;
 
         const writingMode = getTranslationWritingMode(group.direction, translatedText);
         const plan = layoutTranslation(translatedText, bubble.rect, measure, {
@@ -2083,11 +2377,11 @@ export class ImageTranslator {
           writingMode,
           signal
         });
-        if (plan.overflow || plan.lines.length === 0) return false;
+        if (plan.overflow || plan.lines.length === 0) return 0;
 
         const mask = buildTextMask(snapshot.image, group, bubble, { signal });
         const safety = assessInpaintSafety(snapshot.image, mask, bubble, signal);
-        if (safety.mode === 'skip') return false;
+        if (safety.mode === 'skip') return 0;
 
         preparedGroups.push({
           plan,
@@ -2136,7 +2430,7 @@ export class ImageTranslator {
         !this.isTargetTranslationRunActive(target, targetRunId) ||
         !this.isSourceFingerprintCurrent(target, sourceFingerprint, region)
       ) {
-        return false;
+        return 0;
       }
 
       const rect = region?.viewportRect || target.getBoundingClientRect();
@@ -2156,12 +2450,352 @@ export class ImageTranslator {
       document.body.appendChild(outputCanvas);
       this.overlayElements.set(target, [outputCanvas]);
       this.recordOverlayAnchor(target);
-      return true;
+      return snapshotPixels;
     } catch {
-      return false;
+      return 0;
     } finally {
       this.activeProcessingControllers.delete(controller);
     }
+  }
+
+  private async tryRenderTiledComicImage(
+    target: Element,
+    blocks: ImageTextBlock[],
+    translatedTexts: string[],
+    targetRunId: number,
+    sourceFingerprint: string,
+    region: ImageSelectionRegion | undefined,
+    reconstructionPixelBudget: number
+  ): Promise<number> {
+    if (
+      !(target instanceof HTMLImageElement) ||
+      !this.canReconstructPixelSource(target) ||
+      blocks.length === 0 ||
+      blocks.length > MAX_COMIC_RECONSTRUCTION_BLOCKS ||
+      blocks.length !== translatedTexts.length ||
+      blocks.some(block => !block.sourceRect || block.level === 'page-fallback')
+    ) {
+      return 0;
+    }
+
+    const controller = new AbortController();
+    this.activeProcessingControllers.add(controller);
+    const { signal } = controller;
+    try {
+      const sourceMapping = this.getImageBitmapMapping(target, region);
+      const plan = planComicImageTiles({
+        width: sourceMapping.pixelWidth,
+        height: sourceMapping.pixelHeight
+      }, {
+        maxTilePixels: MAX_COMIC_RECONSTRUCTION_PIXELS,
+        signal
+      });
+      const tileAssignments = plan.tiles.map(tile => ({
+        tile,
+        blockIndices: blocks.flatMap((block, index) => (
+          block.sourceRect && this.isRectCenterInside(block.sourceRect, tile.coreRect) ? [index] : []
+        ))
+      })).filter(assignment => assignment.blockIndices.length > 0);
+      if (
+        tileAssignments.length === 0 ||
+        tileAssignments.reduce((count, assignment) => count + assignment.blockIndices.length, 0) !== blocks.length
+      ) {
+        return 0;
+      }
+
+      const patches: HTMLCanvasElement[] = [];
+      let retainedPatchPixels = 0;
+      for (const assignment of tileAssignments) {
+        await this.yieldForImageCommit();
+        if (
+          signal.aborted ||
+          !this.isTargetTranslationRunActive(target, targetRunId) ||
+          !this.isSourceFingerprintCurrent(target, sourceFingerprint, region)
+        ) {
+          return 0;
+        }
+
+        const snapshot = this.captureComicTilePixels(target, sourceMapping, assignment.tile);
+        if (!snapshot) return 0;
+        const tokens: OcrToken[] = assignment.blockIndices.map(index => {
+          const block = blocks[index];
+          const sourceRect = block.sourceRect!;
+          const rect = {
+            x: sourceRect.x - assignment.tile.sourceRect.x,
+            y: sourceRect.y - assignment.tile.sourceRect.y,
+            width: sourceRect.width,
+            height: sourceRect.height
+          };
+          return {
+            id: `block-${index}`,
+            text: block.text,
+            confidence: Math.max(0, Math.min(100, block.confidence ?? 100)),
+            rect,
+            sourcePolygon: block.sourcePolygon?.map(point => ({
+              x: point.x - assignment.tile.sourceRect.x,
+              y: point.y - assignment.tile.sourceRect.y
+            })),
+            level: block.level || 'line',
+            direction: inferOcrTextDirection(block.text, rect)
+          };
+        });
+        const panels = detectPanels(snapshot.image, { signal });
+        const bubbles = detectBubbles(snapshot.image, tokens, panels, { signal });
+        const groups = groupTextTokens(tokens, bubbles, signal);
+        const bubbleById = new Map(bubbles.map(bubble => [bubble.id, bubble]));
+        if (
+          groups.length === 0 ||
+          groups.some(group => {
+            const bubble = group.bubbleId ? bubbleById.get(group.bubbleId) : undefined;
+            return !bubble || !this.isBubbleSafelyInsideTile(
+              bubble.rect,
+              assignment.tile,
+              sourceMapping
+            );
+          })
+        ) {
+          return 0;
+        }
+
+        const composite: PixelImage = {
+          width: snapshot.image.width,
+          height: snapshot.image.height,
+          data: new Uint8ClampedArray(snapshot.image.data)
+        };
+        const prepared = groups.map(group => {
+          const bubble = bubbleById.get(group.bubbleId!)!;
+          const translatedText = group.tokenIds
+            .map(tokenId => translatedTexts[Number.parseInt(tokenId.slice('block-'.length), 10)] || '')
+            .filter(Boolean)
+            .join('\n')
+            .trim();
+          if (!translatedText) return null;
+          const mask = buildTextMask(snapshot.image, group, bubble, { signal });
+          const safety = assessInpaintSafety(snapshot.image, mask, bubble, signal);
+          if (safety.mode === 'skip') return null;
+          applyInpaintToImage(composite, mask, safety, { signal });
+          return { bubble, group, safety, translatedText };
+        });
+        if (prepared.some(item => !item)) return 0;
+
+        for (const item of prepared) {
+          if (!item) return 0;
+          const patchPixels = item.bubble.rect.width * item.bubble.rect.height;
+          retainedPatchPixels += patchPixels;
+          if (
+            !Number.isSafeInteger(patchPixels) ||
+            retainedPatchPixels > reconstructionPixelBudget
+          ) {
+            return 0;
+          }
+          const patch = this.createComicPatchCanvas(
+            composite,
+            item.bubble.rect,
+            item.group.direction,
+            item.translatedText,
+            item.safety.backgroundColor,
+            signal
+          );
+          if (!patch) return 0;
+          this.positionComicPatch(
+            patch,
+            sourceMapping,
+            assignment.tile.sourceRect.x + item.bubble.rect.x,
+            assignment.tile.sourceRect.y + item.bubble.rect.y,
+            item.bubble.rect.width,
+            item.bubble.rect.height
+          );
+          patches.push(patch);
+        }
+      }
+
+      await this.yieldForImageCommit();
+      if (
+        patches.length === 0 ||
+        signal.aborted ||
+        !this.isTargetTranslationRunActive(target, targetRunId) ||
+        !this.isSourceFingerprintCurrent(target, sourceFingerprint, region)
+      ) {
+        return 0;
+      }
+      this.removeTargetOverlays(target);
+      patches.forEach(patch => document.body.appendChild(patch));
+      this.overlayElements.set(target, patches);
+      this.recordOverlayAnchor(target);
+      return retainedPatchPixels;
+    } catch {
+      return 0;
+    } finally {
+      this.activeProcessingControllers.delete(controller);
+    }
+  }
+
+  private captureComicTilePixels(
+    target: HTMLImageElement,
+    sourceMapping: ImageBitmapMapping,
+    tile: ComicImageTile
+  ): ComicPixelSnapshot | null {
+    try {
+      const mapping = this.getTileMapping(sourceMapping, tile);
+      const canvas = document.createElement('canvas');
+      canvas.width = tile.sourceRect.width;
+      canvas.height = tile.sourceRect.height;
+      const context = canvas.getContext('2d', { alpha: true });
+      if (!context || typeof context.getImageData !== 'function') return null;
+      context.drawImage(
+        target,
+        mapping.sourceX,
+        mapping.sourceY,
+        mapping.sourceWidth,
+        mapping.sourceHeight,
+        0,
+        0,
+        tile.sourceRect.width,
+        tile.sourceRect.height
+      );
+      const imageData = context.getImageData(0, 0, tile.sourceRect.width, tile.sourceRect.height);
+      canvas.width = 1;
+      canvas.height = 1;
+      return {
+        image: {
+          width: tile.sourceRect.width,
+          height: tile.sourceRect.height,
+          data: new Uint8ClampedArray(imageData.data)
+        },
+        mapping
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private createComicPatchCanvas(
+    image: PixelImage,
+    bubbleRect: PixelRect,
+    sourceDirection: TextGroup['direction'],
+    translatedText: string,
+    backgroundColor: RgbaColor,
+    signal: AbortSignal
+  ): HTMLCanvasElement | null {
+    if (signal.aborted) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = bubbleRect.width;
+    canvas.height = bubbleRect.height;
+    canvas.className = 'lexibridge-image-comic-overlay lexibridge-image-comic-tile-overlay';
+    canvas.dataset.lexibridgeOwned = 'true';
+    canvas.dataset.lexibridgeComposite = 'tile';
+    const context = canvas.getContext('2d');
+    if (
+      !context ||
+      typeof context.createImageData !== 'function' ||
+      typeof context.putImageData !== 'function' ||
+      typeof context.measureText !== 'function' ||
+      typeof context.fillText !== 'function' ||
+      typeof context.save !== 'function' ||
+      typeof context.restore !== 'function' ||
+      typeof context.beginPath !== 'function' ||
+      typeof context.rect !== 'function' ||
+      typeof context.clip !== 'function'
+    ) {
+      return null;
+    }
+    const imageData = context.createImageData(bubbleRect.width, bubbleRect.height);
+    for (let row = 0; row < bubbleRect.height; row += 1) {
+      if (signal.aborted) return null;
+      const sourceStart = ((bubbleRect.y + row) * image.width + bubbleRect.x) * 4;
+      const targetStart = row * bubbleRect.width * 4;
+      imageData.data.set(
+        image.data.subarray(sourceStart, sourceStart + bubbleRect.width * 4),
+        targetStart
+      );
+    }
+    context.putImageData(imageData, 0, 0);
+
+    const writingMode = getTranslationWritingMode(sourceDirection, translatedText);
+    const measure = (text: string, fontSize: number): number => {
+      context.font = this.getComicFont(fontSize);
+      return context.measureText(text).width;
+    };
+    const plan = layoutTranslation(
+      translatedText,
+      { x: 0, y: 0, width: bubbleRect.width, height: bubbleRect.height },
+      measure,
+      {
+        minFontSize: 6,
+        maxFontSize: Math.max(8, Math.min(48, Math.floor(
+          (writingMode === 'vertical-rl' ? bubbleRect.width : bubbleRect.height) * 0.45
+        ))),
+        padding: Math.max(2, Math.floor(Math.min(bubbleRect.width, bubbleRect.height) * 0.08)),
+        writingMode,
+        signal
+      }
+    );
+    if (plan.overflow || plan.lines.length === 0) return null;
+    context.save();
+    context.beginPath();
+    context.rect(0, 0, bubbleRect.width, bubbleRect.height);
+    context.clip();
+    context.fillStyle = this.getComicTextColor(backgroundColor);
+    context.direction = plan.direction;
+    context.textBaseline = plan.writingMode === 'vertical-rl' ? 'middle' : 'alphabetic';
+    context.textAlign = plan.writingMode === 'vertical-rl'
+      ? 'center'
+      : plan.direction === 'rtl' ? 'right' : 'left';
+    context.font = this.getComicFont(plan.fontSize);
+    plan.lines.forEach(line => context.fillText(line.text, line.x, line.y));
+    context.restore();
+    return canvas;
+  }
+
+  private positionComicPatch(
+    patch: HTMLCanvasElement,
+    sourceMapping: ImageBitmapMapping,
+    sourceX: number,
+    sourceY: number,
+    sourceWidth: number,
+    sourceHeight: number
+  ): void {
+    const viewportScaleX = sourceMapping.viewportWidth / sourceMapping.pixelWidth;
+    const viewportScaleY = sourceMapping.viewportHeight / sourceMapping.pixelHeight;
+    const sourceScaleX = sourceMapping.sourceWidth / sourceMapping.pixelWidth;
+    const sourceScaleY = sourceMapping.sourceHeight / sourceMapping.pixelHeight;
+    patch.dataset.lexibridgeSourceX = String(sourceMapping.sourceX + sourceX * sourceScaleX);
+    patch.dataset.lexibridgeSourceY = String(sourceMapping.sourceY + sourceY * sourceScaleY);
+    patch.dataset.lexibridgeSourceWidth = String(sourceWidth * sourceScaleX);
+    patch.dataset.lexibridgeSourceHeight = String(sourceHeight * sourceScaleY);
+    Object.assign(patch.style, {
+      position: 'absolute',
+      zIndex: '2147482998',
+      left: `${sourceMapping.viewportLeft + window.scrollX + sourceX * viewportScaleX}px`,
+      top: `${sourceMapping.viewportTop + window.scrollY + sourceY * viewportScaleY}px`,
+      width: `${sourceWidth * viewportScaleX}px`,
+      height: `${sourceHeight * viewportScaleY}px`,
+      borderRadius: '0',
+      pointerEvents: 'none'
+    });
+  }
+
+  private isRectCenterInside(rect: PixelRect, owner: PixelRect): boolean {
+    const centerX = rect.x + rect.width / 2;
+    const centerY = rect.y + rect.height / 2;
+    return centerX >= owner.x && centerX < owner.x + owner.width &&
+      centerY >= owner.y && centerY < owner.y + owner.height;
+  }
+
+  private isBubbleSafelyInsideTile(
+    bubble: PixelRect,
+    tile: ComicImageTile,
+    sourceMapping: ImageBitmapMapping
+  ): boolean {
+    const margin = Math.max(4, Math.min(32, Math.floor(Math.min(bubble.width, bubble.height) * 0.25)));
+    const internalLeft = tile.sourceRect.x > 0;
+    const internalTop = tile.sourceRect.y > 0;
+    const internalRight = tile.sourceRect.x + tile.sourceRect.width < sourceMapping.pixelWidth;
+    const internalBottom = tile.sourceRect.y + tile.sourceRect.height < sourceMapping.pixelHeight;
+    return (!internalLeft || bubble.x >= margin) &&
+      (!internalTop || bubble.y >= margin) &&
+      (!internalRight || bubble.x + bubble.width <= tile.sourceRect.width - margin) &&
+      (!internalBottom || bubble.y + bubble.height <= tile.sourceRect.height - margin);
   }
 
   private captureComicPixels(target: Element, region?: ImageSelectionRegion): ComicPixelSnapshot | null {
@@ -2632,6 +3266,7 @@ export class ImageTranslator {
   private removeTargetOverlays(target: Element): void {
     this.overlayElements.get(target)?.forEach(overlay => overlay.remove());
     this.overlayElements.delete(target);
+    this.reconstructionPixelCounts.delete(target);
     this.resultStates.delete(target);
     this.overlayAnchors.delete(target);
     this.resultSourceIdentities.delete(target);
@@ -2640,6 +3275,7 @@ export class ImageTranslator {
   private removeAllOverlays(): void {
     this.overlayElements.forEach(overlays => overlays.forEach(overlay => overlay.remove()));
     this.overlayElements.clear();
+    this.reconstructionPixelCounts.clear();
     this.resultStates.clear();
     this.overlayAnchors.clear();
     this.resultSourceIdentities.clear();

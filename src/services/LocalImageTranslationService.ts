@@ -1,5 +1,7 @@
 import {
   BundledOcrLanguageCode,
+  BundledOcrLine,
+  BundledOcrSession,
   BundledOcrService,
   bundledOcrService
 } from './BundledOcrService';
@@ -20,6 +22,14 @@ import {
   RgbaColor,
   TextGroup
 } from './ComicImageProcessor';
+import {
+  ComicImageTile,
+  deduplicateOverlappingOcrLines,
+  MappedComicOcrLine,
+  mapTileOcrLinesToSource,
+  planComicImageTiles,
+  TileOcrLine
+} from './ComicImageTiling';
 import { createTranslationRequestNamespace } from './TranslationRequestId';
 
 export const LOCAL_IMAGE_LIMITS = Object.freeze({
@@ -30,6 +40,10 @@ export const LOCAL_IMAGE_LIMITS = Object.freeze({
   maxTotalSourcePixels: COMIC_IMAGE_LIMITS.maxCompositePixels * 2,
   maxWorkingPixels: COMIC_IMAGE_LIMITS.maxAnalysisPixels,
   maxReconstructionPixels: 1_500_000,
+  maxLongImageTiles: 64,
+  maxRawOcrLines: 512,
+  maxOcrCharacters: 120_000,
+  maxEstimatedRgbaBytes: 224 * 1024 * 1024,
   maxBlocks: 64,
   translationConcurrency: 4
 });
@@ -71,6 +85,11 @@ export interface LocalImageTranslationEngine {
 interface LocalImageAnalysis {
   bubbles: BubbleRegion[];
   groups: TextGroup[];
+}
+
+interface LocalTileAnalysis extends LocalImageAnalysis {
+  tile: ComicImageTile;
+  translationOffset: number;
 }
 
 const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -131,7 +150,7 @@ export class LocalImageTranslationService implements LocalImageTranslationEngine
     this.throwIfAborted(options.signal);
     validateLocalImageDimensions(sourceCanvas.width, sourceCanvas.height);
     if (sourceCanvas.width * sourceCanvas.height > LOCAL_IMAGE_LIMITS.maxWorkingPixels) {
-      throw new Error('The working image exceeds the local OCR pixel limit.');
+      return this.translateTiledImage(sourceCanvas, options);
     }
 
     const sourceContext = sourceCanvas.getContext('2d', { alpha: true });
@@ -168,7 +187,7 @@ export class LocalImageTranslationService implements LocalImageTranslationEngine
           total: 100,
           message: progress.status || 'Recognizing image text'
         });
-      });
+      }, runOptions.signal);
       this.throwIfAborted(runOptions.signal);
 
       const normalizedLines = lines
@@ -254,6 +273,511 @@ export class LocalImageTranslationService implements LocalImageTranslationEngine
       runOptions.signal.removeEventListener('abort', terminateOnAbort);
       await session.terminate();
     }
+  }
+
+  private async translateTiledImage(
+    sourceCanvas: HTMLCanvasElement,
+    options: LocalImageTranslationOptions
+  ): Promise<LocalImageTranslationResult> {
+    const plan = planComicImageTiles(
+      { width: sourceCanvas.width, height: sourceCanvas.height },
+      {
+        maxTilePixels: LOCAL_IMAGE_LIMITS.maxReconstructionPixels,
+        signal: options.signal
+      }
+    );
+    if (plan.tiles.length > LOCAL_IMAGE_LIMITS.maxLongImageTiles) {
+      throw new Error(
+        `The image requires ${plan.tiles.length} OCR tiles; the local limit is ${LOCAL_IMAGE_LIMITS.maxLongImageTiles}.`
+      );
+    }
+    this.assertTiledMemoryBudget(sourceCanvas.width * sourceCanvas.height, plan.tileWidth * plan.tileHeight);
+
+    const session = this.ocrService.createSession(options.ocrLanguage);
+    const runController = new AbortController();
+    const forwardAbort = (): void => runController.abort();
+    options.signal.addEventListener('abort', forwardAbort, { once: true });
+    const runOptions: LocalImageTranslationOptions = {
+      ...options,
+      signal: runController.signal
+    };
+    const terminateOnAbort = (): void => {
+      void session.terminate();
+    };
+    runOptions.signal.addEventListener('abort', terminateOnAbort, { once: true });
+
+    try {
+      const mappedLines = await this.recognizeTiles(sourceCanvas, plan.tiles, session, runOptions);
+      const retainedLines = deduplicateOverlappingOcrLines(mappedLines, {
+        signal: runOptions.signal
+      });
+      this.assertBlockLimit(retainedLines.length, 'OCR blocks');
+      if (retainedLines.length === 0) {
+        throw new Error('No readable text was found in this image.');
+      }
+
+      const analyses = await this.analyzeTiles(
+        sourceCanvas,
+        plan.tiles,
+        retainedLines,
+        runOptions.signal
+      );
+      const groups = analyses.flatMap(analysis => analysis.groups);
+      this.assertBlockLimit(groups.length, 'translatable text blocks');
+      this.assertCharacterLimit(
+        groups.reduce((total, group) => total + group.sourceText.length, 0),
+        'translation text'
+      );
+      if (groups.length === 0) throw new Error('No translatable text blocks were found.');
+
+      const runId = ++this.runSequence;
+      const translatedTexts = await this.translateGroups(
+        groups.map(group => group.sourceText),
+        runId,
+        runOptions
+      );
+      this.throwIfAborted(runOptions.signal);
+      runOptions.onProgress?.({
+        stage: 'render',
+        completed: 0,
+        total: groups.length,
+        message: 'Rendering translated image'
+      });
+
+      const output = await this.renderTiledResult(
+        sourceCanvas,
+        analyses,
+        translatedTexts,
+        runOptions
+      );
+      return {
+        canvas: output.canvas,
+        sourceTexts: groups.map(group => group.sourceText),
+        translatedTexts,
+        reconstructedBlockCount: output.reconstructedBlockCount,
+        overlayBlockCount: output.overlayBlockCount
+      };
+    } catch (error) {
+      runController.abort();
+      throw error;
+    } finally {
+      options.signal.removeEventListener('abort', forwardAbort);
+      runOptions.signal.removeEventListener('abort', terminateOnAbort);
+      await session.terminate();
+    }
+  }
+
+  private async recognizeTiles(
+    sourceCanvas: HTMLCanvasElement,
+    tiles: readonly ComicImageTile[],
+    session: BundledOcrSession,
+    options: LocalImageTranslationOptions
+  ): Promise<MappedComicOcrLine[]> {
+    const mappedLines: MappedComicOcrLine[] = [];
+    let rawLineCount = 0;
+    let characterCount = 0;
+    const progressTotal = tiles.length * 100;
+    options.onProgress?.({
+      stage: 'ocr',
+      completed: 0,
+      total: progressTotal,
+      message: `Recognizing tile 1 of ${tiles.length}`
+    });
+
+    for (let index = 0; index < tiles.length; index += 1) {
+      this.throwIfAborted(options.signal);
+      const tile = tiles[index];
+      const tileCanvas = this.createTileCanvas(sourceCanvas, tile, options.signal);
+      try {
+        const lines = await session.recognize(tileCanvas, progress => {
+          this.throwIfAborted(options.signal);
+          options.onProgress?.({
+            stage: 'ocr',
+            completed: index * 100 + Math.round(progress.progress * 100),
+            total: progressTotal,
+            message: progress.status || `Recognizing tile ${index + 1} of ${tiles.length}`
+          });
+        }, options.signal);
+        this.throwIfAborted(options.signal);
+
+        const normalizedLines = this.normalizeTileOcrLines(lines, tile, options.signal);
+        rawLineCount += normalizedLines.length;
+        if (rawLineCount > LOCAL_IMAGE_LIMITS.maxRawOcrLines) {
+          throw new Error(
+            `The image contains more than ${LOCAL_IMAGE_LIMITS.maxRawOcrLines} raw OCR lines.`
+          );
+        }
+        characterCount += normalizedLines.reduce((total, line) => total + line.text.length, 0);
+        this.assertCharacterLimit(characterCount, 'OCR text');
+        mappedLines.push(...mapTileOcrLinesToSource(tile, normalizedLines, options.signal));
+        options.onProgress?.({
+          stage: 'ocr',
+          completed: (index + 1) * 100,
+          total: progressTotal,
+          message: `Recognized tile ${index + 1} of ${tiles.length}`
+        });
+      } finally {
+        this.releaseCanvas(tileCanvas);
+      }
+    }
+    return mappedLines;
+  }
+
+  private async analyzeTiles(
+    sourceCanvas: HTMLCanvasElement,
+    tiles: readonly ComicImageTile[],
+    lines: readonly MappedComicOcrLine[],
+    signal: AbortSignal
+  ): Promise<LocalTileAnalysis[]> {
+    const linesByTile = new Map<string, MappedComicOcrLine[]>();
+    lines.forEach(line => {
+      this.throwIfAborted(signal);
+      const tileLines = linesByTile.get(line.sourceTileId);
+      if (tileLines) tileLines.push(line);
+      else linesByTile.set(line.sourceTileId, [line]);
+    });
+
+    const analyses: LocalTileAnalysis[] = [];
+    let groupCount = 0;
+    for (const tile of tiles) {
+      this.throwIfAborted(signal);
+      const tileLines = linesByTile.get(tile.id) || [];
+      if (tileLines.length === 0) continue;
+      const tileCanvas = this.createTileCanvas(sourceCanvas, tile, signal);
+      try {
+        const sourceImage = this.readCanvasImage(tileCanvas, signal);
+        const tokens = this.mapSourceLinesToTileTokens(tileLines, tile);
+        const analysis = await this.analyzeImage(sourceImage, tokens, signal);
+        const groups = this.downgradeUnsafeTileGroups(
+          analysis.groups,
+          analysis.bubbles,
+          tile,
+          sourceCanvas.width,
+          sourceCanvas.height
+        );
+        groupCount += groups.length;
+        this.assertBlockLimit(groupCount, 'translatable text blocks');
+        analyses.push({
+          tile,
+          bubbles: analysis.bubbles,
+          groups,
+          translationOffset: groupCount - groups.length
+        });
+      } finally {
+        this.releaseCanvas(tileCanvas);
+      }
+    }
+    return analyses;
+  }
+
+  private async renderTiledResult(
+    sourceCanvas: HTMLCanvasElement,
+    analyses: readonly LocalTileAnalysis[],
+    translatedTexts: readonly string[],
+    options: LocalImageTranslationOptions
+  ): Promise<{
+    canvas: HTMLCanvasElement;
+    reconstructedBlockCount: number;
+    overlayBlockCount: number;
+  }> {
+    await this.yieldToMainThread(options.signal);
+    const outputCanvas = document.createElement('canvas');
+    outputCanvas.width = sourceCanvas.width;
+    outputCanvas.height = sourceCanvas.height;
+    if (outputCanvas.width !== sourceCanvas.width || outputCanvas.height !== sourceCanvas.height) {
+      throw new Error('This browser cannot allocate the original-resolution output image.');
+    }
+    const outputContext = outputCanvas.getContext('2d', { alpha: true });
+    if (!outputContext || typeof outputContext.drawImage !== 'function') {
+      throw new Error('This browser cannot allocate the original-resolution output image.');
+    }
+    try {
+      outputContext.drawImage(sourceCanvas, 0, 0);
+    } catch {
+      throw new Error('This browser cannot copy the original-resolution image for rendering.');
+    }
+    this.throwIfAborted(options.signal);
+
+    let reconstructedBlockCount = 0;
+    let overlayBlockCount = 0;
+    let completed = 0;
+    for (const analysis of analyses) {
+      this.throwIfAborted(options.signal);
+      const tileCanvas = this.createTileCanvas(sourceCanvas, analysis.tile, options.signal);
+      try {
+        const sourceImage = this.readCanvasImage(tileCanvas, options.signal);
+        const tileTranslations = translatedTexts.slice(
+          analysis.translationOffset,
+          analysis.translationOffset + analysis.groups.length
+        );
+        const rendered = await this.renderResult(
+          sourceImage,
+          analysis.groups,
+          analysis.bubbles,
+          tileTranslations,
+          options.signal,
+          tileCanvas
+        );
+        this.commitTilePatches(
+          outputContext,
+          rendered.canvas,
+          analysis,
+          options.signal
+        );
+        reconstructedBlockCount += rendered.reconstructedBlockCount;
+        overlayBlockCount += rendered.overlayBlockCount;
+        completed += analysis.groups.length;
+        options.onProgress?.({
+          stage: 'render',
+          completed,
+          total: translatedTexts.length,
+          message: completed === translatedTexts.length
+            ? 'Translated image ready'
+            : `Rendering text ${completed} of ${translatedTexts.length}`
+        });
+      } finally {
+        this.releaseCanvas(tileCanvas);
+      }
+    }
+
+    return { canvas: outputCanvas, reconstructedBlockCount, overlayBlockCount };
+  }
+
+  private normalizeTileOcrLines(
+    lines: readonly BundledOcrLine[],
+    tile: ComicImageTile,
+    signal: AbortSignal
+  ): TileOcrLine[] {
+    const normalized: TileOcrLine[] = [];
+    for (let index = 0; index < lines.length; index += 1) {
+      this.throwIfAborted(signal);
+      const line = lines[index];
+      const text = line.text.trim();
+      if (!text) continue;
+      const box = line.boundingBox;
+      if (![box.x, box.y, box.width, box.height].every(Number.isFinite)
+        || box.width <= 0 || box.height <= 0) {
+        throw new Error(`OCR returned invalid coordinates for tile ${tile.index + 1}.`);
+      }
+      const x = Math.max(0, Math.floor(box.x));
+      const y = Math.max(0, Math.floor(box.y));
+      if (x >= tile.sourceRect.width || y >= tile.sourceRect.height) {
+        throw new Error(`OCR returned text outside tile ${tile.index + 1}.`);
+      }
+      normalized.push({
+        id: `line-${index + 1}`,
+        text,
+        confidence: Math.max(0, Math.min(100, line.confidence || 0)),
+        rect: {
+          x,
+          y,
+          width: Math.max(1, Math.min(tile.sourceRect.width - x, Math.ceil(box.width))),
+          height: Math.max(1, Math.min(tile.sourceRect.height - y, Math.ceil(box.height)))
+        }
+      });
+    }
+    return normalized;
+  }
+
+  private mapSourceLinesToTileTokens(
+    lines: readonly MappedComicOcrLine[],
+    tile: ComicImageTile
+  ): OcrToken[] {
+    return lines.map(line => {
+      const rect = {
+        x: line.rect.x - tile.sourceRect.x,
+        y: line.rect.y - tile.sourceRect.y,
+        width: line.rect.width,
+        height: line.rect.height
+      };
+      const text = line.text.trim();
+      return {
+        id: line.id,
+        text,
+        confidence: Math.max(0, Math.min(100, line.confidence || 0)),
+        rect,
+        sourcePolygon: line.sourcePolygon?.map(point => ({
+          x: point.x - tile.sourceRect.x,
+          y: point.y - tile.sourceRect.y
+        })),
+        level: this.isPageFallbackLine(
+          rect,
+          lines.length,
+          tile.sourceRect.width,
+          tile.sourceRect.height
+        ) ? 'page-fallback' as const : 'line' as const,
+        direction: inferOcrTextDirection(text, rect)
+      };
+    });
+  }
+
+  private createTileCanvas(
+    sourceCanvas: HTMLCanvasElement,
+    tile: ComicImageTile,
+    signal: AbortSignal
+  ): HTMLCanvasElement {
+    this.throwIfAborted(signal);
+    const tileCanvas = document.createElement('canvas');
+    tileCanvas.width = tile.sourceRect.width;
+    tileCanvas.height = tile.sourceRect.height;
+    if (tileCanvas.width !== tile.sourceRect.width || tileCanvas.height !== tile.sourceRect.height) {
+      throw new Error(`This browser cannot allocate OCR tile ${tile.index + 1}.`);
+    }
+    const context = tileCanvas.getContext('2d', { alpha: true });
+    if (!context || typeof context.drawImage !== 'function') {
+      throw new Error('This browser cannot create an OCR tile canvas.');
+    }
+    try {
+      context.drawImage(
+        sourceCanvas,
+        tile.sourceRect.x,
+        tile.sourceRect.y,
+        tile.sourceRect.width,
+        tile.sourceRect.height,
+        0,
+        0,
+        tile.sourceRect.width,
+        tile.sourceRect.height
+      );
+    } catch {
+      throw new Error(`This browser could not read OCR tile ${tile.index + 1}.`);
+    }
+    this.throwIfAborted(signal);
+    return tileCanvas;
+  }
+
+  private readCanvasImage(canvas: HTMLCanvasElement, signal: AbortSignal): PixelImage {
+    this.throwIfAborted(signal);
+    const context = canvas.getContext('2d', { alpha: true });
+    if (!context || typeof context.getImageData !== 'function') {
+      throw new Error('This browser cannot read an OCR tile.');
+    }
+    let data: ImageData;
+    try {
+      data = context.getImageData(0, 0, canvas.width, canvas.height);
+    } catch {
+      throw new Error('This browser could not allocate tile analysis pixels.');
+    }
+    this.throwIfAborted(signal);
+    const expectedBytes = canvas.width * canvas.height * 4;
+    if (data.data.byteLength !== expectedBytes) {
+      throw new Error(`Tile pixel allocation is incomplete: ${data.data.byteLength} of ${expectedBytes} bytes.`);
+    }
+    return { width: canvas.width, height: canvas.height, data: data.data };
+  }
+
+  private commitTilePatches(
+    outputContext: CanvasRenderingContext2D,
+    patchCanvas: HTMLCanvasElement,
+    analysis: LocalTileAnalysis,
+    signal: AbortSignal
+  ): void {
+    const bubbleById = new Map(analysis.bubbles.map(bubble => [bubble.id, bubble]));
+    for (const group of analysis.groups) {
+      this.throwIfAborted(signal);
+      const bubble = group.bubbleId ? bubbleById.get(group.bubbleId) : undefined;
+      const bounds = group.geometryReliability === 'page-fallback'
+        ? this.getPageFallbackBounds(analysis.tile.sourceRect.width, analysis.tile.sourceRect.height)
+        : bubble?.rect || group.rect;
+      const patch = this.clampPatchBounds(
+        bounds,
+        analysis.tile.sourceRect.width,
+        analysis.tile.sourceRect.height
+      );
+      try {
+        outputContext.drawImage(
+          patchCanvas,
+          patch.x,
+          patch.y,
+          patch.width,
+          patch.height,
+          analysis.tile.sourceRect.x + patch.x,
+          analysis.tile.sourceRect.y + patch.y,
+          patch.width,
+          patch.height
+        );
+      } catch {
+        throw new Error(`This browser could not commit translated tile ${analysis.tile.index + 1}.`);
+      }
+    }
+  }
+
+  private clampPatchBounds(
+    bounds: { x: number; y: number; width: number; height: number },
+    width: number,
+    height: number
+  ): { x: number; y: number; width: number; height: number } {
+    const x = Math.min(width - 1, Math.max(0, Math.floor(bounds.x)));
+    const y = Math.min(height - 1, Math.max(0, Math.floor(bounds.y)));
+    return {
+      x,
+      y,
+      width: Math.max(1, Math.min(width - x, Math.ceil(bounds.width))),
+      height: Math.max(1, Math.min(height - y, Math.ceil(bounds.height)))
+    };
+  }
+
+  private assertTiledMemoryBudget(sourcePixels: number, tilePixels: number): void {
+    const estimatedBytes = sourcePixels * 12 + tilePixels * 20;
+    if (!Number.isSafeInteger(estimatedBytes)
+      || estimatedBytes > LOCAL_IMAGE_LIMITS.maxEstimatedRgbaBytes) {
+      throw new Error(
+        `The image needs about ${estimatedBytes} RGBA bytes; the local memory limit is ${LOCAL_IMAGE_LIMITS.maxEstimatedRgbaBytes}.`
+      );
+    }
+  }
+
+  private assertBlockLimit(count: number, label: string): void {
+    if (count > LOCAL_IMAGE_LIMITS.maxBlocks) {
+      throw new Error(`The image contains more than ${LOCAL_IMAGE_LIMITS.maxBlocks} ${label}.`);
+    }
+  }
+
+  private assertCharacterLimit(count: number, label: string): void {
+    if (!Number.isSafeInteger(count) || count > LOCAL_IMAGE_LIMITS.maxOcrCharacters) {
+      throw new Error(
+        `The image contains more than ${LOCAL_IMAGE_LIMITS.maxOcrCharacters} characters of ${label}.`
+      );
+    }
+  }
+
+  private downgradeUnsafeTileGroups(
+    groups: readonly TextGroup[],
+    bubbles: readonly BubbleRegion[],
+    tile: ComicImageTile,
+    sourceWidth: number,
+    sourceHeight: number
+  ): TextGroup[] {
+    const bubbleById = new Map(bubbles.map(bubble => [bubble.id, bubble]));
+    return groups.map(group => {
+      const bubble = group.bubbleId ? bubbleById.get(group.bubbleId) : undefined;
+      if (!bubble || this.isBubbleSafelyInsideTile(bubble.rect, tile, sourceWidth, sourceHeight)) {
+        return group;
+      }
+      return { ...group, bubbleId: undefined };
+    });
+  }
+
+  private isBubbleSafelyInsideTile(
+    bubble: { x: number; y: number; width: number; height: number },
+    tile: ComicImageTile,
+    sourceWidth: number,
+    sourceHeight: number
+  ): boolean {
+    const margin = Math.max(4, Math.min(32, Math.floor(Math.min(bubble.width, bubble.height) * 0.25)));
+    const internalLeft = tile.sourceRect.x > 0;
+    const internalTop = tile.sourceRect.y > 0;
+    const internalRight = tile.sourceRect.x + tile.sourceRect.width < sourceWidth;
+    const internalBottom = tile.sourceRect.y + tile.sourceRect.height < sourceHeight;
+    return (!internalLeft || bubble.x >= margin) &&
+      (!internalTop || bubble.y >= margin) &&
+      (!internalRight || bubble.x + bubble.width <= tile.sourceRect.width - margin) &&
+      (!internalBottom || bubble.y + bubble.height <= tile.sourceRect.height - margin);
+  }
+
+  private releaseCanvas(canvas: HTMLCanvasElement): void {
+    canvas.width = 1;
+    canvas.height = 1;
   }
 
   private async analyzeImage(
@@ -355,7 +879,8 @@ export class LocalImageTranslationService implements LocalImageTranslationEngine
     groups: ReturnType<typeof groupTextTokens>,
     bubbles: ReturnType<typeof detectBubbles>,
     translatedTexts: string[],
-    signal: AbortSignal
+    signal: AbortSignal,
+    targetCanvas?: HTMLCanvasElement
   ): Promise<{
     canvas: HTMLCanvasElement;
     reconstructedBlockCount: number;
@@ -363,9 +888,11 @@ export class LocalImageTranslationService implements LocalImageTranslationEngine
   }> {
     await this.yieldToMainThread(signal);
     this.throwIfAborted(signal);
-    const outputCanvas = document.createElement('canvas');
-    outputCanvas.width = sourceImage.width;
-    outputCanvas.height = sourceImage.height;
+    const outputCanvas = targetCanvas || document.createElement('canvas');
+    if (!targetCanvas) {
+      outputCanvas.width = sourceImage.width;
+      outputCanvas.height = sourceImage.height;
+    }
     const context = outputCanvas.getContext('2d', { alpha: true });
     if (
       !context ||

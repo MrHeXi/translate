@@ -191,12 +191,13 @@ Current batch:
 - Done: add a closeable hover toolbar after manual Image text Start, a global explicit `Z` one-shot region arm that runs no OCR before a valid drag, editable/IME/modifier protection, and Escape/Stop cancellation.
 - Done: add per-image cache-bypassing Retranslate, non-destructive Apply/Undo, reconstructed-canvas-only Download PNG with object-URL cleanup, overlay movement synchronization, and stale source invalidation.
 - Done: add a dedicated local image workspace for bounded JPG/JPEG, PNG, and WEBP choose/drop/paste queues; selection and settings changes stay idle until Translate image or Translate all, and the active command becomes an immediate Stop.
-- Done: scale only the local OCR working canvas to 3 megapixels, keep source pixels local and untouched, cancel OCR/provider/reconstruction work by run ID, support per-image Retranslate and Apply/Undo preview switching, download completed PNG results, and store optional per-image quality ratings locally without source text, pixels, or file names.
+- Done: keep local-image source dimensions intact, process large images sequentially in overlapping source-resolution OCR/analysis tiles, cancel OCR/provider/reconstruction work by run ID, preserve original-resolution PNG output, support per-image Retranslate and Apply/Undo preview switching, and store optional per-image quality ratings locally without source text, pixels, or file names.
 - Done: preserve bounded browser OCR source polygons, keep rotated erase masks inside those polygons, and use non-destructive overlays for freeform selections so reconstruction never alters pixels outside the lasso.
 - Done: infer right-to-left vertical CJK source columns, use common vertical presentation forms for predominantly CJK targets, and keep Latin-dominant and RTL targets horizontal.
 - Done: add data-driven current-page comic reader adapters with an explicit two-step Scan then Translate workflow. Scanning is DOM-only and bounded; changed membership/order/source/geometry/navigation invalidates confirmation; Stop aborts work and removes chapter results.
 - Done: bound chapter discovery to 2,048 DOM elements and 48 images, and confirmed runs to 1,200 text blocks, 120,000 source characters, and 16 million retained reconstruction pixels with visible partial-result messaging.
-- Remaining: tiled OCR and reconstruction for very long high-resolution comic strips, broader reader-specific optimization, and evidence-backed adapters for newly documented sites.
+- Done: add tiled OCR and reconstruction for very long high-resolution comic strips with deterministic core ownership, bounded fuzzy overlap deduplication, source-positioned bubble patches, cross-tile safety fallback, exact retained-pixel budgeting, explicit tile/text/memory limits, and immediate cancellation.
+- Remaining: broader reader-specific optimization and evidence-backed adapters for newly documented sites.
 
 ### Batch G: Meeting Subtitle Translation
 

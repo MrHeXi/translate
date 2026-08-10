@@ -51,13 +51,14 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Browser OCR corner polygons constrain rotated source masks. Vertical CJK source columns use right-to-left column order and vertical presentation forms only when the translated text is predominantly CJK; Latin, mixed Latin-dominant, and RTL translations remain horizontal.
 - Explicit two-step current-page comic translation: Scan comic chapter reads a fixed bounded DOM snapshot without OCR or provider work, then Translate N images starts recognition and translation. Membership, order, source, geometry, settings, or navigation changes invalidate the snapshot; Stop aborts work and removes chapter results.
 - Chapter discovery is bounded to 2,048 DOM elements and 48 images, with 1,200 text blocks, 120,000 source characters, and 16 million retained reconstruction pixels per confirmed run. Safety-limit results are labeled partial instead of complete.
-- Image OCR surfaces are capped at 3 megapixels, distinct OCR blocks at 200, provider concurrency at four, and synchronous comic reconstruction at 1.5 megapixels/64 positioned blocks; final glyph painting is clipped to each bubble.
-- Non-destructive image fallback for cross-origin-tainted pixels, whole-image OCR boxes, CSS transforms or non-fill object fitting, oversized images, textured artwork, unsafe masks, and translations that cannot fit; Stop aborts provider/reconstruction work and rejects late canvas commits.
+- Source-resolution overlapping tiled OCR for long/high-resolution page images, with deterministic core ownership, bounded fuzzy overlap deduplication, sequential OCR, explicit source/tile/text/comparison limits, and immediate worker cancellation on Stop.
+- Image OCR surfaces are capped at 3 megapixels, distinct OCR blocks at 200, provider concurrency at four, and full-canvas comic reconstruction at 1.5 megapixels/64 positioned blocks. Larger safe images use source-positioned bubble patches, with retained chapter patches capped at 16 million pixels; final glyph painting is clipped to each bubble.
+- Non-destructive image fallback for cross-origin-tainted pixels, whole-image OCR boxes, CSS transforms or non-fill object fitting, cross-tile bubbles, bounded-limit failures, textured artwork, unsafe masks, and translations that cannot fit; Stop aborts provider/reconstruction work and rejects late patch or canvas commits.
 - Freeform lasso results always use non-destructive overlays so reconstruction cannot alter pixels outside the selected polygon.
 - Content-owned visible-image batch progress survives popup closure and duplicate batch commands coalesce into one operation.
 - Image results follow source movement, invalidate when the source URL, dimensions, or DOM connection changes, and never replace or rewrite source image nodes.
 - Dedicated local Image Translator workspace for up to 12 bounded JPG/JPEG, PNG, or WEBP files loaded by picker, drop, or clipboard paste. Serialized loading enforces the 100 MB/32-million-decoded-pixel queue limits; previews and control changes stay idle until Translate image or Translate all.
-- Local-image Retranslate, Apply/Undo original-versus-translated preview switching, completed PNG download, proportional 3-megapixel OCR working canvases, source-object-URL cleanup, and optional per-image local-only quality ratings that omit source text, translated text, pixels, and file names.
+- Local-image Retranslate, Apply/Undo original-versus-translated preview switching, original-resolution completed PNG download, sequential overlapping OCR/analysis tiles capped at 1.5 megapixels, source-object-URL cleanup, and optional per-image local-only quality ratings that omit source text, translated text, pixels, and file names.
 - A real local-image Translate/Stop toggle aborts OCR and background provider requests, cancels pending PNG encoding, yields between bounded reconstruction stages so Stop can run, and rejects late OCR/provider/render/download results.
 - Content, image, video-subtitle, and live-caption translation caches include provider, target language, settings revision, source text, and context; a single MessageManager listener owns content-script command dispatch so each toggle executes once.
 - 100+ target language choices in settings.
@@ -83,9 +84,9 @@ Verified on 2026-08-08:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand`: passed, 70 test suites and 671 tests.
+- `jest --runInBand`: passed, 71 test suites and 701 tests.
 - `webpack --mode=production`: passed.
-- Runtime source fingerprint: `DCF2603BB1B74418F868557387930676A9FA6505DCC81D1B9771EE1B6E70332B` in `dist/build-meta.json`.
+- Runtime source fingerprint: `EA14024E2405CE2CF532B081DD013B6C9BE5078DBB887F90CA58BD6A61CB19E0` in `dist/build-meta.json`.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 
 Expected build warnings:
@@ -99,7 +100,7 @@ Expected build warnings:
 
 - Unpacked extension folder: `dist`
 - Test package: `chrome-translation-extension.zip`
-- ZIP size: `17,896,345` bytes
-- SHA-256: `C9A91A71F679198DD3DC29987D81ED759DB296DFA36DC476519A5C2FAA821DDA`
+- ZIP size: `17,909,309` bytes
+- SHA-256: `16B15CCDE8397311CA7D7EFE86D6A1465F482FA6FC587F331FF2C053DBB77828`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

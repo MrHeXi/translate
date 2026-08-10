@@ -127,6 +127,35 @@ describe('ImageWorkspaceController', () => {
     expect(document.getElementById('imageStatus')?.textContent).toContain('1 text block translated');
   });
 
+  it('passes the original image dimensions to the tiled translation engine', async () => {
+    (global as any).Image = jest.fn(() => {
+      const image = document.createElement('img');
+      let source = '';
+      Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 4_000 });
+      Object.defineProperty(image, 'naturalHeight', { configurable: true, value: 3_000 });
+      Object.defineProperty(image, 'src', {
+        configurable: true,
+        get: () => source,
+        set: value => {
+          source = String(value);
+          queueMicrotask(() => image.onload?.(new Event('load')));
+        }
+      });
+      return image;
+    });
+    const translate = jest.fn(async (_canvas: HTMLCanvasElement) => createResult());
+    const controller = new ImageWorkspaceController({ translate } as LocalImageTranslationEngine);
+    await controller.initialize();
+    await controller.addFiles([new File(['image'], 'long-page.png', { type: 'image/png' })]);
+
+    (document.getElementById('translateImage') as HTMLButtonElement).click();
+    await flushPromises();
+
+    const sourceCanvas = translate.mock.calls[0][0] as HTMLCanvasElement;
+    expect(sourceCanvas.width).toBe(4_000);
+    expect(sourceCanvas.height).toBe(3_000);
+  });
+
   it('treats image paste as loading only and ignores ordinary text paste', async () => {
     const translate = jest.fn(async () => createResult());
     const controller = new ImageWorkspaceController({ translate } as LocalImageTranslationEngine);

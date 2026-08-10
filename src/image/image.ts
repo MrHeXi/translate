@@ -7,7 +7,6 @@ import {
   getProviderTargetLanguages
 } from '../services/TranslationProviderRegistry';
 import {
-  getWorkingImageDimensions,
   LOCAL_IMAGE_LIMITS,
   LocalImageTranslationEngine,
   LocalImageTranslationProgress,
@@ -330,7 +329,7 @@ export class ImageWorkspaceController {
         .filter(item => item !== asset)
         .reduce((total, item) => total + item.width * item.height, 0);
       validateLocalImageQueuePixels(currentPixels, asset.width, asset.height);
-      asset.sourceCanvas = this.createWorkingCanvas(asset.image, asset.width, asset.height);
+      asset.sourceCanvas = this.createSourceCanvas(asset.image, asset.width, asset.height);
       asset.status = 'ready';
       asset.statusMessage = 'Ready';
     } catch (error) {
@@ -365,16 +364,15 @@ export class ImageWorkspaceController {
     });
   }
 
-  private createWorkingCanvas(image: HTMLImageElement, width: number, height: number): HTMLCanvasElement {
-    const dimensions = getWorkingImageDimensions(width, height);
+  private createSourceCanvas(image: HTMLImageElement, width: number, height: number): HTMLCanvasElement {
     const canvas = document.createElement('canvas');
-    canvas.width = dimensions.width;
-    canvas.height = dimensions.height;
+    canvas.width = width;
+    canvas.height = height;
     const context = canvas.getContext('2d', { alpha: true });
     if (!context || typeof context.drawImage !== 'function') {
       throw new Error('This browser cannot prepare the selected image.');
     }
-    context.drawImage(image, 0, 0, dimensions.width, dimensions.height);
+    context.drawImage(image, 0, 0, width, height);
     return canvas;
   }
 

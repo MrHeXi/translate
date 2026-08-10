@@ -114,4 +114,79 @@ describe('BundledOcrService', () => {
     await expect(session.terminate()).resolves.toBeUndefined();
     await expect(session.terminate()).resolves.toBeUndefined();
   });
+
+  it('does not initialize OCR when the request is already canceled', async () => {
+    const workerFactory: TesseractWorkerFactory = jest.fn();
+    const session = new BundledOcrService(workerFactory).createSession('eng');
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(session.recognize(
+      document.createElement('canvas'),
+      undefined,
+      controller.signal
+    )).rejects.toMatchObject({ name: 'AbortError' });
+    expect(workerFactory).not.toHaveBeenCalled();
+  });
+
+  it('terminates an in-flight Tesseract worker when the request is canceled', async () => {
+    let resolveRecognition!: (value: {
+      data: { text: string; confidence: number; lines: [] };
+    }) => void;
+    const pendingRecognition = new Promise<{
+      data: { text: string; confidence: number; lines: [] };
+    }>(resolve => {
+      resolveRecognition = resolve;
+    });
+    const terminate = jest.fn(async () => undefined);
+    const workerFactory: TesseractWorkerFactory = jest.fn(async () => ({
+      setParameters: jest.fn(async () => undefined),
+      recognize: jest.fn(() => pendingRecognition),
+      terminate
+    }));
+    const session = new BundledOcrService(workerFactory).createSession('eng');
+    const controller = new AbortController();
+    const recognition = session.recognize(
+      document.createElement('canvas'),
+      undefined,
+      controller.signal
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    controller.abort();
+
+    await expect(recognition).rejects.toMatchObject({ name: 'AbortError' });
+    expect(terminate).toHaveBeenCalledTimes(1);
+    resolveRecognition({ data: { text: '', confidence: 0, lines: [] } });
+  });
+
+  it('terminates the worker without waiting for parameter initialization to finish', async () => {
+    let resolveParameters!: () => void;
+    const pendingParameters = new Promise<void>(resolve => {
+      resolveParameters = resolve;
+    });
+    const terminate = jest.fn(async () => undefined);
+    const workerFactory: TesseractWorkerFactory = jest.fn(async () => ({
+      setParameters: jest.fn(() => pendingParameters),
+      recognize: jest.fn(async () => ({ data: { text: '', confidence: 0, lines: [] } })),
+      terminate
+    }));
+    const session = new BundledOcrService(workerFactory).createSession('eng');
+    const controller = new AbortController();
+    const recognition = session.recognize(
+      document.createElement('canvas'),
+      undefined,
+      controller.signal
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    controller.abort();
+    await expect(recognition).rejects.toMatchObject({ name: 'AbortError' });
+    await Promise.resolve();
+
+    expect(terminate).toHaveBeenCalledTimes(1);
+    resolveParameters();
+  });
 });

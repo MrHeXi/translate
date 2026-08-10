@@ -145,6 +145,7 @@ Capture a safe sample page after explicitly starting an image action by using Im
 - In a separate close-up, show the image hover toolbar with Retranslate, Apply, Undo, and, for a safe reconstructed canvas only, Download PNG. Do not show a download control for a DOM-overlay fallback.
 - A `Z` screenshot may show the freeform lasso before release, but must not imply that pressing `Z`, drawing, losing focus, or hiding the page starts OCR before a valid pointer release.
 - For a safe same-origin regular comic sample with positioned OCR, the temporary reconstructed canvas may show source text removed and translated text fitted inside the bubble. For unsafe/unsupported samples, show the non-destructive region overlay fallback instead.
+- For a long high-resolution comic sample, show source-positioned translated bubble patches and the Download PNG action only after the explicit image command completes; do not imply that page load or scrolling starts tiled OCR.
 - For chapter translation, capture Scan comic chapter with a fixed image count first, then a separate screenshot with Translate N images or Stop chapter. The images must show that Scan alone has no OCR/provider progress and that a safety-limited scan says Translate first N images.
 - A vertical example may show right-to-left CJK columns. Do not show mixed Latin-dominant or RTL output as vertical, and do not claim vertical layout for every script.
 - The source images, canvases, or SVGs visible enough to show the user-triggered targets.

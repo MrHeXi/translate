@@ -220,6 +220,8 @@ describe('product packaging contract', () => {
     expect(privacy).toContain('do not contact an OCR server');
     expect(privacy).toContain('local OCR worker is terminated');
     expect(privacy).toContain('Choosing, dropping, or pasting JPG/JPEG, PNG, or WEBP files only loads local previews');
+    expect(privacy).toContain('processed sequentially in overlapping OCR/analysis tiles capped at 1.5 megapixels');
+    expect(privacy).toContain('completed output keeps the original dimensions');
     expect(privacy).toContain('Local image quality feedback is optional, stays in local Chrome storage');
     expect(privacy).toContain('Neighboring page or document context is disabled by default');
     expect(privacy).toContain('Glossary and prompt settings may sync through Chrome storage');
@@ -291,6 +293,8 @@ describe('product packaging contract', () => {
     expect(listing).toContain('bundled offline OCR');
     expect(listing).toContain('selected OCR language');
     expect(listing).toContain('bounded local comic-bubble reconstruction when safe');
+    expect(listing).toContain('source-resolution overlapping tiles');
+    expect(listing).toContain('original-resolution completed PNG download');
     expect(listing).toContain('separate non-destructive text overlays');
     expect(listing).toContain('frame-aware right-click menu');
     expect(listing).toContain('Per-image Retranslate');
@@ -334,10 +338,10 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('70 test suites and 671 tests');
-    expect(releaseNotes).toContain('17,896,345');
-    expect(releaseNotes).toContain('C9A91A71F679198DD3DC29987D81ED759DB296DFA36DC476519A5C2FAA821DDA');
-    expect(releaseNotes).toContain('DCF2603BB1B74418F868557387930676A9FA6505DCC81D1B9771EE1B6E70332B');
+    expect(releaseNotes).toContain('71 test suites and 701 tests');
+    expect(releaseNotes).toContain('17,909,309');
+    expect(releaseNotes).toContain('16B15CCDE8397311CA7D7EFE86D6A1465F482FA6FC587F331FF2C053DBB77828');
+    expect(releaseNotes).toContain('EA14024E2405CE2CF532B081DD013B6C9BE5078DBB887F90CA58BD6A61CB19E0');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -360,6 +364,8 @@ describe('product packaging contract', () => {
     expect(releaseNotes).toContain('real Run/Stop toggle');
     expect(releaseNotes).toContain('Sync-failure user-data fallback');
     expect(releaseNotes).toContain('Deterministic local comic reconstruction for safe regular bubbles');
+    expect(releaseNotes).toContain('Source-resolution overlapping tiled OCR');
+    expect(releaseNotes).toContain('original-resolution completed PNG download');
     expect(releaseNotes).toContain('Content-owned visible-image batch progress survives popup closure');
     expect(releaseNotes).toContain('frame-aware right-click command');
     expect(releaseNotes).toContain('one-shot freeform `Z` lasso');
@@ -491,7 +497,7 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('infer right-to-left vertical CJK source columns');
     expect(roadmap).toContain('explicit two-step Scan then Translate workflow');
     expect(roadmap).toContain('120,000 source characters');
-    expect(roadmap).toContain('tiled OCR and reconstruction for very long high-resolution comic strips');
+    expect(roadmap).toContain('Done: add tiled OCR and reconstruction for very long high-resolution comic strips');
     expect(roadmap).toContain('Multiple translation engines');
     expect(roadmap).toContain('29 implemented provider adapters');
     expect(roadmap).toContain('Papago, Baidu, Volcengine, Alibaba, Amazon, IBM Watson, Youdao, and SYSTRAN');
