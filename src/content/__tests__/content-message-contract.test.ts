@@ -978,6 +978,37 @@ describe('Content script MessageManager contract', () => {
       }
     });
 
+    const generatedSubtitleResponse = await sendDirectMessage({
+      action: 'applyGeneratedVideoSubtitles',
+      data: {
+        cues: [{
+          start: 0,
+          end: 2,
+          originalText: 'Generated source',
+          translatedText: 'Generated translation'
+        }]
+      }
+    });
+    expect(generatedSubtitleResponse).toEqual({
+      success: false,
+      data: {
+        success: false,
+        cueCount: 0,
+        message: 'No video found for generated subtitles'
+      },
+      error: 'No video found for generated subtitles'
+    });
+    expect(document.getElementById('lexibridge-generated-video-subtitle-overlay')).toBeNull();
+
+    await expect(sendDirectMessage({ action: 'clearGeneratedVideoSubtitles' })).resolves.toEqual({
+      success: true,
+      data: {
+        success: true,
+        cueCount: 0,
+        message: 'No generated video subtitles to clear'
+      }
+    });
+
     const liveCaptionStartResponse = await sendDirectMessage({ action: 'toggleLiveCaptionTranslation' });
     expect(liveCaptionStartResponse).toEqual({
       success: true,

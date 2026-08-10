@@ -229,6 +229,15 @@ progress {
   flex-wrap: wrap;
 }
 
+.result-actions #applyToSourceVideo {
+  border-color: #32815a;
+  color: #215d40;
+}
+
+.result-actions #applyToSourceVideo:hover:not(:disabled) {
+  background: #edf7f0;
+}
+
 .primary-button,
 .secondary-button,
 .icon-button {

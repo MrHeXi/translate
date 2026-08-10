@@ -111,9 +111,10 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - From another regular media page, explicitly click Capture current tab, keep the generator open, and click Stop and generate when enough audio has played.
 - Generate timestamped captions through a configured OpenAI or Groq transcription service, optionally translate them with any configured translation provider, and export bilingual SRT or VTT.
 - Edit each generated cue's start time, end time, original text, and translated text before export. Current-tab captures begin at the source video's playback position when the page exposes it.
+- Click Apply to source video to load the edited bilingual cues into the originating page and synchronize them with its active video. Apply never starts playback, and Clear source video subtitles removes the overlay and listeners immediately.
 - Keep selected local media idle until Generate subtitles is clicked; current-tab audio remains local until Stop and generate. Stream submitted media to the background in bounded chunks and clear buffers after completion, cancellation, provider errors, or disconnection.
 - Use the declared `tabCapture` permission only after the explicit capture button; cancel also aborts active per-cue translation, while page close, stream failure, or the 25 MB limit stops and discards the temporary recording. This workflow requires Chrome 116 or newer.
-- YouTube Live translation still requires captions exposed by YouTube. Other site-specific adapters, generated-caption playback in the source player, more speech providers, files above provider limits, and live partial transcription remain later work.
+- YouTube Live translation still requires captions exposed by YouTube. Other site-specific adapters, richer Live cue handling, more speech providers, files above provider limits, and live partial transcription remain later work.
 
 ### Live Caption Translation
 

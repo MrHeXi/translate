@@ -238,7 +238,8 @@ Current batch:
 
 - Done: add a side-effect-free versioned adapter registry and YouTube Adapter v1 for standard videos, Live pages, Shorts, and `youtu.be`, with page classification, active-player-scoped selectors, route checks before cue requests/results, DOM caption normalization, same-text timed-cue preservation, bounded cue retention, and immediate Stop when SPA navigation changes videos.
 - Done: expose YouTube-specific manual generator entry points while retaining the explicit second Capture click; declare OpenAI/Groq timed-segment and cancellation capabilities, show indeterminate transcription progress, offset captured cues by the source playback position, allow cue text/start/end editing, abort active translation requests, and export edited bilingual SRT/VTT.
-- Remaining: add verified adapters for the other officially documented video sites, richer YouTube Live incremental/final cue handling, generated-caption playback in the source player, additional speech providers, files above provider limits, and live partial transcription.
+- Done: load validated edited bilingual cues into the originating source video only after the user clicks Apply, synchronize them without starting playback, keep generated playback mutually exclusive with live translation, and remove event bindings immediately on Clear, video replacement, source change, or route navigation.
+- Remaining: add verified adapters for the other officially documented video sites, richer YouTube Live incremental/final cue handling, additional speech providers, files above provider limits, and live partial transcription.
 - Keep every subtitle-generation and media-capture path user-triggered; visiting or playing a video never starts capture, OCR, transcription, or translation.
 
 ### Batch K: AI Experts, Prompt Templates, and Privacy

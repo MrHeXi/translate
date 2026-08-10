@@ -1,4 +1,5 @@
 import {
+  createVideoNavigationToken,
   VideoPageType,
   VideoSiteContext,
   resolveVideoSiteContext
@@ -38,6 +39,19 @@ export interface VideoPlaybackPosition {
   pageType: VideoPageType;
 }
 
+export interface GeneratedVideoSubtitleCue {
+  start: number;
+  end: number;
+  originalText: string;
+  translatedText: string;
+}
+
+export interface GeneratedVideoSubtitleResult {
+  success: boolean;
+  cueCount: number;
+  message: string;
+}
+
 type TranslateText = (text: string, request: VideoSubtitleTranslationRequest) => Promise<string>;
 type CreateTranslationCacheKey = (text: string) => string;
 
@@ -56,13 +70,25 @@ interface TranslatedSubtitleCue {
 
 export class VideoSubtitleTranslator {
   private static readonly MAX_EXPORTED_CUES = 5000;
+  private static readonly MAX_GENERATED_CUES = 5000;
+  private static readonly MAX_GENERATED_CUE_TEXT_CODE_POINTS = 4000;
+  private static readonly MAX_GENERATED_TOTAL_TEXT_CODE_POINTS = 200000;
+  private static readonly MAX_GENERATED_CUE_TIME_SECONDS = 359999.999;
   private readonly requestNamespace = createTranslationRequestNamespace('video-subtitle');
   private isActive = false;
   private translateText: TranslateText | null = null;
   private createTranslationCacheKey: CreateTranslationCacheKey = text => text;
   private overlayElement: HTMLElement | null = null;
+  private generatedOverlayElement: HTMLElement | null = null;
   private currentTrack: TextTrack | null = null;
   private currentVideo: HTMLVideoElement | null = null;
+  private generatedVideo: HTMLVideoElement | null = null;
+  private generatedCues: GeneratedVideoSubtitleCue[] = [];
+  private generatedNavigationKey: string | null = null;
+  private generatedVideoSource = '';
+  private generatedCleanupTimer: number | null = null;
+  private generatedBindingId = 0;
+  private generatedVideoEventHandler: ((event: Event) => void) | null = null;
   private previousTrackMode: TextTrackMode | null = null;
   private scanTimer: number | null = null;
   private lastCueText = '';
@@ -97,6 +123,7 @@ export class VideoSubtitleTranslator {
     translateText: TranslateText,
     createTranslationCacheKey: CreateTranslationCacheKey = text => text
   ): VideoSubtitleTranslatorState {
+    this.clearGeneratedVideoSubtitles();
     this.abortActiveRequests();
     this.runId++;
     this.translationCache.clear();
@@ -147,11 +174,13 @@ export class VideoSubtitleTranslator {
   }
 
   getStatus(): VideoSubtitleTranslatorState {
+    this.refreshGeneratedSubtitleBinding();
     this.siteContext = resolveVideoSiteContext(window.location.href, document);
     return this.createState(Boolean(this.currentTrack) || this.hasDomSubtitleSource);
   }
 
   cleanup(): void {
+    this.clearGeneratedVideoSubtitles();
     this.disable();
     this.translationCache.clear();
     this.translatedCues = [];
@@ -159,6 +188,7 @@ export class VideoSubtitleTranslator {
   }
 
   getPlaybackPosition(): VideoPlaybackPosition | null {
+    this.refreshGeneratedSubtitleBinding();
     this.siteContext = resolveVideoSiteContext(window.location.href, document);
     const video = this.currentVideo || this.getRankedVideos()[0];
     if (!video || !Number.isFinite(video.currentTime)) return null;
@@ -202,6 +232,120 @@ export class VideoSubtitleTranslator {
       filename: this.createExportFilename(),
       content: this.renderSrt(this.translatedCues),
       message: `Exported ${this.translatedCues.length} subtitle cues`
+    };
+  }
+
+  applyGeneratedVideoSubtitles(
+    cues: unknown,
+    expectedNavigationToken?: unknown
+  ): GeneratedVideoSubtitleResult {
+    const normalizedCues = this.normalizeGeneratedVideoSubtitleCues(cues);
+    if (!normalizedCues) {
+      return {
+        success: false,
+        cueCount: 0,
+        message: 'Generated subtitles are invalid or empty'
+      };
+    }
+
+    this.siteContext = resolveVideoSiteContext(window.location.href, document);
+    if (expectedNavigationToken !== undefined) {
+      if (typeof expectedNavigationToken !== 'string' || !expectedNavigationToken) {
+        return {
+          success: false,
+          cueCount: 0,
+          message: 'Source video identity is invalid'
+        };
+      }
+      if (createVideoNavigationToken(this.siteContext.navigationKey) !== expectedNavigationToken) {
+        return {
+          success: false,
+          cueCount: 0,
+          message: 'Source video changed; generate captions again'
+        };
+      }
+    }
+    const video = this.getRankedVideos()[0];
+    if (!video) {
+      return {
+        success: false,
+        cueCount: 0,
+        message: 'No video found for generated subtitles'
+      };
+    }
+
+    this.clearGeneratedVideoSubtitles();
+    if (this.isActive) this.disable('Video subtitle translation stopped');
+
+    this.generatedCues = normalizedCues;
+    this.generatedVideo = video;
+    this.generatedNavigationKey = this.siteContext.navigationKey;
+    this.generatedVideoSource = this.getVideoSourceFingerprint(video);
+    this.generatedBindingId++;
+    const bindingId = this.generatedBindingId;
+    const boundVideo = video;
+    this.generatedVideoEventHandler = (event: Event): void => {
+      if (
+        bindingId !== this.generatedBindingId
+        || this.generatedVideo !== boundVideo
+        || (event.currentTarget && event.currentTarget !== boundVideo)
+      ) {
+        return;
+      }
+      this.refreshGeneratedSubtitleBinding();
+      if (bindingId === this.generatedBindingId && this.generatedVideo === boundVideo) {
+        this.renderGeneratedSubtitleForCurrentTime();
+      }
+    };
+    ['timeupdate', 'seeking', 'loadedmetadata', 'ended'].forEach(type => {
+      video.addEventListener(type, this.generatedVideoEventHandler!);
+    });
+
+    this.createGeneratedOverlay();
+    this.renderGeneratedSubtitleForCurrentTime();
+    this.generatedCleanupTimer = window.setInterval(() => {
+      if (bindingId === this.generatedBindingId) {
+        this.refreshGeneratedSubtitleBinding();
+      }
+    }, 500);
+
+    return {
+      success: true,
+      cueCount: normalizedCues.length,
+      message: `Applied ${normalizedCues.length} generated subtitle cue${normalizedCues.length === 1 ? '' : 's'}`
+    };
+  }
+
+  clearGeneratedVideoSubtitles(
+    message = 'Generated video subtitles cleared'
+  ): GeneratedVideoSubtitleResult {
+    const hadGeneratedSubtitles = this.generatedCues.length > 0 || Boolean(this.generatedVideo);
+    this.generatedBindingId++;
+
+    if (this.generatedCleanupTimer !== null) {
+      window.clearInterval(this.generatedCleanupTimer);
+      this.generatedCleanupTimer = null;
+    }
+
+    if (this.generatedVideo && this.generatedVideoEventHandler) {
+      ['timeupdate', 'seeking', 'loadedmetadata', 'ended'].forEach(type => {
+        this.generatedVideo!.removeEventListener(type, this.generatedVideoEventHandler!);
+      });
+    }
+    this.generatedVideoEventHandler = null;
+    this.generatedVideo = null;
+    this.generatedCues = [];
+    this.generatedNavigationKey = null;
+    this.generatedVideoSource = '';
+    this.generatedOverlayElement?.remove();
+    this.generatedOverlayElement = null;
+
+    return {
+      success: true,
+      cueCount: 0,
+      message: hadGeneratedSubtitles
+        ? message
+        : 'No generated video subtitles to clear'
     };
   }
 
@@ -281,7 +425,164 @@ export class VideoSubtitleTranslator {
 
     this.siteContext = nextContext;
     this.applyOverlayContext();
+    this.refreshGeneratedSubtitleBinding();
     return true;
+  }
+
+  private normalizeGeneratedVideoSubtitleCues(input: unknown): GeneratedVideoSubtitleCue[] | null {
+    if (!Array.isArray(input) || input.length === 0 || input.length > VideoSubtitleTranslator.MAX_GENERATED_CUES) {
+      return null;
+    }
+
+    const normalized: GeneratedVideoSubtitleCue[] = [];
+    let totalTextCodePoints = 0;
+    for (const candidate of input) {
+      if (!candidate || typeof candidate !== 'object') return null;
+      const cue = candidate as Record<string, unknown>;
+      const start = cue.start;
+      const end = cue.end;
+      const originalText = cue.originalText;
+      const translatedText = cue.translatedText;
+      if (
+        typeof start !== 'number'
+        || typeof end !== 'number'
+        || !Number.isFinite(start)
+        || !Number.isFinite(end)
+        || start < 0
+        || end < 0
+        || end <= start
+        || start > VideoSubtitleTranslator.MAX_GENERATED_CUE_TIME_SECONDS
+        || end > VideoSubtitleTranslator.MAX_GENERATED_CUE_TIME_SECONDS
+        || typeof originalText !== 'string'
+        || typeof translatedText !== 'string'
+      ) {
+        return null;
+      }
+
+      const normalizedOriginalText = originalText.trim();
+      const normalizedTranslatedText = translatedText.trim();
+      const originalTextLength = Array.from(normalizedOriginalText).length;
+      const translatedTextLength = Array.from(normalizedTranslatedText).length;
+      totalTextCodePoints += originalTextLength + translatedTextLength;
+      if (
+        !normalizedOriginalText
+        || originalTextLength > VideoSubtitleTranslator.MAX_GENERATED_CUE_TEXT_CODE_POINTS
+        || translatedTextLength > VideoSubtitleTranslator.MAX_GENERATED_CUE_TEXT_CODE_POINTS
+        || totalTextCodePoints > VideoSubtitleTranslator.MAX_GENERATED_TOTAL_TEXT_CODE_POINTS
+      ) {
+        return null;
+      }
+
+      normalized.push({
+        start,
+        end,
+        originalText: normalizedOriginalText,
+        translatedText: normalizedTranslatedText
+      });
+    }
+
+    return normalized.sort((first, second) => first.start - second.start || first.end - second.end);
+  }
+
+  private refreshGeneratedSubtitleBinding(): void {
+    if (!this.generatedVideo || this.generatedCues.length === 0) return;
+
+    const nextContext = resolveVideoSiteContext(window.location.href, document);
+    const bestVideo = this.getRankedVideos();
+    const currentVideoSource = this.getVideoSourceFingerprint(this.generatedVideo);
+    const sourceChanged = currentVideoSource !== this.generatedVideoSource;
+    if (
+      !document.documentElement.contains(this.generatedVideo)
+      || nextContext.navigationKey !== this.generatedNavigationKey
+      || bestVideo[0] !== this.generatedVideo
+      || sourceChanged
+    ) {
+      this.clearGeneratedVideoSubtitles('Video changed; generated subtitles cleared');
+    }
+  }
+
+  private getVideoSourceFingerprint(video: HTMLVideoElement): string {
+    const source = video.currentSrc || video.getAttribute('src') || '';
+    if (!source) return '';
+    try {
+      return new URL(source, window.location.href).href;
+    } catch {
+      return source;
+    }
+  }
+
+  private createGeneratedOverlay(): void {
+    const overlay = document.createElement('div');
+    overlay.id = 'lexibridge-generated-video-subtitle-overlay';
+    overlay.setAttribute('aria-live', 'off');
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      left: '50%',
+      bottom: '132px',
+      transform: 'translateX(-50%)',
+      zIndex: '2147482999',
+      width: '760px',
+      maxWidth: '90vw',
+      padding: '10px 14px',
+      borderRadius: '8px',
+      background: 'rgba(10, 14, 24, 0.88)',
+      color: '#ffffff',
+      font: '15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      lineHeight: '1.45',
+      textAlign: 'center',
+      pointerEvents: 'none',
+      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
+      display: 'none'
+    });
+    document.body.appendChild(overlay);
+    this.generatedOverlayElement = overlay;
+  }
+
+  private renderGeneratedSubtitleForCurrentTime(): void {
+    this.refreshGeneratedSubtitleBinding();
+    if (!this.generatedOverlayElement || !this.generatedVideo) return;
+
+    const currentTime = this.generatedVideo.currentTime;
+    if (!Number.isFinite(currentTime) || currentTime < 0) {
+      this.clearGeneratedOverlayContent();
+      return;
+    }
+
+    const activeCues = this.generatedCues.filter(cue => currentTime >= cue.start && currentTime < cue.end);
+    if (activeCues.length === 0) {
+      this.clearGeneratedOverlayContent();
+      return;
+    }
+
+    this.generatedOverlayElement.replaceChildren();
+    activeCues.forEach((cue, index) => {
+      if (index > 0) {
+        const separator = document.createElement('div');
+        separator.className = 'lexibridge-generated-video-subtitle-separator';
+        separator.textContent = '';
+        separator.style.height = '6px';
+        this.generatedOverlayElement!.appendChild(separator);
+      }
+
+      const original = document.createElement('div');
+      original.className = 'lexibridge-generated-video-subtitle-original';
+      original.textContent = cue.originalText;
+      original.style.opacity = '0.88';
+
+      const translation = document.createElement('div');
+      translation.className = 'lexibridge-generated-video-subtitle-translation';
+      translation.textContent = cue.translatedText;
+      translation.style.marginTop = '5px';
+      translation.style.fontWeight = '600';
+      this.generatedOverlayElement!.append(original, translation);
+    });
+    this.generatedOverlayElement.style.display = 'block';
+  }
+
+  private clearGeneratedOverlayContent(): void {
+    if (!this.generatedOverlayElement) return;
+    this.generatedOverlayElement.replaceChildren();
+    this.generatedOverlayElement.style.display = 'none';
   }
 
   private invalidateCurrentSource(): void {

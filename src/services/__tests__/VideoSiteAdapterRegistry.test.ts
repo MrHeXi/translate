@@ -1,4 +1,5 @@
 import {
+  createVideoNavigationToken,
   VIDEO_SITE_ADAPTER_SCHEMA_VERSION,
   resolveVideoSiteContext,
 } from '../VideoSiteAdapterRegistry';
@@ -83,6 +84,11 @@ describe('VideoSiteAdapterRegistry', () => {
 
     expect(first.navigationKey).toBe(second.navigationKey);
     expect(liveFirst.navigationKey).toBe(liveSecond.navigationKey);
+    expect(createVideoNavigationToken(first.navigationKey))
+      .toBe(createVideoNavigationToken(second.navigationKey));
+    expect(createVideoNavigationToken(first.navigationKey))
+      .not.toBe(createVideoNavigationToken(liveFirst.navigationKey));
+    expect(createVideoNavigationToken(first.navigationKey)).toMatch(/^v1:[0-9a-f]{8}:\d+$/);
   });
 
   it('returns Generic Adapter@1 for non-YouTube URLs', () => {

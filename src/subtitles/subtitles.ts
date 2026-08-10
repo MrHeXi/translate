@@ -53,6 +53,8 @@ class SubtitleGeneratorController {
   private resultSection: HTMLElement | null = null;
   private resultSummary: HTMLElement | null = null;
   private cueList: HTMLElement | null = null;
+  private applyToSourceVideoButton: HTMLButtonElement | null = null;
+  private clearSourceVideoButton: HTMLButtonElement | null = null;
   private configuredProviderIds = new Set<string>();
   private providerTargetLanguages = new Map<string, string[]>();
   private port: chrome.runtime.Port | null = null;
@@ -68,6 +70,7 @@ class SubtitleGeneratorController {
   private sourceSite = '';
   private sourcePageType = '';
   private sourceTitle = '';
+  private sourceNavigationToken = '';
   private generationTimeOffsetSeconds = 0;
   private activeTranslationRequestId: string | null = null;
   private resultDurationSeconds = 0;
@@ -109,6 +112,8 @@ class SubtitleGeneratorController {
     this.resultSection = document.getElementById('resultSection');
     this.resultSummary = document.getElementById('resultSummary');
     this.cueList = document.getElementById('cueList');
+    this.applyToSourceVideoButton = document.getElementById('applyToSourceVideo') as HTMLButtonElement | null;
+    this.clearSourceVideoButton = document.getElementById('clearSourceVideo') as HTMLButtonElement | null;
     this.sourceTabId = this.readSourceTabId();
     this.readSourceContext();
 
@@ -119,6 +124,7 @@ class SubtitleGeneratorController {
     await this.loadSettings();
     this.updateTranslationControls();
     this.updateGenerateAvailability();
+    this.updateSourceVideoControls();
   }
 
   private populateControls(): void {
@@ -178,6 +184,8 @@ class SubtitleGeneratorController {
     document.getElementById('exportSrt')?.addEventListener('click', () => this.exportCaptions('srt'));
     document.getElementById('exportVtt')?.addEventListener('click', () => this.exportCaptions('vtt'));
     document.getElementById('clearResult')?.addEventListener('click', () => this.clearResult());
+    this.applyToSourceVideoButton?.addEventListener('click', () => void this.applyGeneratedSubtitlesToSourceVideo());
+    this.clearSourceVideoButton?.addEventListener('click', () => void this.clearGeneratedSubtitlesFromSourceVideo());
     document.getElementById('openSettings')?.addEventListener('click', () => chrome.runtime.openOptionsPage());
     window.addEventListener('pagehide', () => this.releaseTabCaptureForPageClose());
   }
@@ -345,6 +353,7 @@ class SubtitleGeneratorController {
     this.sourceSite = readBounded('sourceSite', 80);
     this.sourcePageType = readBounded('sourcePageType', 24);
     this.sourceTitle = readBounded('sourceTitle', 160);
+    this.sourceNavigationToken = readBounded('sourceNavigationToken', 64);
   }
 
   private applySourceContextSummary(): void {
@@ -950,6 +959,7 @@ class SubtitleGeneratorController {
     }));
     this.updateResultSummary();
     this.resultSection.hidden = false;
+    this.updateSourceVideoControls();
   }
 
   private createCueTimeInput(value: number, ariaLabel: string): HTMLInputElement {
@@ -1049,6 +1059,76 @@ class SubtitleGeneratorController {
     this.cueList?.replaceChildren();
     if (this.resultSection) this.resultSection.hidden = true;
     if (this.resultSummary) this.resultSummary.textContent = '';
+    this.updateSourceVideoControls();
+  }
+
+  private updateSourceVideoControls(): void {
+    const hasSourceTab = this.sourceTabId !== null;
+    if (this.applyToSourceVideoButton) {
+      this.applyToSourceVideoButton.hidden = !hasSourceTab;
+      this.applyToSourceVideoButton.disabled = this.isWorking || this.cues.length === 0;
+      this.applyToSourceVideoButton.title = hasSourceTab
+        ? 'Load the generated captions into the source video after clicking'
+        : 'Open this generator from the video popup to apply captions to a source video';
+    }
+    if (this.clearSourceVideoButton) {
+      this.clearSourceVideoButton.hidden = !hasSourceTab;
+      this.clearSourceVideoButton.disabled = this.isWorking || !hasSourceTab;
+    }
+  }
+
+  private async applyGeneratedSubtitlesToSourceVideo(): Promise<void> {
+    if (!this.sourceTabId || this.cues.length === 0 || this.isWorking) return;
+
+    if (this.applyToSourceVideoButton) this.applyToSourceVideoButton.disabled = true;
+    this.showStatus('Applying captions to source video');
+    try {
+      const response = await this.sendTabMessage(this.sourceTabId, {
+        action: 'applyGeneratedVideoSubtitles',
+        data: {
+          ...(this.sourceNavigationToken
+            ? { expectedNavigationToken: this.sourceNavigationToken }
+            : {}),
+          cues: this.cues.map(cue => {
+            const normalized = normalizeGeneratedSubtitleCue(cue);
+            return {
+              start: normalized.start,
+              end: normalized.end,
+              originalText: normalized.originalText,
+              translatedText: normalized.translatedText
+            };
+          })
+        }
+      });
+      if (!response?.success) {
+        throw new Error(response?.error || response?.data?.message || 'Could not apply captions to the source video.');
+      }
+      this.showStatus(response.data?.message || 'Captions applied to source video');
+    } catch (error) {
+      this.showStatus(error instanceof Error ? error.message : 'Could not apply captions to the source video.', true);
+    } finally {
+      this.updateSourceVideoControls();
+    }
+  }
+
+  private async clearGeneratedSubtitlesFromSourceVideo(): Promise<void> {
+    if (!this.sourceTabId || this.isWorking) return;
+
+    if (this.clearSourceVideoButton) this.clearSourceVideoButton.disabled = true;
+    this.showStatus('Clearing source video captions');
+    try {
+      const response = await this.sendTabMessage(this.sourceTabId, {
+        action: 'clearGeneratedVideoSubtitles'
+      });
+      if (!response?.success) {
+        throw new Error(response?.error || response?.data?.message || 'Could not clear source video captions.');
+      }
+      this.showStatus(response.data?.message || 'Source video captions cleared');
+    } catch (error) {
+      this.showStatus(error instanceof Error ? error.message : 'Could not clear source video captions.', true);
+    } finally {
+      this.updateSourceVideoControls();
+    }
   }
 
   private exportCaptions(format: 'srt' | 'vtt'): void {
@@ -1084,6 +1164,7 @@ class SubtitleGeneratorController {
     if (this.cancelButton) this.cancelButton.hidden = !working;
     this.updateTranslationControls();
     this.updateGenerateAvailability();
+    this.updateSourceVideoControls();
   }
 
   private setProgress(value: number): void {
@@ -1158,6 +1239,24 @@ class SubtitleGeneratorController {
         if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
         else resolve(response);
       });
+    });
+  }
+
+  private sendTabMessage(tabId: number, message: Record<string, unknown>): Promise<any> {
+    return new Promise((resolve, reject) => {
+      try {
+        chrome.tabs.sendMessage(tabId, message, response => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+          } else if (!response) {
+            reject(new Error('The source video did not respond.'));
+          } else {
+            resolve(response);
+          }
+        });
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error('Could not contact the source video.'));
+      }
     });
   }
 }

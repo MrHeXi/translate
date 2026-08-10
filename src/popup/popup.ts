@@ -1,7 +1,7 @@
 // Chrome翻译插件弹出窗口脚本
 
 import { openTranslationSidePanel } from '../services/SidePanelManager';
-import { resolveVideoSiteContext } from '../services/VideoSiteAdapterRegistry';
+import { createVideoNavigationToken, resolveVideoSiteContext } from '../services/VideoSiteAdapterRegistry';
 import type { VideoSiteContext } from '../services/VideoSiteAdapterRegistry';
 
 // 学习统计接口定义
@@ -1286,6 +1286,12 @@ class PopupController {
         generatorUrl.searchParams.set('sourceTabId', String(tab.id));
 
         const context = tab.url ? resolveVideoSiteContext(tab.url) : null;
+        if (context) {
+          generatorUrl.searchParams.set(
+            'sourceNavigationToken',
+            createVideoNavigationToken(context.navigationKey)
+          );
+        }
         const pageType = this.getYouTubePageType(this.videoSubtitleSiteStatus)
           || this.getYouTubePageType(context);
         if (pageType) {

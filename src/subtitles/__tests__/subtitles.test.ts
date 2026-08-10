@@ -196,6 +196,122 @@ describe('AI subtitle generator', () => {
     expect((document.getElementById('toggleTabCapture') as HTMLButtonElement).disabled).toBe(true);
     expect(connect).not.toHaveBeenCalled();
     expect(sendMessage.mock.calls.some(([message]) => message.action === 'translate')).toBe(false);
+    expect((document.getElementById('applyToSourceVideo') as HTMLButtonElement).hidden).toBe(true);
+    expect((document.getElementById('clearSourceVideo') as HTMLButtonElement).hidden).toBe(true);
+  });
+
+  it('applies and clears generated cues in the source video only after explicit clicks', async () => {
+    window.history.replaceState(
+      {},
+      '',
+      '/subtitles.html?sourceTabId=12&sourceNavigationToken=v1%3A12345678%3A17'
+    );
+    const harness = createPortHarness();
+    const connect = jest.fn(() => harness.port);
+    let applyCount = 0;
+    const sendTabMessage = jest.fn((tabId, message, callback) => {
+      expect(tabId).toBe(12);
+      if (message.action === 'applyGeneratedVideoSubtitles') {
+        applyCount++;
+        callback(applyCount === 1
+          ? { success: true, data: { message: 'Applied 1 generated subtitle cue' } }
+          : { success: false, error: 'Source video rejected the captions.' });
+        return;
+      }
+      if (message.action === 'clearGeneratedVideoSubtitles') {
+        callback({ success: true, data: { message: 'Generated video subtitles cleared' } });
+        return;
+      }
+      callback({ success: false, error: 'Unexpected source message.' });
+    });
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({ success: true, data: [{ providerId: 'groq', configured: true }] });
+        return;
+      }
+      if (message.action === 'getSettings') {
+        callback({ success: true, data: { translationProvider: 'google', defaultTargetLanguage: 'zh-CN' } });
+        return;
+      }
+      callback({ success: true });
+    });
+    (global as any).chrome = {
+      runtime: { sendMessage, connect, lastError: null, openOptionsPage: jest.fn() },
+      tabs: { sendMessage: sendTabMessage }
+    };
+
+    try {
+      require('../subtitles');
+      document.dispatchEvent(new Event('DOMContentLoaded'));
+      await flushPromises();
+      await flushPromises();
+
+      const applyButton = document.getElementById('applyToSourceVideo') as HTMLButtonElement;
+      const clearButton = document.getElementById('clearSourceVideo') as HTMLButtonElement;
+      expect(applyButton.hidden).toBe(false);
+      expect(applyButton.disabled).toBe(true);
+      expect(clearButton.hidden).toBe(false);
+      expect(clearButton.disabled).toBe(false);
+      expect(sendTabMessage).not.toHaveBeenCalled();
+
+      const translateCaptions = document.getElementById('translateCaptions') as HTMLInputElement;
+      translateCaptions.checked = false;
+      translateCaptions.dispatchEvent(new Event('change'));
+      setMediaFile(document.getElementById('mediaFile') as HTMLInputElement);
+      document.getElementById('generateSubtitles')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      harness.emitMessage({ type: 'ready', totalBytes: 3 });
+      await flushPromises();
+      harness.emitMessage({ type: 'chunk-accepted', index: 0, receivedBytes: 3, totalBytes: 3 });
+      await flushPromises();
+      harness.emitMessage({
+        type: 'transcription-complete',
+        result: {
+          text: 'Generated source',
+          language: 'en',
+          duration: 2,
+          segments: [{ id: 1, start: 0.25, end: 1.75, text: 'Generated source' }]
+        }
+      });
+      await flushPromises();
+      await flushPromises();
+
+      expect(sendTabMessage).not.toHaveBeenCalled();
+      expect(applyButton.disabled).toBe(false);
+      applyButton.click();
+      await flushPromises();
+      expect(sendTabMessage).toHaveBeenNthCalledWith(1, 12, {
+        action: 'applyGeneratedVideoSubtitles',
+        data: {
+          expectedNavigationToken: 'v1:12345678:17',
+          cues: [{
+            start: 0.25,
+            end: 1.75,
+            originalText: 'Generated source',
+            translatedText: ''
+          }]
+        }
+      }, expect.any(Function));
+      expect(document.getElementById('generationStatus')?.textContent)
+        .toBe('Applied 1 generated subtitle cue');
+
+      applyButton.click();
+      await flushPromises();
+      expect(document.getElementById('generationStatus')?.textContent)
+        .toBe('Source video rejected the captions.');
+      expect(document.getElementById('generationStatus')?.classList.contains('error')).toBe(true);
+
+      clearButton.click();
+      await flushPromises();
+      expect(sendTabMessage).toHaveBeenNthCalledWith(3, 12, {
+        action: 'clearGeneratedVideoSubtitles'
+      }, expect.any(Function));
+      expect(document.getElementById('generationStatus')?.textContent)
+        .toBe('Generated video subtitles cleared');
+      expect(document.getElementById('generationStatus')?.classList.contains('error')).toBe(false);
+    } finally {
+      window.history.replaceState({}, '', '/subtitles.html');
+    }
   });
 
   it('disables unsupported current-tab capture and keeps local media available', async () => {

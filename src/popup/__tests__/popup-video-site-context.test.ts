@@ -209,6 +209,7 @@ describe('popup video site context and explicit actions', () => {
     expect(createdUrl.searchParams.get('sourceTabId')).toBe('23');
     expect(createdUrl.searchParams.get('sourceSite')).toBe('YouTube');
     expect(createdUrl.searchParams.get('sourcePageType')).toBe(pageType);
+    expect(createdUrl.searchParams.get('sourceNavigationToken')).toMatch(/^v1:[0-9a-f]{8}:\d+$/);
     expect(Array.from(createdUrl.searchParams.get('sourceTitle') || '')).toHaveLength(160);
     expect(chromeMock.tabCapture.getMediaStreamId).not.toHaveBeenCalled();
   });

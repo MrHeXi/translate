@@ -15,6 +15,16 @@ export interface VideoSiteContext {
 
 export const VIDEO_SITE_ADAPTER_SCHEMA_VERSION = 1;
 
+export function createVideoNavigationToken(navigationKey: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < navigationKey.length; index++) {
+    const codeUnit = navigationKey.charCodeAt(index);
+    hash = Math.imul(hash ^ (codeUnit & 0xff), 0x01000193);
+    hash = Math.imul(hash ^ (codeUnit >>> 8), 0x01000193);
+  }
+  return `v${VIDEO_SITE_ADAPTER_SCHEMA_VERSION}:${(hash >>> 0).toString(16).padStart(8, '0')}:${navigationKey.length}`;
+}
+
 const YOUTUBE_ADAPTER_ID = 'youtube';
 const GENERIC_ADAPTER_ID = 'generic';
 const ADAPTER_VERSION = 1;

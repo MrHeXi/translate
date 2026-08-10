@@ -176,9 +176,12 @@ describe('Popup current tab state', () => {
     await flushPromises();
 
     expect((global as any).chrome.runtime.getURL).toHaveBeenCalledWith('subtitles.html');
-    expect((global as any).chrome.tabs.create).toHaveBeenCalledWith({
-      url: 'chrome-extension://test/subtitles.html?sourceTabId=1'
-    });
+    expect((global as any).chrome.tabs.create).toHaveBeenCalledTimes(1);
+    const createdUrl = new URL((global as any).chrome.tabs.create.mock.calls[0][0].url);
+    expect(createdUrl.origin).toBe('null');
+    expect(createdUrl.pathname).toBe('/subtitles.html');
+    expect(createdUrl.searchParams.get('sourceTabId')).toBe('1');
+    expect(createdUrl.searchParams.get('sourceNavigationToken')).toMatch(/^v1:[0-9a-f]{8}:\d+$/);
   });
 
   it('opens the image workspace only after its popup button is clicked', async () => {

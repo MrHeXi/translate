@@ -80,6 +80,178 @@ describe('VideoSubtitleTranslator', () => {
     expect(track.addEventListener).not.toHaveBeenCalled();
   });
 
+  it('loads generated cues only after an explicit apply and never starts playback', () => {
+    document.body.innerHTML = '<video id="source-video" src="lecture.mp4"></video>';
+    const video = document.getElementById('source-video') as HTMLVideoElement;
+    let currentTime = 0;
+    Object.defineProperty(video, 'currentTime', {
+      configurable: true,
+      get: () => currentTime,
+      set: value => { currentTime = value; }
+    });
+    const play = jest.spyOn(video, 'play').mockResolvedValue(undefined);
+
+    expect(document.getElementById('lexibridge-generated-video-subtitle-overlay')).toBeNull();
+
+    const result = translator.applyGeneratedVideoSubtitles([{
+      start: 1,
+      end: 3,
+      originalText: '<b>Generated source</b>',
+      translatedText: 'Generated translation'
+    }]);
+
+    expect(result).toEqual({
+      success: true,
+      cueCount: 1,
+      message: 'Applied 1 generated subtitle cue'
+    });
+    expect(play).not.toHaveBeenCalled();
+    const overlay = document.getElementById('lexibridge-generated-video-subtitle-overlay') as HTMLElement;
+    expect(overlay.style.display).toBe('none');
+
+    currentTime = 1.5;
+    video.dispatchEvent(new Event('timeupdate'));
+    expect(overlay.textContent).toContain('<b>Generated source</b>');
+    expect(overlay.querySelector('b')).toBeNull();
+    expect(overlay.textContent).toContain('Generated translation');
+    expect(overlay.style.display).toBe('block');
+
+    currentTime = 3;
+    video.dispatchEvent(new Event('timeupdate'));
+    expect(overlay.textContent).toBe('');
+    expect(overlay.style.display).toBe('none');
+  });
+
+  it('rejects malformed generated cues before binding to a video', () => {
+    document.body.innerHTML = '<video></video>';
+    const video = document.querySelector('video') as HTMLVideoElement;
+    const addEventListener = jest.spyOn(video, 'addEventListener');
+
+    expect(translator.applyGeneratedVideoSubtitles([{
+      start: 2,
+      end: 1,
+      originalText: 'Invalid timing',
+      translatedText: ''
+    }])).toEqual({
+      success: false,
+      cueCount: 0,
+      message: 'Generated subtitles are invalid or empty'
+    });
+    expect(addEventListener).not.toHaveBeenCalled();
+    expect(document.getElementById('lexibridge-generated-video-subtitle-overlay')).toBeNull();
+  });
+
+  it('rejects generated cues when the originating video identity changed', () => {
+    document.body.innerHTML = '<video id="source-video" src="lecture.mp4"></video>';
+    const video = document.getElementById('source-video') as HTMLVideoElement;
+    const addEventListener = jest.spyOn(video, 'addEventListener');
+
+    expect(translator.applyGeneratedVideoSubtitles([{
+      start: 0,
+      end: 2,
+      originalText: 'Caption from the previous video',
+      translatedText: 'Previous translation'
+    }], 'v1:00000000:0')).toEqual({
+      success: false,
+      cueCount: 0,
+      message: 'Source video changed; generate captions again'
+    });
+    expect(addEventListener).not.toHaveBeenCalled();
+    expect(document.getElementById('lexibridge-generated-video-subtitle-overlay')).toBeNull();
+  });
+
+  it('replaces generated subtitle bindings and clears them immediately', () => {
+    document.body.innerHTML = '<video id="source-video" src="lecture.mp4"></video>';
+    const video = document.getElementById('source-video') as HTMLVideoElement;
+    Object.defineProperty(video, 'currentTime', { configurable: true, value: 1, writable: true });
+    const nativeTrack = { mode: 'showing' };
+    Object.defineProperty(video, 'textTracks', { configurable: true, value: [nativeTrack] });
+    const addEventListener = jest.spyOn(video, 'addEventListener');
+    const removeEventListener = jest.spyOn(video, 'removeEventListener');
+    const cue = {
+      start: 0,
+      end: 2,
+      originalText: 'First source',
+      translatedText: 'First translation'
+    };
+
+    translator.applyGeneratedVideoSubtitles([cue]);
+    const firstOverlay = document.getElementById('lexibridge-generated-video-subtitle-overlay');
+    translator.applyGeneratedVideoSubtitles([{
+      ...cue,
+      originalText: 'Replacement source'
+    }]);
+
+    expect(firstOverlay?.isConnected).toBe(false);
+    expect(addEventListener).toHaveBeenCalledTimes(8);
+    expect(removeEventListener).toHaveBeenCalledTimes(4);
+    expect(document.getElementById('lexibridge-generated-video-subtitle-overlay')?.textContent)
+      .toContain('Replacement source');
+
+    expect(translator.clearGeneratedVideoSubtitles()).toEqual({
+      success: true,
+      cueCount: 0,
+      message: 'Generated video subtitles cleared'
+    });
+    expect(removeEventListener).toHaveBeenCalledTimes(8);
+    expect(document.getElementById('lexibridge-generated-video-subtitle-overlay')).toBeNull();
+    expect(nativeTrack.mode).toBe('showing');
+  });
+
+  it('keeps generated playback and live subtitle translation mutually exclusive', () => {
+    document.body.innerHTML = '<video id="source-video" src="lecture.mp4"></video>';
+    const video = document.getElementById('source-video') as HTMLVideoElement;
+    const track = createTextTrack('showing');
+    Object.defineProperty(video, 'textTracks', { configurable: true, value: [track] });
+    Object.defineProperty(video, 'currentTime', { configurable: true, value: 1, writable: true });
+
+    translator.enable(async text => `Translated: ${text}`);
+    expect(track.mode).toBe('hidden');
+    expect(document.getElementById('lexibridge-video-subtitle-overlay')).not.toBeNull();
+
+    translator.applyGeneratedVideoSubtitles([{
+      start: 0,
+      end: 2,
+      originalText: 'Generated source',
+      translatedText: 'Generated translation'
+    }]);
+    expect(translator.getStatus().isActive).toBe(false);
+    expect(track.mode).toBe('showing');
+    expect(document.getElementById('lexibridge-video-subtitle-overlay')).toBeNull();
+    expect(document.getElementById('lexibridge-generated-video-subtitle-overlay')).not.toBeNull();
+
+    translator.enable(async text => `Translated again: ${text}`);
+    expect(document.getElementById('lexibridge-generated-video-subtitle-overlay')).toBeNull();
+    expect(document.getElementById('lexibridge-video-subtitle-overlay')).not.toBeNull();
+    expect(track.mode).toBe('hidden');
+  });
+
+  it('clears generated subtitles when the source page changes', () => {
+    const originalUrl = window.location.href;
+    document.body.innerHTML = '<video id="source-video" src="lecture.mp4"></video>';
+    const video = document.getElementById('source-video') as HTMLVideoElement;
+    Object.defineProperty(video, 'currentTime', { configurable: true, value: 1, writable: true });
+
+    try {
+      translator.applyGeneratedVideoSubtitles([{
+        start: 0,
+        end: 2,
+        originalText: 'Old page source',
+        translatedText: 'Old page translation'
+      }]);
+      expect(document.getElementById('lexibridge-generated-video-subtitle-overlay')).not.toBeNull();
+
+      window.history.pushState({}, '', '/another-video');
+      video.dispatchEvent(new Event('timeupdate'));
+
+      expect(document.getElementById('lexibridge-generated-video-subtitle-overlay')).toBeNull();
+      expect(translator.clearGeneratedVideoSubtitles().message)
+        .toBe('No generated video subtitles to clear');
+    } finally {
+      window.history.replaceState({}, '', originalUrl);
+    }
+  });
+
   it('does not translate DOM-rendered captions before manual enablement', () => {
     document.body.innerHTML = [
       '<video></video>',

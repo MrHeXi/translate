@@ -214,6 +214,20 @@ class ContentScript {
       'exportVideoSubtitles': async () => {
         return { success: true, data: this.exportVideoSubtitles() };
       },
+      'applyGeneratedVideoSubtitles': async (request) => {
+        const result = this.videoSubtitleTranslator.applyGeneratedVideoSubtitles(
+          request.data?.cues,
+          request.data?.expectedNavigationToken
+        );
+        return {
+          success: result.success,
+          data: result,
+          error: result.success ? undefined : result.message
+        };
+      },
+      'clearGeneratedVideoSubtitles': async () => {
+        return { success: true, data: this.videoSubtitleTranslator.clearGeneratedVideoSubtitles() };
+      },
       'getVideoPlaybackPosition': async () => {
         return { success: true, data: this.videoSubtitleTranslator.getPlaybackPosition() };
       },
