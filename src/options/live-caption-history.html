@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Caption History - LexiBridge Translate</title>
+  <link rel="stylesheet" href="live-caption-history.css">
+</head>
+<body>
+  <div class="history-page">
+    <header class="page-header">
+      <div>
+        <p class="product-name">LexiBridge Translate</p>
+        <h1>Live caption history</h1>
+      </div>
+      <div class="history-controls" aria-label="History controls">
+        <label for="liveCaptionHistoryRetention">
+          Keep
+          <select id="liveCaptionHistoryRetention" disabled>
+            <option value="10">10 sessions</option>
+            <option value="25">25 sessions</option>
+            <option value="50">50 sessions</option>
+          </select>
+        </label>
+        <button id="clearLiveCaptionHistory" class="danger-button" type="button" disabled>
+          Clear all
+        </button>
+      </div>
+    </header>
+
+    <main class="history-workspace">
+      <aside class="history-index" aria-label="Saved live caption sessions">
+        <header class="section-header">
+          <h2>Saved sessions</h2>
+          <span id="historyCount" class="history-count">0</span>
+        </header>
+        <div id="historyListState" class="list-state" role="status">Loading history...</div>
+        <button id="retryLiveCaptionHistory" class="secondary-button retry-button" type="button" hidden>
+          Retry
+        </button>
+        <div id="liveCaptionHistoryList" class="history-list" hidden></div>
+      </aside>
+
+      <section class="transcript-preview" aria-label="Transcript preview">
+        <header class="section-header preview-header">
+          <div>
+            <p class="section-kicker">Preview</p>
+            <h2 id="previewTitle">No session open</h2>
+          </div>
+          <div class="export-controls">
+            <label for="historyExportFormat">
+              Format
+              <select id="historyExportFormat">
+                <option value="txt">TXT</option>
+                <option value="srt">SRT</option>
+                <option value="vtt">VTT</option>
+                <option value="json">JSON</option>
+              </select>
+            </label>
+            <button id="exportLiveCaptionHistory" class="primary-button" type="button" disabled>
+              Export
+            </button>
+          </div>
+        </header>
+
+        <div id="previewEmpty" class="preview-empty">No session selected.</div>
+        <div id="previewContent" hidden>
+          <dl class="preview-metadata">
+            <div>
+              <dt>Saved</dt>
+              <dd id="previewSavedAt"></dd>
+            </div>
+            <div>
+              <dt>Source</dt>
+              <dd id="previewSource"></dd>
+            </div>
+            <div>
+              <dt>Duration</dt>
+              <dd id="previewDuration"></dd>
+            </div>
+            <div>
+              <dt>Cues</dt>
+              <dd id="previewCueCount"></dd>
+            </div>
+          </dl>
+          <div id="previewCueList" class="cue-list"></div>
+        </div>
+      </section>
+    </main>
+
+    <p id="historyPageStatus" class="page-status" role="status" aria-live="polite"></p>
+  </div>
+  <script src="live-caption-history.js"></script>
+</body>
+</html>

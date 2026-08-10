@@ -70,7 +70,8 @@ module.exports = (env = {}, argv = {}) => {
       image: './src/image/image.ts',
       'image-processor-worker': './src/image/image-processor-worker.ts',
       sidepanel: './src/sidepanel/sidepanel.ts',
-      subtitles: './src/subtitles/subtitles.ts'
+      subtitles: './src/subtitles/subtitles.ts',
+      'live-caption-history': './src/options/live-caption-history.ts'
     },
     
     output: {
@@ -194,6 +195,14 @@ module.exports = (env = {}, argv = {}) => {
           {
             from: 'src/subtitles/subtitles.css',
             to: 'subtitles.css'
+          },
+          {
+            from: 'src/options/live-caption-history.html',
+            to: 'live-caption-history.html'
+          },
+          {
+            from: 'src/options/live-caption-history.css',
+            to: 'live-caption-history.css'
           },
           {
             from: 'src/content/content.css',

@@ -41,6 +41,11 @@ import {
   SensitiveDataMaskingSession
 } from '../services/SensitiveDataMasker';
 import { providerLanguageDiscoveryService } from '../services/ProviderLanguageDiscoveryService';
+import {
+  LiveCaptionHistoryRetention,
+  LiveCaptionHistorySaveInput,
+  liveCaptionHistoryService
+} from '../services/LiveCaptionHistoryService';
 
 // 消息类型定义（保留兼容性）
 interface MessageRequest {
@@ -440,6 +445,26 @@ class BackgroundService {
 
         case 'refreshTranslationProviderLanguages':
           response = await this.handleRefreshTranslationProviderLanguagesRequest(request);
+          break;
+
+        case 'getLiveCaptionHistory':
+          response = await this.handleGetLiveCaptionHistoryRequest();
+          break;
+
+        case 'saveLiveCaptionTranscriptHistory':
+          response = await this.handleSaveLiveCaptionTranscriptHistoryRequest(request);
+          break;
+
+        case 'deleteLiveCaptionHistory':
+          response = await this.handleDeleteLiveCaptionHistoryRequest(request);
+          break;
+
+        case 'clearLiveCaptionHistory':
+          response = await this.handleClearLiveCaptionHistoryRequest();
+          break;
+
+        case 'setLiveCaptionHistoryRetention':
+          response = await this.handleSetLiveCaptionHistoryRetentionRequest(request);
           break;
 
         case 'removeTranslationProviderConfig':
@@ -1412,6 +1437,86 @@ class BackgroundService {
     );
     this.translationService.clearCache();
     return { success: true, data: summary };
+  }
+
+  private async handleGetLiveCaptionHistoryRequest(): Promise<MessageResponse> {
+    const [entries, retention] = await Promise.all([
+      liveCaptionHistoryService.list(),
+      liveCaptionHistoryService.getRetention()
+    ]);
+    return { success: true, data: { entries, retention } };
+  }
+
+  private async handleSaveLiveCaptionTranscriptHistoryRequest(request: MessageRequest): Promise<MessageResponse> {
+    const sourceTabId = request.data?.sourceTabId;
+    if (!Number.isInteger(sourceTabId) || sourceTabId < 0) {
+      throw new TypeError('A valid source tab is required to save live caption history');
+    }
+    const sourceTab = await chrome.tabs.get(sourceTabId);
+    if (sourceTab.incognito) {
+      throw new Error('Live caption history is unavailable in private browsing');
+    }
+
+    const rawInput = request.data?.entry || request.data;
+    if (!rawInput || typeof rawInput !== 'object') {
+      throw new TypeError('A live caption transcript snapshot is required');
+    }
+
+    const sourceUrl = typeof rawInput.sourceUrl === 'string' ? rawInput.sourceUrl : '';
+    let safeSourceUrl = '';
+    let safeSourceHost = '';
+    try {
+      const parsedUrl = new URL(sourceUrl);
+      if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') {
+        safeSourceUrl = parsedUrl.origin;
+        safeSourceHost = parsedUrl.hostname;
+      }
+    } catch {
+      safeSourceUrl = '';
+    }
+    let sourceTabOrigin = '';
+    try {
+      const parsedTabUrl = new URL(sourceTab.url || '');
+      if (parsedTabUrl.protocol === 'http:' || parsedTabUrl.protocol === 'https:') {
+        sourceTabOrigin = parsedTabUrl.origin;
+      }
+    } catch {
+      sourceTabOrigin = '';
+    }
+    if (!safeSourceUrl || sourceTabOrigin !== safeSourceUrl) {
+      throw new Error('The live caption source page changed before the transcript was saved');
+    }
+
+    const input: LiveCaptionHistorySaveInput = {
+      sessionStartedAt: rawInput.sessionStartedAt === null || typeof rawInput.sessionStartedAt === 'string'
+        ? rawInput.sessionStartedAt
+        : null,
+      sourceUrl: safeSourceUrl,
+      sourceTitle: typeof rawInput.sourceTitle === 'string'
+        ? rawInput.sourceTitle.slice(0, 160)
+        : 'Untitled page',
+      sourceHost: safeSourceHost,
+      cues: Array.isArray(rawInput.cues) ? rawInput.cues : []
+    };
+    const entry = await liveCaptionHistoryService.save(input);
+    return { success: true, data: entry };
+  }
+
+  private async handleDeleteLiveCaptionHistoryRequest(request: MessageRequest): Promise<MessageResponse> {
+    const id = typeof request.data?.id === 'string' ? request.data.id : '';
+    return { success: true, data: { deleted: await liveCaptionHistoryService.delete(id) } };
+  }
+
+  private async handleClearLiveCaptionHistoryRequest(): Promise<MessageResponse> {
+    await liveCaptionHistoryService.clear();
+    return { success: true };
+  }
+
+  private async handleSetLiveCaptionHistoryRetentionRequest(request: MessageRequest): Promise<MessageResponse> {
+    const retention = Number(request.data?.retention) as LiveCaptionHistoryRetention;
+    await liveCaptionHistoryService.setRetention(retention);
+    const entries = await liveCaptionHistoryService.list();
+    return { success: true, data: { retention, entries } };
   }
 
   private async handleGetLearningStatsRequest(request: MessageRequest): Promise<MessageResponse> {

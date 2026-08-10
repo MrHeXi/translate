@@ -164,6 +164,11 @@ describe('BackgroundService provider configuration messages', () => {
       },
       tabs: {
         query: jest.fn((_query, callback) => callback([{ id: 42 }, {}])),
+        get: jest.fn().mockResolvedValue({
+          id: 42,
+          incognito: false,
+          url: 'https://meet.example.com/room?token=must-not-be-stored'
+        }),
         sendMessage: jest.fn((_tabId, _message, callback) => callback())
       }
     };
@@ -224,6 +229,36 @@ describe('BackgroundService provider configuration messages', () => {
     jest.doMock('../../services/ProviderLanguageDiscoveryService', () => ({
       providerLanguageDiscoveryService: { discover }
     }));
+    const savedLiveCaptionEntry = {
+      id: 'history-1',
+      createdAt: '2026-08-10T08:10:00.000Z',
+      sessionStartedAt: '2026-08-10T08:00:00.000Z',
+      sourceUrl: 'https://meet.example.com',
+      sourceTitle: 'Weekly sync',
+      sourceHost: 'meet.example.com',
+      cueCount: 1,
+      durationMs: 1500,
+      cues: [{
+        id: 1,
+        startTimeMs: 0,
+        endTimeMs: 1500,
+        source: 'Google Meet',
+        speaker: 'Mina',
+        originalText: 'Hello',
+        translatedText: 'Hello translated'
+      }]
+    };
+    const mockLiveCaptionHistoryService = {
+      list: jest.fn().mockResolvedValue([savedLiveCaptionEntry]),
+      getRetention: jest.fn().mockResolvedValue(10),
+      save: jest.fn().mockResolvedValue(savedLiveCaptionEntry),
+      delete: jest.fn().mockResolvedValue(true),
+      clear: jest.fn().mockResolvedValue(undefined),
+      setRetention: jest.fn().mockResolvedValue(undefined)
+    };
+    jest.doMock('../../services/LiveCaptionHistoryService', () => ({
+      liveCaptionHistoryService: mockLiveCaptionHistoryService
+    }));
 
     require('../background');
     const mainListener = listeners[0];
@@ -254,6 +289,56 @@ describe('BackgroundService provider configuration messages', () => {
     expect(mockTranslationService.translate).not.toHaveBeenCalled();
     await flushPromises();
     await flushPromises();
+
+    const historySnapshot = {
+      sessionStartedAt: '2026-08-10T08:00:00.000Z',
+      capturedAt: '2026-08-10T08:10:00.000Z',
+      cueCount: 1,
+      truncated: false,
+      droppedCueCount: 0,
+      sourceUrl: 'https://meet.example.com/room?token=must-not-be-stored#captions',
+      sourceTitle: 'Weekly sync',
+      sourceHost: 'untrusted.example.net',
+      cues: savedLiveCaptionEntry.cues
+    };
+    await expect(send({
+      action: 'saveLiveCaptionTranscriptHistory',
+      data: { entry: historySnapshot, sourceTabId: 42 }
+    })).resolves.toEqual({ success: true, data: savedLiveCaptionEntry });
+    expect(mockLiveCaptionHistoryService.save).toHaveBeenCalledWith({
+      sessionStartedAt: historySnapshot.sessionStartedAt,
+      sourceUrl: 'https://meet.example.com',
+      sourceTitle: historySnapshot.sourceTitle,
+      sourceHost: 'meet.example.com',
+      cues: historySnapshot.cues
+    });
+    (chrome.tabs.get as jest.Mock).mockResolvedValueOnce({ id: 42, incognito: true });
+    await expect(send({
+      action: 'saveLiveCaptionTranscriptHistory',
+      data: { entry: historySnapshot, sourceTabId: 42 }
+    })).resolves.toEqual({
+      success: false,
+      error: 'Live caption history is unavailable in private browsing'
+    });
+    expect(mockLiveCaptionHistoryService.save).toHaveBeenCalledTimes(1);
+
+    await expect(send({ action: 'getLiveCaptionHistory' })).resolves.toEqual({
+      success: true,
+      data: { entries: [savedLiveCaptionEntry], retention: 10 }
+    });
+    await expect(send({
+      action: 'setLiveCaptionHistoryRetention',
+      data: { retention: 25 }
+    })).resolves.toEqual({
+      success: true,
+      data: { retention: 25, entries: [savedLiveCaptionEntry] }
+    });
+    expect(mockLiveCaptionHistoryService.setRetention).toHaveBeenCalledWith(25);
+    await expect(send({
+      action: 'deleteLiveCaptionHistory',
+      data: { id: 'history-1' }
+    })).resolves.toEqual({ success: true, data: { deleted: true } });
+    await expect(send({ action: 'clearLiveCaptionHistory' })).resolves.toEqual({ success: true });
 
     const translateResponse = await send({
       action: 'translate',

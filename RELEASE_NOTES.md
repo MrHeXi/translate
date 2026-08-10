@@ -41,6 +41,7 @@ Initial productized release candidate for local Chrome/Firefox testing and brows
 - Contextual YouTube subtitle-generation entry points that only open the generator; capture still requires its own click, records the source playback offset at recorder start when available, exposes bounded editable cue text/start/end controls, uses indeterminate provider progress, and cancels globally namespaced per-cue translation requests.
 - Live caption translation for caption text already visible in the page DOM, with Google Meet, Zoom, Microsoft Teams, and Webex-style speaker label handling.
 - Timestamped bilingual live-caption transcripts with incremental-caption coalescing, in-memory session retention after Stop, explicit Clear, and local TXT/SRT/VTT/JSON export.
+- Explicit live-caption transcript Save with bounded `chrome.storage.local` history, sanitized source origins, private-tab rejection, newest-first preview, local TXT/SRT/VTT/JSON export, per-session Delete, Clear all, and 10/25/50 retention controls; loading a page or stopping captions never saves automatically.
 - Manual image text translation for selected images, canvases, SVGs, dragged image regions, and eligible graphics currently visible in the viewport, using browser OCR first and bundled offline OCR otherwise while retaining separate per-image or OCR-block overlays.
 - Explicit image entry points for a frame-aware right-click command, hover actions available only after Image text is started, and a one-shot freeform `Z` lasso; opening a page, showing the hover controls, or pressing `Z` does not run OCR until the user chooses Translate or releases a valid selection. Blur, page hide, and pointer cancellation discard unfinished gestures.
 - Per-image Retranslate, Apply, Undo, and reconstructed-canvas Download PNG actions. Retranslate bypasses completed and pending translation caches, Apply commits only extension-owned overlays, Undo restores the untouched source, and object URLs are revoked after downloads.
@@ -87,12 +88,12 @@ Verified on 2026-08-10:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand`: passed, 72 test suites and 719 tests.
+- `jest --runInBand`: passed, 74 test suites and 737 tests.
 - `npm run package`: passed for Chrome and Firefox Desktop.
 - `web-ext lint --source-dir dist-firefox`: passed with 0 errors, 0 notices, and 31 warnings retained for AMO review.
-- Chrome build metadata: source `12E8B278C0C429C716897735D72B768592947932DF8006E81701D3FC30132612`, manifest `E105181215EF2F2030818523211C187353EEC836130ADC7FCA04DF312168887C`, payload `ADD103FF55C816D542BD89A5B6D32C0B39A774ACF50B8BE551CA3AA0D50BE066`.
-- Firefox build metadata: source `AB373BA71CF1170554562E05E41DD5CF92063B6A64EE81C9F8713AAE9705C4D2`, manifest `F280485846217ACDC7E58E0719AE800943FD2C3A07262789D8FE975D8A2D1C55`, payload `4AFDE567B0D5962BC7CC608D9C2452473C5EE25338A8718AE77B0B73A54EEB8C`.
-- Both production directories contain exactly 243 files; forbidden tests, TypeScript declarations/sources, and source maps are absent, and every non-manifest/non-metadata file is byte-identical across targets.
+- Chrome build metadata: source `981A9419BDFE02CBEB0839477F255A805BDC4F4433250B0ECF7ABDD36AD982D3`, manifest `E105181215EF2F2030818523211C187353EEC836130ADC7FCA04DF312168887C`, payload `9E1178980D164504C9AB8A7E27C10ECE6502A1324333F3ADD6C242C968FBB11A`.
+- Firefox build metadata: source `6EA81F8B3FF1FE5F6E757148FDBFA0D66D80E9AE27B85DD65ADAC355C5D9F8F6`, manifest `F280485846217ACDC7E58E0719AE800943FD2C3A07262789D8FE975D8A2D1C55`, payload `E2CC85EEF807394C7F3C19B5942EC66DB67576BF6A9DD482A8E3EE02BE8CD3F3`.
+- Both production directories contain exactly 246 files; forbidden tests, TypeScript declarations/sources, and source maps are absent, and every non-manifest/non-metadata file is byte-identical across targets.
 - Both ZIPs were generated twice from sorted forward-slash paths with fixed timestamps, compared byte-for-byte, CRC-checked, and reloaded to match every production file.
 
 Expected build warnings:
@@ -107,11 +108,11 @@ Expected build warnings:
 
 - Chrome unpacked folder: `dist`
 - Chrome test package: `chrome-translation-extension.zip`
-- Chrome ZIP size: `17,822,821` bytes
-- Chrome SHA-256: `F7EF12411D29A3678EA58558E418B3E1B9C16359B5152BD8764D442B15E6BAA9`
+- Chrome ZIP size: `17,832,610` bytes
+- Chrome SHA-256: `D3099375DDD6B08CBB0C73D4BA59BB18C0892DF7D10F33568942FE4F42CD2CFA`
 - Firefox unpacked folder: `dist-firefox`
 - Firefox test package: `firefox-translation-extension.zip`
-- Firefox ZIP size: `17,822,996` bytes
-- Firefox SHA-256: `8707627781BA5B22C98A6913F4793A98426BE6B494EB55B86D99CC48CF4BFC5F`
+- Firefox ZIP size: `17,832,784` bytes
+- Firefox SHA-256: `5413AD8CEE93905D2D53CE976AB0A8C66D15396A41A1AB0A7C42DE1EE966C23A`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

@@ -175,7 +175,7 @@ body {
 
 .live-transcript-actions {
   display: grid;
-  grid-template-columns: minmax(72px, 1fr) auto auto;
+  grid-template-columns: minmax(72px, 1fr) repeat(4, auto);
   gap: 6px;
   margin-top: 10px;
 }

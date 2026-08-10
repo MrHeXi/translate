@@ -209,8 +209,9 @@ Current batch:
 - Done: coalesce word-by-word caption growth into timestamped bilingual cues instead of duplicate fragments.
 - Done: retain the current tab's transcript after Stop and export it locally as TXT, SRT, VTT, or structured JSON.
 - Done: clear the in-memory transcript explicitly without stopping live caption translation.
+- Done: add explicit, bounded local transcript history with Save, newest-first organization, preview, TXT/SRT/VTT/JSON export, Delete, Clear all, and retention controls.
 - Done: avoid recording, joining calls, storing audio, or transcribing speech.
-- Remaining: broader site-specific caption adapters and persistent cross-session transcript organization.
+- Remaining: broader site-specific caption adapters.
 
 ### Batch H: Side Panel and Keyboard Entry
 

@@ -912,6 +912,21 @@ describe('Content script MessageManager contract', () => {
         message: 'No live caption transcript yet'
       }
     });
+    await expect(registeredHandlers.getLiveCaptionTranscriptSnapshot()).resolves.toEqual({
+      success: true,
+      data: expect.objectContaining({
+        sessionStartedAt: null,
+        capturedAt: expect.any(String),
+        cueCount: 0,
+        truncated: false,
+        droppedCueCount: 0,
+        sourceUrl: expect.any(String),
+        sourceTitle: expect.any(String),
+        sourceHost: expect.any(String),
+        cues: [],
+        message: 'No live caption transcript to save yet'
+      })
+    });
 
     const sendDirectMessage = (request: any): Promise<any> => dispatchRegisteredMessage(registerHandlers, request);
 

@@ -1,20 +1,22 @@
+import {
+  createLiveCaptionTranscriptFilename,
+  LiveCaptionTranscriptCue,
+  LiveCaptionTranscriptFormat,
+  LiveCaptionTranscriptSnapshot,
+  renderLiveCaptionTranscript
+} from '../../services/LiveCaptionTranscript';
+
+export type {
+  LiveCaptionTranscriptCue,
+  LiveCaptionTranscriptFormat,
+  LiveCaptionTranscriptSnapshot
+} from '../../services/LiveCaptionTranscript';
+
 export interface LiveCaptionTranslatorState {
   isActive: boolean;
   hasCaption: boolean;
   cueCount: number;
   message: string;
-}
-
-export type LiveCaptionTranscriptFormat = 'txt' | 'srt' | 'vtt' | 'json';
-
-export interface LiveCaptionTranscriptCue {
-  id: number;
-  startTimeMs: number;
-  endTimeMs: number;
-  source: string;
-  speaker?: string;
-  originalText: string;
-  translatedText: string;
 }
 
 export interface LiveCaptionTranscriptStatus {
@@ -166,6 +168,9 @@ const LIVE_CAPTION_SELECTORS = [
   '[data-testid*="subtitle"]'
 ];
 
+const MAX_TRANSCRIPT_CUES = 2000;
+const MAX_TRANSLATION_CACHE_ENTRIES = 1000;
+
 export class LiveCaptionTranslator {
   private isActive = false;
   private translateText: TranslateText | null = null;
@@ -178,6 +183,8 @@ export class LiveCaptionTranslator {
   private transcriptCues: LiveCaptionTranscriptCue[] = [];
   private activeTranscriptCue: LiveCaptionTranscriptCue | null = null;
   private sessionStartedAt: number | null = null;
+  private droppedTranscriptCueCount = 0;
+  private translationRunId = 0;
 
   async toggle(
     translateText: TranslateText,
@@ -200,6 +207,7 @@ export class LiveCaptionTranslator {
     translateText: TranslateText,
     createTranslationCacheKey: CreateTranslationCacheKey = text => text
   ): LiveCaptionTranslatorState {
+    this.translationRunId += 1;
     this.isActive = true;
     this.translateText = translateText;
     this.createTranslationCacheKey = createTranslationCacheKey;
@@ -219,6 +227,7 @@ export class LiveCaptionTranslator {
   }
 
   disable(): void {
+    this.translationRunId += 1;
     this.isActive = false;
     this.finalizeActiveTranscriptCue(Date.now());
 
@@ -235,6 +244,7 @@ export class LiveCaptionTranslator {
     this.overlayElement?.remove();
     this.overlayElement = null;
     this.lastCaptionText = '';
+    this.translateText = null;
   }
 
   getStatus(): LiveCaptionTranslatorState {
@@ -258,14 +268,13 @@ export class LiveCaptionTranslator {
   }
 
   exportTranscript(format: LiveCaptionTranscriptFormat = 'txt'): LiveCaptionTranscriptExport {
-    this.updateActiveTranscriptCueEnd(Date.now());
-    const cues = this.transcriptCues.map(cue => ({ ...cue }));
+    const snapshot = this.getTranscriptSnapshot();
 
-    if (cues.length === 0) {
+    if (snapshot.cues.length === 0) {
       return {
         format,
         cueCount: 0,
-        filename: this.createTranscriptFilename(format),
+        filename: createLiveCaptionTranscriptFilename(document.title, format),
         content: '',
         message: 'No live caption transcript to export yet'
       };
@@ -273,10 +282,24 @@ export class LiveCaptionTranslator {
 
     return {
       format,
+      cueCount: snapshot.cues.length,
+      filename: createLiveCaptionTranscriptFilename(document.title, format),
+      content: renderLiveCaptionTranscript(snapshot, format),
+      message: `Exported ${snapshot.cues.length} live caption cues`
+    };
+  }
+
+  getTranscriptSnapshot(): LiveCaptionTranscriptSnapshot {
+    this.updateActiveTranscriptCueEnd(Date.now());
+    const cues = this.transcriptCues.map(cue => ({ ...cue }));
+
+    return {
+      sessionStartedAt: this.sessionStartedAt === null ? null : new Date(this.sessionStartedAt).toISOString(),
+      capturedAt: new Date().toISOString(),
       cueCount: cues.length,
-      filename: this.createTranscriptFilename(format),
-      content: this.renderTranscript(cues, format),
-      message: `Exported ${cues.length} live caption cues`
+      truncated: this.droppedTranscriptCueCount > 0,
+      droppedCueCount: this.droppedTranscriptCueCount,
+      cues
     };
   }
 
@@ -284,6 +307,8 @@ export class LiveCaptionTranslator {
     this.transcriptCues = [];
     this.activeTranscriptCue = null;
     this.sessionStartedAt = null;
+    this.lastCaptionText = '';
+    this.droppedTranscriptCueCount = 0;
 
     return {
       isActive: this.isActive,
@@ -339,6 +364,7 @@ export class LiveCaptionTranslator {
 
     this.lastCaptionText = captionKey;
     const transcriptCue = this.captureOrUpdateTranscriptCue(caption, Date.now());
+    const translationRunId = this.translationRunId;
     this.renderCaption(caption, 'Translating...');
 
     try {
@@ -346,21 +372,35 @@ export class LiveCaptionTranslator {
       let translatedText = this.translationCache.get(cacheKey);
       if (!translatedText) {
         translatedText = await this.translateText(caption.text);
-        this.translationCache.set(cacheKey, translatedText);
+        if (this.isActive && translationRunId === this.translationRunId) {
+          this.cacheTranslation(cacheKey, translatedText);
+        }
       }
 
-      if (transcriptCue.originalText === caption.text) {
+      if (this.isActive && translationRunId === this.translationRunId && transcriptCue.originalText === caption.text) {
         transcriptCue.translatedText = translatedText;
       }
 
-      if (this.isActive && this.lastCaptionText === captionKey) {
+      if (
+        this.isActive
+        && translationRunId === this.translationRunId
+        && this.lastCaptionText === captionKey
+      ) {
         this.renderCaption(caption, translatedText);
       }
     } catch (error) {
-      if (transcriptCue.originalText === caption.text) {
+      if (
+        this.isActive
+        && translationRunId === this.translationRunId
+        && transcriptCue.originalText === caption.text
+      ) {
         transcriptCue.translatedText = '';
       }
-      if (this.isActive && this.lastCaptionText === captionKey) {
+      if (
+        this.isActive
+        && translationRunId === this.translationRunId
+        && this.lastCaptionText === captionKey
+      ) {
         this.renderCaption(caption, 'Live caption translation failed');
       }
     }
@@ -465,6 +505,14 @@ export class LiveCaptionTranslator {
       .trim();
   }
 
+  private cacheTranslation(cacheKey: string, translatedText: string): void {
+    if (!this.translationCache.has(cacheKey) && this.translationCache.size >= MAX_TRANSLATION_CACHE_ENTRIES) {
+      const oldestKey = this.translationCache.keys().next().value as string | undefined;
+      if (oldestKey !== undefined) this.translationCache.delete(oldestKey);
+    }
+    this.translationCache.set(cacheKey, translatedText);
+  }
+
   private formatCaptionForDisplay(caption: LiveCaptionCandidate, translatedText?: string): string {
     const text = translatedText || caption.text;
     return caption.speaker ? `${caption.speaker}: ${text}` : text;
@@ -496,6 +544,11 @@ export class LiveCaptionTranslator {
     if (caption.speaker) cue.speaker = caption.speaker;
 
     this.transcriptCues.push(cue);
+    if (this.transcriptCues.length > MAX_TRANSCRIPT_CUES) {
+      const removed = this.transcriptCues.shift();
+      if (removed === this.activeTranscriptCue) this.activeTranscriptCue = null;
+      this.droppedTranscriptCueCount += removed ? 1 : 0;
+    }
     this.activeTranscriptCue = cue;
     return cue;
   }
@@ -538,69 +591,6 @@ export class LiveCaptionTranslator {
       this.activeTranscriptCue.startTimeMs + 1,
       capturedAt - this.sessionStartedAt
     );
-  }
-
-  private renderTranscript(cues: LiveCaptionTranscriptCue[], format: LiveCaptionTranscriptFormat): string {
-    if (format === 'json') {
-      return JSON.stringify({
-        sessionStartedAt: this.sessionStartedAt === null ? null : new Date(this.sessionStartedAt).toISOString(),
-        exportedAt: new Date().toISOString(),
-        cueCount: cues.length,
-        cues
-      }, null, 2);
-    }
-
-    if (format === 'srt' || format === 'vtt') {
-      const cueText = cues.map((cue, index) => [
-        format === 'srt' ? String(index + 1) : undefined,
-        `${this.formatTranscriptTime(cue.startTimeMs, format)} --> ${this.formatTranscriptTime(cue.endTimeMs, format)}`,
-        this.formatTranscriptSpeakerLine(cue.speaker, cue.originalText),
-        cue.translatedText ? this.formatTranscriptSpeakerLine(cue.speaker, cue.translatedText) : undefined
-      ].filter(Boolean).join('\n')).join('\n\n');
-
-      return format === 'vtt' ? `WEBVTT\n\n${cueText}\n` : `${cueText}\n`;
-    }
-
-    const header = [
-      'LexiBridge live caption transcript',
-      `Started: ${this.sessionStartedAt === null ? 'Unknown' : new Date(this.sessionStartedAt).toISOString()}`,
-      `Cues: ${cues.length}`
-    ].join('\n');
-    const cueText = cues.map(cue => [
-      `[${this.formatTranscriptTime(cue.startTimeMs, 'vtt')}] ${cue.speaker || 'Unknown speaker'} (${cue.source})`,
-      `Original: ${cue.originalText}`,
-      cue.translatedText ? `Translation: ${cue.translatedText}` : 'Translation: unavailable'
-    ].join('\n')).join('\n\n');
-
-    return `${header}\n\n${cueText}\n`;
-  }
-
-  private formatTranscriptSpeakerLine(speaker: string | undefined, text: string): string {
-    return speaker ? `${speaker}: ${text}` : text;
-  }
-
-  private formatTranscriptTime(timeMs: number, format: 'srt' | 'vtt'): string {
-    const safeTimeMs = Math.max(0, Math.round(timeMs));
-    const hours = Math.floor(safeTimeMs / 3600000);
-    const minutes = Math.floor((safeTimeMs % 3600000) / 60000);
-    const seconds = Math.floor((safeTimeMs % 60000) / 1000);
-    const milliseconds = safeTimeMs % 1000;
-    const separator = format === 'srt' ? ',' : '.';
-
-    return [hours, minutes, seconds]
-      .map(value => String(value).padStart(2, '0'))
-      .join(':') + `${separator}${String(milliseconds).padStart(3, '0')}`;
-  }
-
-  private createTranscriptFilename(format: LiveCaptionTranscriptFormat): string {
-    const baseName = (document.title || 'meeting')
-      .replace(/[\\/:*?"<>|]+/g, '-')
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 80) || 'meeting';
-
-    return `${baseName}-lexibridge-live-captions.${format}`;
   }
 
   private escapeRegExp(text: string): string {

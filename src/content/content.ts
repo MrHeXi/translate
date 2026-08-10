@@ -15,6 +15,7 @@ import {
 import {
   LiveCaptionTranscriptExport,
   LiveCaptionTranscriptFormat,
+  LiveCaptionTranscriptSnapshot,
   LiveCaptionTranscriptStatus,
   LiveCaptionTranslator
 } from './components/LiveCaptionTranslator';
@@ -223,6 +224,9 @@ class ContentScript {
       'getLiveCaptionTranscriptStatus': async () => {
         return { success: true, data: this.getLiveCaptionTranscriptStatus() };
       },
+      'getLiveCaptionTranscriptSnapshot': async () => {
+        return { success: true, data: this.getLiveCaptionTranscriptSnapshot() };
+      },
       'exportLiveCaptionTranscript': async (request) => {
         return { success: true, data: this.exportLiveCaptionTranscript(request.data?.format) };
       },
@@ -393,6 +397,25 @@ class ContentScript {
 
   private getLiveCaptionTranscriptStatus(): LiveCaptionTranscriptStatus {
     return this.liveCaptionTranslator.getTranscriptStatus();
+  }
+
+  private getLiveCaptionTranscriptSnapshot(): LiveCaptionTranscriptSnapshot & {
+    sourceUrl: string;
+    sourceTitle: string;
+    sourceHost: string;
+    message: string;
+  } {
+    const snapshot = this.liveCaptionTranslator.getTranscriptSnapshot();
+
+    return {
+      ...snapshot,
+      sourceUrl: window.location.href,
+      sourceTitle: document.title.trim() || window.location.hostname || 'Untitled page',
+      sourceHost: window.location.hostname,
+      message: snapshot.cueCount > 0
+        ? `${snapshot.cueCount} live caption cues ready to save`
+        : 'No live caption transcript to save yet'
+    };
   }
 
   private exportLiveCaptionTranscript(format: unknown): LiveCaptionTranscriptExport {

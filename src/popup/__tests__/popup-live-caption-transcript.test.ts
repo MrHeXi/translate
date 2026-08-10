@@ -20,6 +20,8 @@ const setupPopupDom = (): void => {
     </select>
     <button id="exportLiveCaptionTranscript" disabled></button>
     <button id="clearLiveCaptionTranscript" disabled></button>
+    <button id="saveLiveCaptionTranscript" disabled></button>
+    <button id="openLiveCaptionHistory"></button>
     <span id="liveCaptionTranscriptStatus"></span>
     <button id="toggleImageTranslation"></button>
     <button id="translateVisibleImages" disabled></button>
@@ -111,6 +113,43 @@ describe('popup live caption transcript', () => {
         return;
       }
 
+      if (message.action === 'getLiveCaptionTranscriptSnapshot') {
+        callback({
+          success: true,
+          data: {
+            sessionStartedAt: '2026-07-16T08:00:00.000Z',
+            capturedAt: '2026-07-16T08:10:00.000Z',
+            cueCount: 2,
+            truncated: false,
+            droppedCueCount: 0,
+            sourceUrl: 'https://meet.example.com/room?token=secret',
+            sourceTitle: 'Weekly sync',
+            sourceHost: 'meet.example.com',
+            cues: [
+              {
+                id: 1,
+                startTimeMs: 0,
+                endTimeMs: 1500,
+                source: 'Google Meet',
+                speaker: 'Mina',
+                originalText: 'Hello',
+                translatedText: 'Hello translated'
+              },
+              {
+                id: 2,
+                startTimeMs: 1600,
+                endTimeMs: 3000,
+                source: 'Google Meet',
+                speaker: 'Mina',
+                originalText: 'Next item',
+                translatedText: 'Next item translated'
+              }
+            ]
+          }
+        });
+        return;
+      }
+
       if (message.action === 'clearLiveCaptionTranscript') {
         callback({
           success: true,
@@ -176,10 +215,42 @@ describe('popup live caption transcript', () => {
     const format = document.getElementById('liveCaptionExportFormat') as HTMLSelectElement;
     const exportButton = document.getElementById('exportLiveCaptionTranscript') as HTMLButtonElement;
     const clearButton = document.getElementById('clearLiveCaptionTranscript') as HTMLButtonElement;
+    const saveButton = document.getElementById('saveLiveCaptionTranscript') as HTMLButtonElement;
+    const historyButton = document.getElementById('openLiveCaptionHistory') as HTMLButtonElement;
 
     expect(document.getElementById('liveCaptionTranscriptStatus')?.textContent).toBe('2 cues captured');
     expect(exportButton.disabled).toBe(false);
     expect(clearButton.disabled).toBe(false);
+    expect(saveButton.disabled).toBe(false);
+    expect((chrome.runtime.sendMessage as jest.Mock).mock.calls.some(([message]) => (
+      message.action === 'saveLiveCaptionTranscriptHistory'
+    ))).toBe(false);
+
+    saveButton.click();
+    await flushPromises();
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      11,
+      { action: 'getLiveCaptionTranscriptSnapshot' },
+      expect.any(Function)
+    );
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'saveLiveCaptionTranscriptHistory',
+        data: expect.objectContaining({
+          sourceTabId: 11,
+          entry: expect.objectContaining({ cueCount: 2, sourceTitle: 'Weekly sync' })
+        })
+      }),
+      expect.any(Function)
+    );
+    expect(document.getElementById('liveCaptionTranscriptStatus')?.textContent)
+      .toBe('Saved 2 live caption cues to history');
+
+    historyButton.click();
+    expect(chrome.tabs.create).toHaveBeenCalledWith({
+      url: 'chrome-extension://test/live-caption-history.html'
+    });
 
     format.value = 'srt';
     exportButton.click();
@@ -202,5 +273,6 @@ describe('popup live caption transcript', () => {
     expect(document.getElementById('liveCaptionTranscriptStatus')?.textContent).toBe('Live caption transcript cleared');
     expect(exportButton.disabled).toBe(true);
     expect(clearButton.disabled).toBe(true);
+    expect(saveButton.disabled).toBe(true);
   });
 });

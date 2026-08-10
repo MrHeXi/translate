@@ -432,13 +432,13 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('72 test suites and 719 tests');
-    expect(releaseNotes).toContain('17,822,821');
-    expect(releaseNotes).toContain('F7EF12411D29A3678EA58558E418B3E1B9C16359B5152BD8764D442B15E6BAA9');
-    expect(releaseNotes).toContain('17,822,996');
-    expect(releaseNotes).toContain('8707627781BA5B22C98A6913F4793A98426BE6B494EB55B86D99CC48CF4BFC5F');
-    expect(releaseNotes).toContain('12E8B278C0C429C716897735D72B768592947932DF8006E81701D3FC30132612');
-    expect(releaseNotes).toContain('AB373BA71CF1170554562E05E41DD5CF92063B6A64EE81C9F8713AAE9705C4D2');
+    expect(releaseNotes).toContain('74 test suites and 737 tests');
+    expect(releaseNotes).toContain('17,832,610');
+    expect(releaseNotes).toContain('D3099375DDD6B08CBB0C73D4BA59BB18C0892DF7D10F33568942FE4F42CD2CFA');
+    expect(releaseNotes).toContain('17,832,784');
+    expect(releaseNotes).toContain('5413AD8CEE93905D2D53CE976AB0A8C66D15396A41A1AB0A7C42DE1EE966C23A');
+    expect(releaseNotes).toContain('981A9419BDFE02CBEB0839477F255A805BDC4F4433250B0ECF7ABDD36AD982D3');
+    expect(releaseNotes).toContain('6EA81F8B3FF1FE5F6E757148FDBFA0D66D80E9AE27B85DD65ADAC355C5D9F8F6');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('firefox-translation-extension.zip');
     expect(releaseNotes).toContain('`npm run package`: passed');
@@ -453,6 +453,7 @@ describe('product packaging contract', () => {
     expect(releaseNotes).toContain('selecting files never starts translation');
     expect(releaseNotes).toContain('Structure-preserving SRT/VTT batch translation');
     expect(releaseNotes).toContain('Explicit versioned document history in local Chrome storage');
+    expect(releaseNotes).toContain('Explicit live-caption transcript Save');
     expect(releaseNotes).toContain('language prefixes such as `/en`, `/zh`, and `/zh-CN`');
     expect(releaseNotes).toContain('YouTube Adapter v1');
     expect(releaseNotes).toContain('Contextual YouTube subtitle-generation entry points');
@@ -696,6 +697,8 @@ describe('product packaging contract', () => {
     expect(sidePanelHtml).toContain('id="useResultAsInput"');
     expect(webpackConfig).toContain("subtitles: './src/subtitles/subtitles.ts'");
     expect(webpackConfig).toContain("from: 'src/subtitles/subtitles.html'");
+    expect(webpackConfig).toContain("'live-caption-history': './src/options/live-caption-history.ts'");
+    expect(webpackConfig).toContain("from: 'src/options/live-caption-history.html'");
     const subtitlesHtml = readProjectFile('src/subtitles/subtitles.html');
     const subtitlesScript = readProjectFile('src/subtitles/subtitles.ts');
     const subtitlesStyles = readProjectFile('src/subtitles/subtitles.css');
@@ -733,5 +736,20 @@ describe('product packaging contract', () => {
     expect(readProjectFile('src/popup/popup.html')).toContain('id="openSubtitleGenerator"');
     expect(readProjectFile('src/popup/popup.html')).toContain('id="videoSubtitleContextStatus"');
     expect(readProjectFile('src/popup/popup.html')).toContain('id="openSidePanelBtn"');
+    expect(readProjectFile('src/popup/popup.html')).toContain('id="saveLiveCaptionTranscript"');
+    expect(readProjectFile('src/popup/popup.html')).toContain('id="openLiveCaptionHistory"');
+    const liveCaptionHistoryHtml = readProjectFile('src/options/live-caption-history.html');
+    const liveCaptionHistoryScript = readProjectFile('src/options/live-caption-history.ts');
+    const liveCaptionHistoryService = readProjectFile('src/services/LiveCaptionHistoryService.ts');
+    expect(liveCaptionHistoryHtml).toContain('id="liveCaptionHistoryList"');
+    expect(liveCaptionHistoryHtml).toContain('id="liveCaptionHistoryRetention"');
+    expect(liveCaptionHistoryHtml).toContain('id="clearLiveCaptionHistory"');
+    expect(liveCaptionHistoryHtml).toContain('id="exportLiveCaptionHistory"');
+    expect(liveCaptionHistoryScript).toContain("action: 'getLiveCaptionHistory'");
+    expect(liveCaptionHistoryScript).toContain("action: 'deleteLiveCaptionHistory'");
+    expect(liveCaptionHistoryScript).not.toContain("action: 'translate'");
+    expect(liveCaptionHistoryService).toContain("LIVE_CAPTION_HISTORY_STORAGE_KEY = 'liveCaptionHistory'");
+    expect(liveCaptionHistoryService).toContain('chrome.storage.local');
+    expect(liveCaptionHistoryService).toContain('LIVE_CAPTION_HISTORY_ENTRY_MAX_BYTES');
   });
 });

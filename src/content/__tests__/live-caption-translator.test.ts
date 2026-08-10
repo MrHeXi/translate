@@ -193,6 +193,78 @@ describe('LiveCaptionTranslator', () => {
     expect(translator.getStatus().isActive).toBe(true);
   });
 
+  it('captures the unchanged visible caption again after an explicit clear', async () => {
+    document.body.innerHTML = '<div aria-live="polite">Caption remains visible.</div>';
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    translator.enable(translateText);
+    await flushPromises();
+    translator.clearTranscript();
+    await (translator as any).handleCaptionChange();
+    await flushPromises();
+
+    expect(translator.getTranscriptStatus().cueCount).toBe(1);
+    expect(translateText).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not commit a pending translation after Stop', async () => {
+    document.body.innerHTML = '<div aria-live="polite">Pending caption.</div>';
+    let resolveTranslation!: (value: string) => void;
+    const pendingTranslation = new Promise<string>(resolve => {
+      resolveTranslation = resolve;
+    });
+    const translateText = jest.fn(() => pendingTranslation);
+
+    translator.enable(translateText);
+    await flushPromises();
+    translator.disable();
+    resolveTranslation('Late translation');
+    await flushPromises();
+
+    const exported = JSON.parse(translator.exportTranscript('json').content);
+    expect(exported.cues[0].translatedText).toBe('');
+    expect(document.getElementById('lexibridge-live-caption-overlay')).toBeNull();
+  });
+
+  it('bounds in-memory transcript cues and reports omitted history', () => {
+    const internal = translator as any;
+    internal.sessionStartedAt = 0;
+    internal.transcriptCues = Array.from({ length: 2000 }, (_, index) => ({
+      id: index + 1,
+      startTimeMs: index,
+      endTimeMs: index + 1,
+      source: 'Google Meet',
+      originalText: `Cue ${index + 1}`,
+      translatedText: ''
+    }));
+
+    internal.captureOrUpdateTranscriptCue({
+      text: 'Newest cue',
+      source: 'Google Meet',
+      priority: 100
+    }, 3000);
+
+    const snapshot = translator.getTranscriptSnapshot();
+    expect(snapshot.cueCount).toBe(2000);
+    expect(snapshot.cues[0].id).toBe(2);
+    expect(snapshot.cues.at(-1)?.originalText).toBe('Newest cue');
+    expect(snapshot.truncated).toBe(true);
+    expect(snapshot.droppedCueCount).toBe(1);
+  });
+
+  it('bounds the live-caption translation cache', () => {
+    const internal = translator as any;
+    internal.translationCache = new Map(
+      Array.from({ length: 1000 }, (_, index) => [`key-${index}`, `value-${index}`])
+    );
+
+    internal.cacheTranslation('new-key', 'new-value');
+
+    expect(internal.translationCache.size).toBe(1000);
+    expect(internal.translationCache.has('key-0')).toBe(false);
+    expect(internal.translationCache.get('new-key')).toBe('new-value');
+  });
+
   it('updates the overlay when live caption text changes', async () => {
     document.body.innerHTML = '<div id="caption" aria-live="polite">First caption line.</div>';
     const caption = document.getElementById('caption') as HTMLElement;

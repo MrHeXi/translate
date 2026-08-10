@@ -67,6 +67,7 @@ class PopupController {
   private isExportingVideoSubtitles: boolean = false;
   private isExportingLiveCaptionTranscript: boolean = false;
   private isClearingLiveCaptionTranscript: boolean = false;
+  private isSavingLiveCaptionTranscript: boolean = false;
   private activeVideoSiteContext: VideoSiteContext | null = null;
   private videoSubtitleSiteStatus: PopupVideoSubtitleStatus | null = null;
   private contentScriptInjectionPromises: Map<number, Promise<void>> = new Map();
@@ -111,6 +112,12 @@ class PopupController {
 
     const clearLiveCaptionTranscript = document.getElementById('clearLiveCaptionTranscript') as HTMLButtonElement;
     clearLiveCaptionTranscript?.addEventListener('click', () => this.clearLiveCaptionTranscript());
+
+    const saveLiveCaptionTranscript = document.getElementById('saveLiveCaptionTranscript') as HTMLButtonElement;
+    saveLiveCaptionTranscript?.addEventListener('click', () => this.saveLiveCaptionTranscript());
+
+    const openLiveCaptionHistory = document.getElementById('openLiveCaptionHistory') as HTMLButtonElement;
+    openLiveCaptionHistory?.addEventListener('click', () => this.openLiveCaptionHistory());
 
     const openSubtitleGenerator = document.getElementById('openSubtitleGenerator') as HTMLButtonElement;
     openSubtitleGenerator?.addEventListener('click', () => void this.openSubtitleGenerator());
@@ -426,6 +433,59 @@ class PopupController {
     } finally {
       this.setLiveCaptionTranscriptClearBusy(false);
     }
+  }
+
+  private async saveLiveCaptionTranscript(): Promise<void> {
+    if (this.isSavingLiveCaptionTranscript) return;
+
+    this.setLiveCaptionTranscriptSaveBusy(true);
+
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) {
+        this.showError('No active page found.');
+        return;
+      }
+
+      const snapshotResponse = await this.sendMessageToTabWithInjection(tab, {
+        action: 'getLiveCaptionTranscriptSnapshot'
+      });
+      const snapshot = snapshotResponse?.data || snapshotResponse;
+      if (!snapshotResponse?.success || !snapshot || typeof snapshot.cueCount !== 'number' || snapshot.cueCount <= 0) {
+        this.liveCaptionCueCount = typeof snapshot?.cueCount === 'number' ? snapshot.cueCount : 0;
+        this.updateLiveCaptionTranscriptUI(snapshot?.message);
+        this.showError(snapshot?.message || snapshotResponse?.error || 'No live caption transcript to save yet.');
+        return;
+      }
+
+      const response = await this.sendMessage({
+        action: 'saveLiveCaptionTranscriptHistory',
+        data: { entry: snapshot, sourceTabId: tab.id }
+      });
+      if (!response?.success) {
+        this.showError(response?.error || 'Could not save live caption transcript.');
+        return;
+      }
+
+      const entry = response.data;
+      this.liveCaptionCueCount = typeof entry?.cueCount === 'number' ? entry.cueCount : snapshot.cueCount;
+      const omittedCueCount = typeof snapshot.droppedCueCount === 'number'
+        ? Math.max(0, snapshot.droppedCueCount)
+        : 0;
+      const savedMessage = `Saved ${this.liveCaptionCueCount} live caption ${this.liveCaptionCueCount === 1 ? 'cue' : 'cues'} to history`;
+      this.updateLiveCaptionTranscriptUI(omittedCueCount > 0
+        ? `${savedMessage}; ${omittedCueCount} oldest ${omittedCueCount === 1 ? 'cue was' : 'cues were'} omitted by the session limit`
+        : savedMessage);
+    } catch (error) {
+      console.error('Could not save live caption transcript:', error);
+      this.showError(error instanceof Error ? error.message : 'Could not save live caption transcript.');
+    } finally {
+      this.setLiveCaptionTranscriptSaveBusy(false);
+    }
+  }
+
+  private openLiveCaptionHistory(): void {
+    chrome.tabs.create({ url: chrome.runtime.getURL('live-caption-history.html') });
   }
 
   private async toggleImageTranslationMode(): Promise<void> {
@@ -943,6 +1003,7 @@ class PopupController {
     const status = document.getElementById('liveCaptionTranscriptStatus');
     const exportButton = document.getElementById('exportLiveCaptionTranscript') as HTMLButtonElement;
     const clearButton = document.getElementById('clearLiveCaptionTranscript') as HTMLButtonElement;
+    const saveButton = document.getElementById('saveLiveCaptionTranscript') as HTMLButtonElement;
 
     if (status) {
       status.textContent = message || (this.liveCaptionCueCount > 0
@@ -956,6 +1017,10 @@ class PopupController {
 
     if (clearButton) {
       clearButton.disabled = this.isClearingLiveCaptionTranscript || this.liveCaptionCueCount === 0;
+    }
+
+    if (saveButton) {
+      saveButton.disabled = this.isSavingLiveCaptionTranscript || this.liveCaptionCueCount === 0;
     }
   }
 
@@ -1437,6 +1502,16 @@ class PopupController {
     if (button) {
       button.disabled = isBusy || this.liveCaptionCueCount === 0;
       button.textContent = isBusy ? 'Clearing...' : 'Clear';
+    }
+  }
+
+  private setLiveCaptionTranscriptSaveBusy(isBusy: boolean): void {
+    this.isSavingLiveCaptionTranscript = isBusy;
+
+    const button = document.getElementById('saveLiveCaptionTranscript') as HTMLButtonElement;
+    if (button) {
+      button.disabled = isBusy || this.liveCaptionCueCount === 0;
+      button.textContent = isBusy ? 'Saving...' : 'Save';
     }
   }
 

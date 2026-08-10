@@ -16,7 +16,7 @@ It is best for:
 - Translating video captions when the page exposes subtitle/caption tracks or common DOM-rendered captions.
 - Generating timed subtitles from a user-selected local audio or video file through a configured OpenAI or Groq transcription service.
 - Capturing audio from the source tab in Chrome only after an explicit click, then generating subtitles after the user stops capture. Firefox keeps local-media subtitle generation but disables unsupported current-tab capture.
-- Translating and locally exporting live caption text that is already visible in a page.
+- Translating live caption text already visible in a page, with explicit local export and bounded cross-session history.
 - Translating text from selected or currently visible images, SVGs, and canvases with browser OCR or the bundled offline OCR fallback.
 - Collecting useful words from real context.
 - Reviewing CET4, CET6, GRE, IELTS, TOEFL vocabulary.
@@ -121,8 +121,9 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Translate caption text that is already present in the page DOM, such as browser or meeting-page live captions.
 - Preserve common meeting speaker labels while translating Google Meet, Zoom, Microsoft Teams, and Webex-style caption containers.
 - Capture timestamped bilingual cues only while Live captions is enabled, coalescing incremental word-by-word caption updates.
-- Export the current tab's in-memory transcript as TXT, SRT, VTT, or structured JSON, and clear it explicitly from the popup.
-- Keep transcript capture local to the current page session without recording audio, joining calls, or transcribing speech.
+- Export the current tab's in-memory transcript as TXT, SRT, VTT, or structured JSON, save it explicitly to bounded local history, or clear it from the popup.
+- Browse saved sessions newest-first, preview bilingual cues, export TXT/SRT/VTT/JSON, delete individual sessions, clear all, and retain 10, 25, or 50 sessions without provider requests.
+- Keep transcript capture local without recording audio, joining calls, or transcribing speech; page load, Stop, popup close, and page close never save automatically.
 - Broader site-specific meeting adapters remain planned for later batches.
 
 ### Image Text Translation
@@ -346,8 +347,8 @@ In Main content scope, LexiBridge prefers semantic `article`, `main`, and `[role
 1. Open a page that is already showing live captions.
 2. Open the extension popup.
 3. Click Start in Live captions.
-4. Reopen the popup to export captured bilingual cues as TXT, SRT, VTT, or JSON, or clear the current tab's transcript.
-5. Click Stop to remove the overlay and stop capturing new cues; already captured cues remain available until cleared or the page closes.
+4. Reopen the popup to export, explicitly save, or clear the current tab's bilingual transcript. History opens the local transcript library.
+5. Click Stop to remove the overlay and stop capturing new cues; already captured cues remain available until cleared or the page closes, and are persisted only after Save.
 
 ### Translate Image Text
 
