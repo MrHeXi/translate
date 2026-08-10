@@ -1,6 +1,6 @@
 # LexiBridge Translate Release Checklist
 
-Use this checklist before creating a public package or submitting to Chrome Web Store.
+Use this checklist before creating a public package or submitting to Chrome Web Store or Firefox Add-ons.
 
 ## Version
 
@@ -13,9 +13,10 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Run `npm run type-check`.
 - [ ] Run `npm run lint`.
 - [ ] Run `npm test -- --runInBand --silent`.
-- [ ] Run `npm run build`.
-- [ ] Run `npm run verify:package` and confirm the runtime source fingerprint matches `dist/build-meta.json`.
-- [ ] Regenerate `chrome-translation-extension.zip` from `dist`.
+- [ ] Run `npm run build:all`.
+- [ ] Run `npm run verify:package` and confirm target, manifest, source, and payload fingerprints match both `dist/build-meta.json` and `dist-firefox/build-meta.json`.
+- [ ] Run `npm run lint:firefox`; require zero errors and review every warning before AMO submission.
+- [ ] Run `npm run package` and confirm it regenerates both deterministic browser ZIPs.
 
 ## Chrome Web Store Listing
 
@@ -128,10 +129,22 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 - [ ] Confirm review page can load due or new words.
 - [ ] Confirm export and import controls are reachable.
 
+## Firefox Desktop Smoke Test
+
+- [ ] Load `dist-firefox/manifest.json` as a temporary add-on in Firefox 140 or newer.
+- [ ] Confirm installation does not open the sidebar and page translation remains off on page load.
+- [ ] Open the native Firefox sidebar from the popup and `Alt+S`; confirm opening it sends no translation request.
+- [ ] Confirm page Start/Stop, selection translation, input translation, documents, local image OCR, vocabulary, and review use explicit user actions.
+- [ ] Open the subtitle generator; confirm current-tab capture is disabled with a local-media alternative and selecting a file still starts no upload or transcription.
+- [ ] Confirm `web-ext lint` reports zero errors; triage its dependency/API/static-analysis warnings before AMO signing.
+
 ## Package
 
 - [ ] Confirm `chrome-translation-extension.zip` exists.
+- [ ] Confirm `firefox-translation-extension.zip` exists.
 - [ ] Confirm `dist/manifest.json` contains release metadata.
+- [ ] Confirm `dist-firefox/manifest.json` contains the Firefox background, sidebar, Gecko ID, and data-consent metadata without `sidePanel` or `tabCapture`.
+- [ ] Confirm both ZIPs contain exactly their target build files, use forward-slash paths, and reproduce byte-for-byte from identical inputs.
 - [ ] Confirm `dist/data/vocabularies` contains CET4, CET6, GRE, IELTS, and TOEFL files.
 - [ ] Confirm `dist/pdfjs` contains the PDF.js worker, character maps, and standard fonts.
 - [ ] Keep generated package out of git unless a release process explicitly requires attaching it.

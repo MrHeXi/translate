@@ -19,6 +19,7 @@ import {
   updateGeneratedSubtitleCue
 } from '../services/GeneratedSubtitleDocument';
 import { createTranslationRequestNamespace } from '../services/TranslationRequestId';
+import { isTabAudioCaptureSupported } from '../services/TabAudioCaptureService';
 
 interface SubtitleGeneratorSettings {
   defaultTargetLanguage?: string;
@@ -82,6 +83,7 @@ class SubtitleGeneratorController {
   private tabCaptureShouldGenerate = false;
   private tabCaptureLimitExceeded = false;
   private tabCaptureFailureMessage: string | null = null;
+  private readonly tabCaptureSupported = isTabAudioCaptureSupported();
 
   constructor() {
     void this.initialize();
@@ -370,6 +372,13 @@ class SubtitleGeneratorController {
 
   private async startTabCapture(): Promise<void> {
     if (this.isWorking || this.tabCapturePhase !== 'idle') return;
+    if (!this.tabCaptureSupported) {
+      this.showStatus(
+        'Current-tab audio capture is not supported in this browser. Choose a local media file instead.',
+        true
+      );
+      return;
+    }
     if (!this.sourceTabId) {
       this.showStatus('Open this generator from the popup on a regular media page.', true);
       return;
@@ -607,16 +616,21 @@ class SubtitleGeneratorController {
         recording: 'Stop and generate',
         stopping: 'Stopping capture'
       };
-      this.tabCaptureButton.textContent = labels[phase];
-      this.tabCaptureButton.disabled = this.isWorking
+      this.tabCaptureButton.textContent = this.tabCaptureSupported
+        ? labels[phase]
+        : 'Current-tab capture unavailable';
+      this.tabCaptureButton.disabled = !this.tabCaptureSupported
+        || this.isWorking
         || !this.sourceTabId
         || !this.transcriptionProvider?.value
         || phase === 'starting'
         || phase === 'stopping';
       this.tabCaptureButton.classList.toggle('recording', phase === 'recording');
-      this.tabCaptureButton.title = this.sourceTabId
-        ? 'Capture audio from the page that opened this generator'
-        : 'Open this generator from the popup on a regular media page';
+      this.tabCaptureButton.title = !this.tabCaptureSupported
+        ? 'Current-tab audio capture is unavailable in this browser. Choose a local media file instead.'
+        : this.sourceTabId
+          ? 'Capture audio from the page that opened this generator'
+          : 'Open this generator from the popup on a regular media page';
     }
     if (this.cancelTabCaptureButton) {
       this.cancelTabCaptureButton.hidden = phase !== 'starting' && phase !== 'recording';

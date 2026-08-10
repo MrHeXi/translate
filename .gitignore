@@ -1,4 +1,6 @@
 node_modules
 dist
+dist-firefox
 chrome-translation-extension.zip
+firefox-translation-extension.zip
 .tmp

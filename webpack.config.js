@@ -1,15 +1,23 @@
 const path = require('path');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
-const { calculateBuildInputDigest } = require('./scripts/build-integrity');
+const packageJson = require('./package.json');
+const {
+  calculateBuildInputDigest,
+  calculateManifestDigest,
+  calculateNamedEntryDigest,
+  getBuildTarget,
+  normalizeBuildTarget
+} = require('./scripts/build-integrity');
 const pdfjsRoot = path.dirname(require.resolve('pdfjs-dist/package.json'));
 const tesseractRoot = path.dirname(require.resolve('tesseract.js/package.json'));
 const tesseractCoreRoot = path.dirname(require.resolve('tesseract.js-core/package.json'));
 const ocrLanguagePackages = ['eng', 'chi_sim', 'chi_tra', 'jpn', 'kor'];
 
 class BuildIntegrityPlugin {
-  constructor(mode) {
+  constructor({ mode, target }) {
     this.mode = mode;
+    this.target = target;
   }
 
   apply(compiler) {
@@ -17,13 +25,23 @@ class BuildIntegrityPlugin {
       compilation.hooks.processAssets.tap(
         {
           name: 'BuildIntegrityPlugin',
-          stage: compiler.webpack.Compilation.PROCESS_ASSETS_STAGE_ADDITIONAL
+          stage: compiler.webpack.Compilation.PROCESS_ASSETS_STAGE_REPORT
         },
         () => {
+          const payloadEntries = compilation.getAssets()
+            .filter(asset => asset.name !== 'build-meta.json')
+            .map(asset => ({
+              name: asset.name,
+              contents: asset.source.buffer()
+            }));
           const metadata = {
-            schemaVersion: 1,
+            schemaVersion: 2,
+            target: this.target,
             mode: this.mode,
-            sourceSha256: calculateBuildInputDigest(__dirname)
+            version: packageJson.version,
+            sourceSha256: calculateBuildInputDigest(__dirname, this.target),
+            manifestSha256: calculateManifestDigest(__dirname, this.target),
+            payloadTreeSha256: calculateNamedEntryDigest(payloadEntries)
           };
           compilation.emitAsset(
             'build-meta.json',
@@ -35,8 +53,10 @@ class BuildIntegrityPlugin {
   }
 }
 
-module.exports = (env, argv) => {
+module.exports = (env = {}, argv = {}) => {
   const isProduction = argv.mode === 'production';
+  const buildTarget = normalizeBuildTarget(env.target || 'chrome');
+  const targetConfiguration = getBuildTarget(buildTarget);
 
   return {
     entry: {
@@ -54,7 +74,7 @@ module.exports = (env, argv) => {
     },
     
     output: {
-      path: path.resolve(__dirname, 'dist'),
+      path: path.resolve(__dirname, targetConfiguration.outputDirectory),
       filename: '[name].js',
       clean: true,
       // Service Worker 兼容性设置
@@ -65,7 +85,17 @@ module.exports = (env, argv) => {
       rules: [
         {
           test: /\.ts$/,
-          use: 'ts-loader',
+          use: {
+            loader: 'ts-loader',
+            options: {
+              onlyCompileBundledFiles: true,
+              compilerOptions: {
+                declaration: false,
+                declarationMap: false,
+                sourceMap: !isProduction
+              }
+            }
+          },
           exclude: /node_modules/
         },
         {
@@ -87,7 +117,10 @@ module.exports = (env, argv) => {
     },
     
     plugins: [
-      new BuildIntegrityPlugin(isProduction ? 'production' : 'development'),
+      new BuildIntegrityPlugin({
+        mode: isProduction ? 'production' : 'development',
+        target: buildTarget
+      }),
       new MiniCssExtractPlugin({
         filename: '[name].css'
       }),
@@ -95,7 +128,7 @@ module.exports = (env, argv) => {
       new CopyWebpackPlugin({
         patterns: [
           {
-            from: 'manifest.json',
+            from: targetConfiguration.manifest,
             to: 'manifest.json'
           },
           {

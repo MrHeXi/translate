@@ -56,6 +56,7 @@ interface MessageResponse {
 
 const CANCELLABLE_REQUEST_ID_PATTERN = /^[A-Za-z0-9:_-]{1,128}$/;
 const TRANSLATE_IMAGE_CONTEXT_MENU_ID = 'lexibridge-translate-image';
+const CACHE_CLEANUP_ALARM_NAME = 'lexibridge-clean-expired-caches';
 
 class BackgroundService {
   private translationService: TranslationService;
@@ -719,10 +720,17 @@ class BackgroundService {
       throttleDelay: 200
     });
 
-    // 定期清理过期缓存
-    setInterval(() => {
-      this.cleanupExpiredCaches();
-    }, 60 * 60 * 1000); // 每小时清理一次
+    // Background pages can be suspended between events, so recurring work must
+    // use the extension alarm API instead of an in-memory interval.
+    chrome.alarms?.onAlarm?.addListener(alarm => {
+      if (alarm.name === CACHE_CLEANUP_ALARM_NAME) {
+        void this.cleanupExpiredCaches();
+      }
+    });
+    chrome.alarms?.create?.(CACHE_CLEANUP_ALARM_NAME, {
+      delayInMinutes: 60,
+      periodInMinutes: 60
+    });
 
     // 监听内存警告
     chrome.runtime.onMessage.addListener((request) => {

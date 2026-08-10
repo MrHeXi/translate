@@ -3,6 +3,22 @@ export interface TabAudioCaptureStreamRequest {
   consumerTabId: number;
 }
 
+interface TabCaptureApi {
+  getMediaStreamId(
+    options: chrome.tabCapture.GetMediaStreamOptions,
+    callback: (streamId: string) => void
+  ): void;
+}
+
+const getTabCaptureApi = (): TabCaptureApi | null => {
+  const tabCapture = (chrome as unknown as { tabCapture?: Partial<TabCaptureApi> }).tabCapture;
+  return typeof tabCapture?.getMediaStreamId === 'function'
+    ? tabCapture as TabCaptureApi
+    : null;
+};
+
+export const isTabAudioCaptureSupported = (): boolean => getTabCaptureApi() !== null;
+
 export const isTabAudioCaptureUrl = (url: string | undefined): boolean => (
   typeof url === 'string' && /^(https?:|file:)/i.test(url)
 );
@@ -25,6 +41,13 @@ export const isTrustedTabAudioCaptureSender = (
 
 export class TabAudioCaptureService {
   async createStreamId(request: TabAudioCaptureStreamRequest): Promise<string> {
+    const tabCapture = getTabCaptureApi();
+    if (!tabCapture) {
+      throw new Error(
+        'Current-tab audio capture is not supported in this browser. Choose a local media file instead.'
+      );
+    }
+
     const { targetTabId, consumerTabId } = request;
     if (!Number.isInteger(targetTabId) || targetTabId <= 0) {
       throw new Error('Open the subtitle generator from a regular media page.');
@@ -39,7 +62,7 @@ export class TabAudioCaptureService {
     }
 
     return new Promise((resolve, reject) => {
-      chrome.tabCapture.getMediaStreamId({ targetTabId, consumerTabId }, streamId => {
+      tabCapture.getMediaStreamId({ targetTabId, consumerTabId }, streamId => {
         const runtimeError = chrome.runtime.lastError;
         if (runtimeError) {
           reject(new Error(runtimeError.message));

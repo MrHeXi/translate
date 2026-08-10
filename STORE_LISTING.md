@@ -1,6 +1,6 @@
 # LexiBridge Translate Store Listing
 
-Use this draft as the source material for the Chrome Web Store listing, screenshots, support notes, and privacy questionnaire.
+Use this draft as the source material for the Chrome Web Store and Firefox Add-ons listings, screenshots, support notes, and privacy questionnaires. Keep the platform-specific permission notes separate.
 
 ## Store Name
 
@@ -100,6 +100,13 @@ translation, page translation, document translation, vocabulary, English learnin
 - `https://api.openai.com/*`: send user-requested text or explicitly submitted selected/captured media to the configured OpenAI endpoint.
 - `https://generativelanguage.googleapis.com/*`: send user-requested text to Google Gemini when configured.
 - Optional HTTPS or localhost host access: requested only when the user saves an additional provider configuration, for that endpoint's configured scheme and hostname.
+
+## Firefox Add-ons Notes
+
+- The Firefox Desktop package requires Firefox 140 or newer, uses a background script and native `sidebar_action`, and sets `open_at_install` to false.
+- It omits the Chrome-only `sidePanel` and `tabCapture` permissions. The subtitle generator keeps explicit local-media transcription but disables current-tab capture with a visible local-file alternative.
+- The Firefox manifest declares Mozilla's required data-collection categories for website content and any personal, health, financial, authentication, communication, location, or search-term information that user-submitted text may contain. Data goes directly to the provider the user selects; LexiBridge has no collection server.
+- An unsigned Firefox ZIP is for temporary local testing. Persistent distribution requires an AMO-signed XPI and a completed Firefox manual smoke test.
 
 ## Privacy Questionnaire Notes
 

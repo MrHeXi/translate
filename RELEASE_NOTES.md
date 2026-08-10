@@ -2,7 +2,7 @@
 
 ## 1.0.0 - 2026-07-17
 
-Initial productized release candidate for local testing and Chrome Web Store preparation.
+Initial productized release candidate for local Chrome/Firefox testing and browser-store preparation.
 
 ### Included
 
@@ -17,7 +17,7 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Selected-text translation tooltip with vocabulary collection actions and explicit click-to-speak speech using script-aware locales; selection and translation completion never start speech.
 - Control-hover paragraph translation for on-demand reading help.
 - Input box translation by typing three trailing spaces, with language prefixes such as `/en`, `/zh`, and `/zh-CN`, mobile input/touch support, timeout protection, trusted-user-event enforcement, and no initialization scan.
-- Chrome side-panel text translation opened from the popup or `Alt+S`, with configured-provider filtering, provider-specific target languages, `Ctrl+Enter`, copy, and clear controls.
+- Native Chrome side-panel and Firefox sidebar text translation opened from the popup or `Alt+S`, with configured-provider filtering, provider-specific target languages, `Ctrl+Enter`, copy, and clear controls; Firefox keeps install-time auto-open disabled.
 - AI-assisted side-panel polish, rewrite, drafting, reply, and summary actions with configured-AI-provider enforcement, output-language, tone, length, optional-instruction, and iterative-use controls.
 - Side-panel initialization and mode switching load or update local controls only and never send a provider request until the user submits text.
 - Document translator for pasted text, text files, HTML, JSON, DOCX, EPUB, MOBI/AZW3, subtitle files, and PDFs, with bounded MOBI parsing and deterministic spine ordering, bundled PDF.js page rendering, positioned text extraction, browser-plus-bundled offline OCR for image-only pages, side-by-side original/translated previews, and flattened translated-PDF export.
@@ -35,7 +35,7 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Video subtitles and Live captions remain text-only modes and never start tab recording.
 - SRT export for translated video subtitle cues from the current session.
 - User-invoked AI subtitle generation for selected local audio/video files up to 25 MB through configured OpenAI or Groq transcription endpoints.
-- Explicit current-tab audio capture from the Capture current tab control while the subtitle generator remains open, using the required permission only after that click, preserving local playback, sending no provider request before Stop and generate, and cleaning up on cancel, page close, failure, or the 25 MB limit. Chrome 116 or newer is required.
+- Explicit Chrome current-tab audio capture from the Capture current tab control while the subtitle generator remains open, using the required permission only after that click, preserving local playback, sending no provider request before Stop and generate, and cleaning up on cancel, page close, failure, or the 25 MB limit. Firefox omits the unsupported permission, disables that button, and keeps explicit local-media transcription available.
 - Ordered 256 KB media upload chunks over a long-lived extension connection, immediate cancellation, abortable provider requests, and in-memory media cleanup after completion, cancellation, provider error, or disconnect.
 - Timestamped transcript normalization, optional caption translation, bilingual preview, and local SRT/VTT export without page-load or background tab-audio capture.
 - Contextual YouTube subtitle-generation entry points that only open the generator; capture still requires its own click, records the source playback offset at recorder start when available, exposes bounded editable cue text/start/end controls, uses indeterminate provider progress, and cancels globally namespaced per-cue translation requests.
@@ -75,19 +75,24 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Automated request-contract coverage for every implemented provider adapter. Credentialed services still require valid user accounts and provider-side live availability.
 - Built-in CET4, CET6, GRE, IELTS, and TOEFL vocabulary dictionaries.
 - Vocabulary notebook, review page, learning progress, import/export, and settings.
-- Local-first data storage through Chrome storage, with Chrome sync support when enabled in the browser profile.
+- Local-first data storage through browser extension storage, with profile sync support when enabled by the browser.
+- Separate Chrome and Firefox Desktop manifests and production directories, Firefox MV3 background scripts/native sidebar, alarm-based background cache cleanup, target-specific integrity metadata, strict cross-target byte checks, and deterministic ZIP packaging.
+- Firefox Desktop 140+ built-in data-collection consent declarations with a stable Gecko ID; Firefox Add-ons lint completes with zero errors while dependency/API/static-analysis warnings remain documented for AMO review.
 - Store listing draft, privacy policy, release checklist, and screenshot guide.
 
 ### Verification
 
-Verified on 2026-08-08:
+Verified on 2026-08-10:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand`: passed, 71 test suites and 701 tests.
-- `webpack --mode=production`: passed.
-- Runtime source fingerprint: `EA14024E2405CE2CF532B081DD013B6C9BE5078DBB887F90CA58BD6A61CB19E0` in `dist/build-meta.json`.
-- `chrome-translation-extension.zip`: regenerated from `dist`.
+- `jest --runInBand`: passed, 71 test suites and 708 tests.
+- `npm run package`: passed for Chrome and Firefox Desktop.
+- `web-ext lint --source-dir dist-firefox`: passed with 0 errors, 0 notices, and 31 warnings retained for AMO review.
+- Chrome build metadata: source `A95411A8222F9F98081657C7F1287006ABCF9DD4D219FDE18B9B227D514EA885`, manifest `E105181215EF2F2030818523211C187353EEC836130ADC7FCA04DF312168887C`, payload `51BD30B08B87851F252714C08072A3F98079B7D41501ED27FB8795E7411CBD4C`.
+- Firefox build metadata: source `78798CD6041A6EEB0FE00B7D944E8D56CE042D9D47294B6D6BC880E2D132AD0F`, manifest `F280485846217ACDC7E58E0719AE800943FD2C3A07262789D8FE975D8A2D1C55`, payload `4A6E4315B10B49BCE264118B6F48E53DB17E81F1567C4D58A9C2B68F06AE76DE`.
+- Both production directories contain exactly 243 files; forbidden tests, TypeScript declarations/sources, and source maps are absent, and every non-manifest/non-metadata file is byte-identical across targets.
+- Both ZIPs were generated twice from sorted forward-slash paths with fixed timestamps, compared byte-for-byte, CRC-checked, and reloaded to match every production file.
 
 Expected build warnings:
 
@@ -95,12 +100,17 @@ Expected build warnings:
 - The PDF.js document bundle and worker also exceed the recommendation because PDF parsing, rendering, fonts, and character maps are shipped locally instead of loaded from a CDN.
 - Bundled OCR language models and WebAssembly cores also exceed the recommendation because recognition runs locally without an OCR server.
 - These warnings are accepted because the dictionaries, PDF runtime, and OCR runtime are bundled product data.
+- Firefox lint warnings cover the desktop-only data-consent minimum-version validator, capability-gated `system.memory`, static `innerHTML` analysis, and dynamic-function code in bundled/runtime dependencies. They are not suppressed and require review before AMO submission.
 
 ### Local Install Package
 
-- Unpacked extension folder: `dist`
-- Test package: `chrome-translation-extension.zip`
-- ZIP size: `17,909,309` bytes
-- SHA-256: `16B15CCDE8397311CA7D7EFE86D6A1465F482FA6FC587F331FF2C053DBB77828`
+- Chrome unpacked folder: `dist`
+- Chrome test package: `chrome-translation-extension.zip`
+- Chrome ZIP size: `17,819,903` bytes
+- Chrome SHA-256: `1BF106A2FA3AC52D92B375F4311E43F2AF03DEBE8969B4934D5B63957A66E8CC`
+- Firefox unpacked folder: `dist-firefox`
+- Firefox test package: `firefox-translation-extension.zip`
+- Firefox ZIP size: `17,820,076` bytes
+- Firefox SHA-256: `F5639BEB3244B9102CC3ABE36BD08B550159182474A7E3A2552F49E3998C55CE`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

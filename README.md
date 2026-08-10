@@ -1,6 +1,6 @@
 # LexiBridge Translate
 
-LexiBridge Translate is a Chrome extension for reading real web pages in another language while turning unknown words into review material.
+LexiBridge Translate is a Chrome and Firefox Desktop extension for reading real web pages in another language while turning unknown words into review material.
 
 It keeps the existing translation workflow, built-in exam vocabularies, vocabulary notebook, review page, progress tracking, import/export, and settings. Page translation is user-controlled: use the popup or the manual floating button to start or stop translation.
 
@@ -15,12 +15,12 @@ It is best for:
 - Queuing multiple local documents for an explicit batch run with bounded concurrency, cancellation, failed-file retry, and deterministic ZIP download.
 - Translating video captions when the page exposes subtitle/caption tracks or common DOM-rendered captions.
 - Generating timed subtitles from a user-selected local audio or video file through a configured OpenAI or Groq transcription service.
-- Capturing audio from the source tab only after an explicit click, then generating subtitles after the user stops capture.
+- Capturing audio from the source tab in Chrome only after an explicit click, then generating subtitles after the user stops capture. Firefox keeps local-media subtitle generation but disables unsupported current-tab capture.
 - Translating and locally exporting live caption text that is already visible in a page.
 - Translating text from selected or currently visible images, SVGs, and canvases with browser OCR or the bundled offline OCR fallback.
 - Collecting useful words from real context.
 - Reviewing CET4, CET6, GRE, IELTS, TOEFL vocabulary.
-- Keeping a local-first vocabulary notebook with Chrome storage sync support.
+- Keeping a local-first vocabulary notebook with browser extension storage sync support.
 
 It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-perfect Office/eBook converter, an automatic whole-page image reader, background or automatic browser-tab audio capture, or a meeting bot that records or joins calls.
 
@@ -155,8 +155,8 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 
 ### Data Management
 
-- Store settings, vocabulary, review progress, and learning stats in Chrome storage.
-- Use Chrome sync where available.
+- Store settings, vocabulary, review progress, and learning stats in browser extension storage.
+- Use the browser's extension sync storage where available.
 - Export and import learning data.
 - Store user-supplied translation provider API keys, client/application IDs, and temporary session tokens only in `chrome.storage.local`, with masked summaries in the settings UI.
 - Store installed AI expert and prompt-template definitions only in `chrome.storage.local`; selected IDs, declared variable values, and the masking preference remain ordinary settings.
@@ -164,18 +164,33 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 
 ## Install for Local Testing
 
-1. Build the extension:
+Build both browser targets:
 
 ```bash
-npm run build
+npm run build:all
 ```
 
-2. Open Chrome and go to `chrome://extensions/`.
-3. Enable Developer mode.
-4. Choose `Load unpacked`.
-5. Select the `dist` folder from this repository.
+### Chrome
 
-The generated test package is `chrome-translation-extension.zip`.
+1. Open Chrome and go to `chrome://extensions/`.
+2. Enable Developer mode.
+3. Choose `Load unpacked`.
+4. Select the `dist` folder from this repository.
+
+The generated Chrome test package is `chrome-translation-extension.zip`.
+
+### Firefox Desktop
+
+Firefox 140 or newer is required because the Firefox manifest uses Mozilla's built-in data-collection consent declaration.
+
+1. Open Firefox and go to `about:debugging`.
+2. Choose `This Firefox`.
+3. Choose `Load Temporary Add-on`.
+4. Select `dist-firefox/manifest.json`.
+
+The generated Firefox test package is `firefox-translation-extension.zip`. An unsigned ZIP can be loaded temporarily for testing; normal persistent Firefox installation requires an AMO-signed XPI.
+
+Firefox uses its native sidebar and never opens it automatically at install. Current-tab audio capture is unavailable because Firefox does not provide Chrome's `tabCapture` API; choose a local audio/video file in the subtitle generator instead.
 
 ## Usage
 
@@ -356,7 +371,8 @@ For local files, click Open image translator in the popup, choose, drop, or past
 
 - Node.js 16+
 - npm 8+
-- Chrome
+- Chrome 116+
+- Firefox Desktop 140+
 
 ### Commands
 
@@ -365,7 +381,9 @@ npm install
 npm run type-check
 npm run lint
 npm test
-npm run build
+npm run build:all
+npm run verify:package
+npm run package
 ```
 
 ### Project Structure
@@ -383,7 +401,7 @@ icons/            extension icons
 
 ## Release Notes
 
-See `RELEASE_CHECKLIST.md` before packaging or submitting to Chrome Web Store.
+See `RELEASE_CHECKLIST.md` before packaging or submitting to Chrome Web Store or Firefox Add-ons.
 
 ## Privacy
 

@@ -1,12 +1,12 @@
 # LexiBridge Translate Privacy Policy
 
-Last updated: 2026-08-08
+Last updated: 2026-08-10
 
 LexiBridge Translate is a browser extension for user-triggered page translation, side-panel text translation, document text translation, selected, uploaded, pasted, or currently visible image text translation, video subtitle text translation, explicit local-media or current-tab audio transcription, live caption text translation and local transcript export, selection translation, vocabulary collection, and vocabulary review.
 
 ## Data Stored by the Extension
 
-LexiBridge uses Chrome storage for product functionality:
+LexiBridge uses browser extension storage for product functionality. The implementation uses the cross-browser `chrome.storage` compatibility namespace in Chrome and Firefox:
 
 - Settings: target language, translation provider, translation appearance and scope, domain-specific translation rules, enabled dictionaries, floating button visibility, and related preferences.
 - Vocabulary notebook: saved words, translations, examples, dictionary type, mastery level, review count, and review schedule.
@@ -16,7 +16,7 @@ LexiBridge uses Chrome storage for product functionality:
 - Translation provider credentials: API keys, client/application IDs, temporary session tokens, and provider-specific endpoint, model, or region settings entered by the user.
 - AI tool libraries: user-installed expert definitions and prompt templates, including their version, source attribution, instructions, and declared template variables.
 
-Chrome storage may sync data through the user's browser profile if Chrome sync is enabled. LexiBridge does not run its own account server.
+Extension storage may sync data through the user's browser profile when that browser's extension sync is enabled. LexiBridge does not run its own account server.
 
 Document translation history, translation provider credentials, installed AI expert definitions, expert enabled states, and installed prompt templates are stored separately in `chrome.storage.local`. They are not written to Chrome Sync. Selected expert/template IDs, prompt-variable values, and the sensitive-data masking preference are ordinary settings and may sync through Chrome. Document history keeps at most 10, 25, or 50 entries, rejects entries above 512 KiB, and evicts the oldest whole entries before its serialized data exceeds 4 MiB. Binary PDF, DOCX, and EPUB source bytes are never stored in history. Provider credentials are also excluded from learning-data exports, translation cache keys, and extension logs. The settings page receives only masked credential summaries and never reads saved full credentials back from storage.
 
@@ -28,7 +28,7 @@ When the user submits text from the side panel, runs a side-panel writing action
 
 Scan comic chapter is a local DOM-only discovery step. It does not decode images, run OCR, contact a provider, scroll the page, or mutate lazy-loading attributes. The scan records a bounded fixed snapshot of eligible image elements and their source/geometry identity. A separate Translate N images click is required to start OCR and translation. If chapter membership, order, source, geometry, settings, or navigation changes before confirmation, the snapshot is rejected and must be scanned again.
 
-The subtitle generator accepts either a user-selected local file or a current-tab recording started by an explicit Capture current tab click. Opening the generator, visiting a media page, or selecting a local file does not capture or upload audio. Chrome grants the declared `tabCapture` permission at installation, but LexiBridge invokes it only after Capture current tab. It records only the source tab that opened the generator and runs only while the generator page remains open. The source audio is routed back to local playback during capture. Cancel, generator-page close, capture failure, or the 25 MB limit stops the media tracks and discards the temporary recording. Clicking Stop and generate turns the in-memory recording into a local WebM file for the same transcription workflow.
+The subtitle generator accepts a user-selected local file in Chrome and Firefox. Chrome also supports a current-tab recording started by an explicit Capture current tab click. Opening the generator, visiting a media page, or selecting a local file does not capture or upload audio. Chrome grants the declared `tabCapture` permission at installation, but LexiBridge invokes it only after Capture current tab. It records only the source tab that opened the generator and runs only while the generator page remains open. The source audio is routed back to local playback during capture. Cancel, generator-page close, capture failure, or the 25 MB limit stops the media tracks and discards the temporary recording. Clicking Stop and generate turns the in-memory recording into a local WebM file for the same transcription workflow. Firefox does not receive the `tabCapture` permission; its current-tab button is disabled and directs the user to the local-media workflow.
 
 After Generate subtitles or Stop and generate, the extension sends the selected or captured file directly to the configured OpenAI or Groq-compatible transcription endpoint. Files are limited to 25 MB and transferred to the background in ordered 256 KB chunks over a temporary extension connection. The selected spoken language and optional vocabulary/context prompt are included in the transcription request. Media bytes stay in memory only, are not written to Chrome storage, and are cleared after transcription completes, the user cancels, the connection closes, or an error occurs. An active provider request is aborted on cancellation or disconnection. Generated transcript segments and optional translations remain in the subtitle-generator page only and are used for local SRT/VTT export; they are not saved as a subtitle history.
 
@@ -85,15 +85,19 @@ LexiBridge requests these permissions:
 - `activeTab`: interact with the current tab after user action.
 - `scripting`: inject or refresh extension scripts and styles when needed.
 - `tabs`: find the active tab and send extension messages.
-- `sidePanel`: show the user-invoked text translation panel from the popup or `Alt+S` command.
-- `tabCapture`: required so Chrome can authorize the source tab when the extension popup is invoked; the API is called only after Capture current tab and stops on Stop, Cancel, generator close, failure, or the 25 MB limit.
+- `contextMenus`: expose the user-clicked image translation command.
+- `alarms`: run periodic local cache cleanup reliably when a background worker or event page is suspended.
+- `sidePanel` (Chrome only): show the user-invoked text translation panel from the popup or `Alt+S` command.
+- `tabCapture` (Chrome only): authorize the source tab after Capture current tab; the API is called only after that click and stops on Stop, Cancel, generator close, failure, or the 25 MB limit.
+
+Firefox uses `sidebar_action` instead of the Chrome-only `sidePanel` permission and sets `open_at_install` to false. Its manifest is limited to Firefox Desktop 140 or newer and declares required Mozilla data-collection categories for website content and any personal, health, financial, authentication, communication, location, or search-term information that may be present in user-submitted text. This is a disclosure of data that can be transmitted directly to the provider selected by the user; LexiBridge does not operate an intermediary collection server.
 
 Required host permissions are limited to the pre-granted translation provider endpoints listed above. Optional host permission patterns let the user approve the scheme and hostname for an additional configured HTTPS or localhost translation endpoint.
 
 ## Data Export and Deletion
 
-Users can export learning data from the extension. Provider API keys, client/application IDs, and temporary session tokens are excluded from that export. Users can remove an individual provider configuration in settings, clear vocabulary, reset settings, or remove all extension data through Chrome's extension management and site data controls.
+Users can export learning data from the extension. Provider API keys, client/application IDs, and temporary session tokens are excluded from that export. Users can remove an individual provider configuration in settings, clear vocabulary, reset settings, or remove all extension data through the browser's extension management and site data controls.
 
 ## Contact
 
-For privacy questions, use the repository issue tracker or the support channel configured in the Chrome Web Store listing.
+For privacy questions, use the repository issue tracker or the support channel configured in the browser store listing.

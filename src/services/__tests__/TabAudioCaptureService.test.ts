@@ -1,4 +1,5 @@
 import {
+  isTabAudioCaptureSupported,
   isTrustedTabAudioCaptureSender,
   TabAudioCaptureService
 } from '../TabAudioCaptureService';
@@ -26,6 +27,24 @@ describe('TabAudioCaptureService', () => {
       { targetTabId: 12, consumerTabId: 44 },
       expect.any(Function)
     );
+  });
+
+  it('detects support only when the tab capture API is callable', () => {
+    expect(isTabAudioCaptureSupported()).toBe(true);
+    delete (chrome as unknown as { tabCapture?: unknown }).tabCapture;
+    expect(isTabAudioCaptureSupported()).toBe(false);
+    (chrome as unknown as { tabCapture?: unknown }).tabCapture = {};
+    expect(isTabAudioCaptureSupported()).toBe(false);
+  });
+
+  it('rejects unsupported browsers before reading the source tab', async () => {
+    delete (chrome as unknown as { tabCapture?: unknown }).tabCapture;
+
+    await expect(new TabAudioCaptureService().createStreamId({
+      targetTabId: 12,
+      consumerTabId: 44
+    })).rejects.toThrow('Choose a local media file instead');
+    expect(chrome.tabs.get).not.toHaveBeenCalled();
   });
 
   it('rejects invalid IDs and browser-owned source pages before capture', async () => {

@@ -139,7 +139,8 @@ const startTabCapture = async (): Promise<TabCaptureHarness> => {
     value: jest.fn(() => audioContext)
   });
   (global as any).chrome = {
-    runtime: { sendMessage, connect, lastError: null, openOptionsPage: jest.fn() }
+    runtime: { sendMessage, connect, lastError: null, openOptionsPage: jest.fn() },
+    tabCapture: { getMediaStreamId: jest.fn() }
   };
 
   require('../subtitles');
@@ -197,6 +198,42 @@ describe('AI subtitle generator', () => {
     expect(sendMessage.mock.calls.some(([message]) => message.action === 'translate')).toBe(false);
   });
 
+  it('disables unsupported current-tab capture and keeps local media available', async () => {
+    window.history.replaceState({}, '', '/subtitles.html?sourceTabId=12');
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({ success: true, data: [{ providerId: 'groq', configured: true }] });
+        return;
+      }
+      if (message.action === 'getSettings') {
+        callback({ success: true, data: { translationProvider: 'google', defaultTargetLanguage: 'zh-CN' } });
+        return;
+      }
+      callback({ success: true });
+    });
+    (global as any).chrome = {
+      runtime: { sendMessage, connect: jest.fn(), lastError: null, openOptionsPage: jest.fn() }
+    };
+
+    require('../subtitles');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+    await flushPromises();
+
+    const captureButton = document.getElementById('toggleTabCapture') as HTMLButtonElement;
+    const fileInput = document.getElementById('mediaFile') as HTMLInputElement;
+    expect(captureButton.disabled).toBe(true);
+    expect(captureButton.textContent).toBe('Current-tab capture unavailable');
+    expect(captureButton.title).toContain('Choose a local media file instead');
+    expect(fileInput.disabled).toBe(false);
+
+    captureButton.dispatchEvent(new Event('click'));
+    await flushPromises();
+    expect(sendMessage.mock.calls.some(([message]) => message.action === 'getTabAudioCaptureStreamId')).toBe(false);
+    expect(document.getElementById('generationStatus')?.textContent)
+      .toBe('Current-tab audio capture is not supported in this browser. Choose a local media file instead.');
+  });
+
   it('uploads only after Generate, translates timed cues, and exports bilingual SRT', async () => {
     const harness = createPortHarness();
     const connect = jest.fn(() => harness.port);
@@ -228,7 +265,8 @@ describe('AI subtitle generator', () => {
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL });
     (global as any).chrome = {
-      runtime: { sendMessage, connect, lastError: null, openOptionsPage: jest.fn() }
+      runtime: { sendMessage, connect, lastError: null, openOptionsPage: jest.fn() },
+      tabCapture: { getMediaStreamId: jest.fn() }
     };
 
     try {
@@ -468,7 +506,8 @@ describe('AI subtitle generator', () => {
       value: jest.fn(() => audioContext)
     });
     (global as any).chrome = {
-      runtime: { sendMessage, connect, lastError: null, openOptionsPage: jest.fn() }
+      runtime: { sendMessage, connect, lastError: null, openOptionsPage: jest.fn() },
+      tabCapture: { getMediaStreamId: jest.fn() }
     };
 
     require('../subtitles');
@@ -565,6 +604,7 @@ describe('AI subtitle generator', () => {
     });
     (global as any).chrome = {
       runtime: { sendMessage, connect, lastError: null, openOptionsPage: jest.fn() },
+      tabCapture: { getMediaStreamId: jest.fn() },
       tabs: {
         sendMessage: jest.fn((_tabId, message, callback) => {
           if (message.action === 'getVideoPlaybackPosition') {

@@ -1,8 +1,14 @@
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
 
-const { calculateBuildInputDigest } = require('../../../scripts/build-integrity') as {
-  calculateBuildInputDigest: (rootDir: string) => string;
+const {
+  calculateBuildInputDigest,
+  calculateManifestDigest,
+  calculatePayloadTreeDigest
+} = require('../../../scripts/build-integrity') as {
+  calculateBuildInputDigest: (rootDir: string, target?: string) => string;
+  calculateManifestDigest: (rootDir: string, target?: string) => string;
+  calculatePayloadTreeDigest: (outputDirectory: string) => string;
 };
 
 const rootDir = path.resolve(__dirname, '..', '..', '..');
@@ -16,15 +22,36 @@ describe('product packaging contract', () => {
     expect(webpackConfig).toContain('BuildIntegrityPlugin');
     expect(webpackConfig).toContain("'build-meta.json'");
 
-    const buildMetadataPath = path.join(rootDir, 'dist', 'build-meta.json');
-    if (!existsSync(path.join(rootDir, 'dist'))) return;
+    const packageVersion = JSON.parse(readProjectFile('package.json')).version;
+    const targets = [
+      { target: 'chrome', outputDirectory: 'dist', manifest: 'manifest.json' },
+      { target: 'firefox', outputDirectory: 'dist-firefox', manifest: 'manifest.firefox.json' }
+    ];
 
-    expect(existsSync(buildMetadataPath)).toBe(true);
-    const metadata = JSON.parse(readFileSync(buildMetadataPath, 'utf8'));
-    expect(metadata).toEqual({
-      schemaVersion: 1,
-      mode: 'production',
-      sourceSha256: calculateBuildInputDigest(rootDir)
+    targets.forEach(({ target, outputDirectory, manifest }) => {
+      const outputPath = path.join(rootDir, outputDirectory);
+      if (!existsSync(outputPath)) return;
+      const buildMetadataPath = path.join(outputPath, 'build-meta.json');
+      expect(existsSync(buildMetadataPath)).toBe(true);
+      expect(readFileSync(path.join(outputPath, 'manifest.json')))
+        .toEqual(readFileSync(path.join(rootDir, manifest)));
+      const metadata = JSON.parse(readFileSync(buildMetadataPath, 'utf8'));
+      expect(metadata).toEqual({
+        schemaVersion: 2,
+        target,
+        mode: 'production',
+        version: packageVersion,
+        sourceSha256: calculateBuildInputDigest(rootDir, target),
+        manifestSha256: calculateManifestDigest(rootDir, target),
+        payloadTreeSha256: calculatePayloadTreeDigest(outputPath)
+      });
+      const artifactNames = Array.from(new Set(
+        require('../../../scripts/build-integrity').collectPayloadEntries(outputPath)
+          .map((entry: { name: string }) => entry.name)
+      ));
+      expect(artifactNames).not.toEqual(expect.arrayContaining([
+        expect.stringMatching(/(^|\/)(?:test|__tests__)(\/|$)|\.(?:d\.ts|map|ts)$/i)
+      ]));
     });
   });
 
@@ -42,6 +69,7 @@ describe('product packaging contract', () => {
       'scripting',
       'tabs',
       'contextMenus',
+      'alarms',
       'sidePanel',
       'tabCapture'
     ]);
@@ -76,6 +104,69 @@ describe('product packaging contract', () => {
     expect(JSON.stringify(manifest.web_accessible_resources)).toContain('ocr/lang/*');
   });
 
+  it('uses a Firefox-specific manifest without Chromium-only capabilities', () => {
+    const manifest = JSON.parse(readProjectFile('manifest.firefox.json'));
+
+    expect(manifest.permissions).toEqual([
+      'storage',
+      'activeTab',
+      'scripting',
+      'tabs',
+      'contextMenus',
+      'alarms'
+    ]);
+    expect(manifest.minimum_chrome_version).toBeUndefined();
+    expect(manifest.background).toEqual({ scripts: ['background.js'] });
+    expect(manifest.side_panel).toBeUndefined();
+    expect(manifest.sidebar_action).toEqual({
+      default_panel: 'sidepanel.html',
+      default_title: 'LexiBridge Translate',
+      default_icon: {
+        '16': 'icons/icon16.png',
+        '32': 'icons/icon32.png'
+      },
+      open_at_install: false
+    });
+    expect(manifest.browser_specific_settings.gecko).toEqual({
+      id: 'lexibridge-translate@mrhexi.github.com',
+      strict_min_version: '140.0',
+      data_collection_permissions: {
+        required: [
+          'personallyIdentifyingInfo',
+          'healthInfo',
+          'financialAndPaymentInfo',
+          'authenticationInfo',
+          'personalCommunications',
+          'locationInfo',
+          'websiteContent',
+          'searchTerms'
+        ]
+      }
+    });
+    expect(JSON.stringify(manifest)).not.toMatch(/[�]|缈|鎻|馃/);
+  });
+
+  it('defines target-specific builds and deterministic dual-browser packages', () => {
+    const packageJson = JSON.parse(readProjectFile('package.json'));
+    const packageScript = readProjectFile('scripts/package-extensions.js');
+    const verificationScript = readProjectFile('scripts/verify-build-targets.js');
+
+    expect(packageJson.scripts['build:chrome']).toContain('target=chrome');
+    expect(packageJson.scripts['build:firefox']).toContain('target=firefox');
+    expect(packageJson.scripts.package).toContain('build:all');
+    expect(packageJson.scripts.package).toContain('lint:firefox');
+    expect(packageJson.scripts.package).toContain('package-extensions.js');
+    expect(packageJson.devDependencies).toEqual(expect.objectContaining({
+      jszip: expect.any(String),
+      'web-ext': expect.any(String)
+    }));
+    expect(packageScript).toContain("new Date('1980-01-01T00:00:00.000Z')");
+    expect(packageScript).toContain('generation is not deterministic');
+    expect(packageScript).toContain("checkCRC32: true");
+    expect(verificationScript).toContain('payload bytes differ');
+    expect(verificationScript).toContain('Forbidden ${target} artifact');
+  });
+
   it('ships release-ready user documentation and privacy disclosure', () => {
     const expectedDocs = [
       'README.md',
@@ -108,6 +199,9 @@ describe('product packaging contract', () => {
     expect(readme).toContain('mobile input/touch events');
     expect(readme).toContain('`/en`, `/中文`, or `/zh-CN`');
     expect(readme).toContain('does not trigger from existing text at page load');
+    expect(readme).toContain('Firefox Desktop 140+');
+    expect(readme).toContain('firefox-translation-extension.zip');
+    expect(readme).toContain('Current-tab audio capture is unavailable');
     expect(readme).toContain('Side Panel Text Translation');
     expect(readme).toContain('no text is sent until the user submits it');
     expect(readme).toContain('polish, rewrite, compose, reply, or summarize');
@@ -119,7 +213,7 @@ describe('product packaging contract', () => {
     expect(readme).toContain('Generate Subtitles From Local Media');
     expect(readme).toContain('Generate Subtitles From Current Tab Audio');
     expect(readme).toContain('configured OpenAI or Groq transcription service');
-    expect(readme).toContain('Capturing audio from the source tab only after an explicit click');
+    expect(readme).toContain('Capturing audio from the source tab in Chrome only after an explicit click');
     expect(readme).toContain('click Stop and generate when enough audio has played');
     expect(readme).toContain('Use the declared `tabCapture` permission only after the explicit capture button');
     expect(readme).toContain('requires Chrome 116 or newer');
@@ -338,12 +432,16 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('71 test suites and 701 tests');
-    expect(releaseNotes).toContain('17,909,309');
-    expect(releaseNotes).toContain('16B15CCDE8397311CA7D7EFE86D6A1465F482FA6FC587F331FF2C053DBB77828');
-    expect(releaseNotes).toContain('EA14024E2405CE2CF532B081DD013B6C9BE5078DBB887F90CA58BD6A61CB19E0');
+    expect(releaseNotes).toContain('71 test suites and 708 tests');
+    expect(releaseNotes).toContain('17,819,903');
+    expect(releaseNotes).toContain('1BF106A2FA3AC52D92B375F4311E43F2AF03DEBE8969B4934D5B63957A66E8CC');
+    expect(releaseNotes).toContain('17,820,076');
+    expect(releaseNotes).toContain('F5639BEB3244B9102CC3ABE36BD08B550159182474A7E3A2552F49E3998C55CE');
+    expect(releaseNotes).toContain('A95411A8222F9F98081657C7F1287006ABCF9DD4D219FDE18B9B227D514EA885');
+    expect(releaseNotes).toContain('78798CD6041A6EEB0FE00B7D944E8D56CE042D9D47294B6D6BC880E2D132AD0F');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
-    expect(releaseNotes).toContain('webpack --mode=production');
+    expect(releaseNotes).toContain('firefox-translation-extension.zip');
+    expect(releaseNotes).toContain('`npm run package`: passed');
     expect(releaseNotes).toContain('Expected build warnings');
     expect(releaseNotes).toContain('Mixed PDF pages with sparse text layers');
     expect(releaseNotes).toContain('newly inserted text without safe source geometry remains translatable');
@@ -519,7 +617,9 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('Remaining: add verified adapters for the other officially documented video sites');
     expect(roadmap).toContain('installable Schema v1 AI expert definitions');
     expect(roadmap).toContain('request-scoped masking for supported emails');
-    expect(roadmap).toContain('Firefox packaging and compatibility checks');
+    expect(roadmap).toContain('separate Chrome and Firefox Desktop manifests');
+    expect(roadmap).toContain('capability-gate Chrome `tabCapture`');
+    expect(roadmap).toContain('web-ext lint` with zero errors');
     expect(roadmap).toContain('Safari, userscript, Zotero, iOS, and Android');
     expect(roadmap).toContain('Do not auto-translate a page on load');
   });

@@ -33,6 +33,8 @@ describe('BackgroundService initialization', () => {
       info: chrome.contextMenus.OnClickData,
       tab?: chrome.tabs.Tab
     ) => void> = [];
+    const alarmListeners: Array<(alarm: chrome.alarms.Alarm) => void> = [];
+    const createAlarm = jest.fn();
     const openSidePanel = jest.fn().mockResolvedValue(undefined);
     const createContextMenu = jest.fn((_properties, callback?: () => void) => callback?.());
     const removeContextMenu = jest.fn((_id, callback?: () => void) => callback?.());
@@ -86,6 +88,12 @@ describe('BackgroundService initialization', () => {
           addListener: jest.fn(listener => contextMenuListeners.push(listener))
         }
       },
+      alarms: {
+        create: createAlarm,
+        onAlarm: {
+          addListener: jest.fn(listener => alarmListeners.push(listener))
+        }
+      },
       tabs: {
         sendMessage: sendTabMessage
       },
@@ -114,8 +122,11 @@ describe('BackgroundService initialization', () => {
       CET4: 'cet4',
       CET6: 'cet6'
     };
+    const cleanExpiredCache = jest.fn();
+    const clearWordCache = jest.fn();
     const mockDictionaryManager = {
-      loadBuiltInDictionary: jest.fn().mockResolvedValue({ words: [], totalCount: 0 })
+      loadBuiltInDictionary: jest.fn().mockResolvedValue({ words: [], totalCount: 0 }),
+      clearWordCache
     };
     const mockLearningMode = {
       loadVocabulary: jest.fn().mockReturnValue(vocabularyLoad.promise)
@@ -127,7 +138,7 @@ describe('BackgroundService initialization', () => {
     };
 
     jest.doMock('../../services/TranslationService', () => ({
-      TranslationService: jest.fn().mockImplementation(() => ({}))
+      TranslationService: jest.fn().mockImplementation(() => ({ cleanExpiredCache }))
     }));
     jest.doMock('../../services/DictionaryManager', () => ({
       DictionaryType: mockDictionaryType,
@@ -178,6 +189,18 @@ describe('BackgroundService initialization', () => {
     }));
 
     require('../background');
+
+    expect(createAlarm).toHaveBeenCalledWith('lexibridge-clean-expired-caches', {
+      delayInMinutes: 60,
+      periodInMinutes: 60
+    });
+    expect(alarmListeners).toHaveLength(1);
+    alarmListeners[0]!({ name: 'unrelated-alarm', scheduledTime: Date.now() });
+    expect(cleanExpiredCache).not.toHaveBeenCalled();
+    alarmListeners[0]!({ name: 'lexibridge-clean-expired-caches', scheduledTime: Date.now() });
+    await flushPromises();
+    expect(cleanExpiredCache).toHaveBeenCalledTimes(1);
+    expect(clearWordCache).toHaveBeenCalledTimes(1);
 
     expect(removeContextMenu).not.toHaveBeenCalled();
     expect(createContextMenu).not.toHaveBeenCalled();

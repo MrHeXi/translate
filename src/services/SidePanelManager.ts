@@ -7,10 +7,25 @@ interface SidePanelOpenApi {
   open(options: SidePanelOpenOptions): Promise<void>;
 }
 
-export const openTranslationSidePanel = async (): Promise<boolean> => {
-  const sidePanel = (chrome as unknown as { sidePanel?: SidePanelOpenApi }).sidePanel;
-  if (!sidePanel?.open) return false;
+interface SidebarActionOpenApi {
+  open(): Promise<void>;
+}
 
-  await sidePanel.open({ windowId: chrome.windows.WINDOW_ID_CURRENT });
-  return true;
+export const openTranslationSidePanel = async (): Promise<boolean> => {
+  const extensionApis = chrome as unknown as {
+    sidePanel?: SidePanelOpenApi;
+    sidebarAction?: SidebarActionOpenApi;
+  };
+
+  if (extensionApis.sidePanel?.open) {
+    await extensionApis.sidePanel.open({ windowId: chrome.windows.WINDOW_ID_CURRENT });
+    return true;
+  }
+
+  if (extensionApis.sidebarAction?.open) {
+    await extensionApis.sidebarAction.open();
+    return true;
+  }
+
+  return false;
 };

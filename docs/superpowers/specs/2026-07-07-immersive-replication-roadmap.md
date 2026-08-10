@@ -220,7 +220,8 @@ Current batch:
 - Done: open the panel from the popup and the `Alt+S` extension command.
 - Done: add AI-assisted polish, rewrite, compose, reply, and summary workflows with explicit submission only.
 - Done: restrict writing actions to configured AI-capable providers and support output language, tone, length, bounded custom instructions, and iterative result reuse.
-- Remaining: cross-browser side-panel equivalents and additional specialized text-processing templates.
+- Done: add a Firefox native sidebar equivalent with install-time auto-open disabled and popup/`Alt+S` user-action entry points.
+- Remaining: additional specialized text-processing templates and side-panel equivalents for other target platforms.
 
 ### Batch I: Document Formats, Batch Workflows, and History
 
@@ -248,9 +249,12 @@ Current batch:
 
 ### Batch L: Cross-Platform Distribution
 
-- Add Firefox packaging and compatibility checks first, followed by Safari, userscript, Zotero, iOS, and Android feasibility gates.
-- Track platform-specific permission, side-panel, content-script, storage, keyboard, and capture differences instead of claiming one Chrome bundle works everywhere.
-- Produce installable artifacts and platform-specific smoke-test evidence before any platform is listed as supported.
+- Done: add separate Chrome and Firefox Desktop manifests, production output directories, target-aware source/manifest/payload fingerprints, strict cross-target byte checks, and deterministic ZIP archives.
+- Done: use Firefox MV3 background scripts and native `sidebar_action`, preserve user-invoked popup/keyboard entry points, and keep the sidebar closed at install.
+- Done: migrate recurring background cache cleanup from an in-memory interval to `alarms` so suspended workers and event pages can resume the task.
+- Done: capability-gate Chrome `tabCapture`; Firefox disables only current-tab recording with a local-media alternative and never starts capture, OCR, transcription, or translation automatically.
+- Done: declare a stable Gecko ID, Firefox Desktop 140 minimum, and Mozilla built-in data-collection consent categories; run `web-ext lint` with zero errors and retain warnings for explicit AMO review.
+- Remaining: complete hands-on Firefox smoke testing and AMO signing, then add Safari, userscript, Zotero, iOS, and Android feasibility gates without claiming one browser bundle works everywhere.
 
 ## Non-Negotiable Product Rules
 
