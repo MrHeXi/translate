@@ -143,8 +143,10 @@ Capture a safe sample page after explicitly starting an image action by using Im
 
 - The Translate visible images command visible in the popup, or multiple image text results visible after that explicit command.
 - In a separate close-up, show the image hover toolbar with Retranslate, Apply, Undo, and, for a safe reconstructed canvas only, Download PNG. Do not show a download control for a DOM-overlay fallback.
-- A `Z` screenshot may show the armed selection rectangle before release, but must not imply that pressing `Z` alone starts OCR.
+- A `Z` screenshot may show the freeform lasso before release, but must not imply that pressing `Z`, drawing, losing focus, or hiding the page starts OCR before a valid pointer release.
 - For a safe same-origin regular comic sample with positioned OCR, the temporary reconstructed canvas may show source text removed and translated text fitted inside the bubble. For unsafe/unsupported samples, show the non-destructive region overlay fallback instead.
+- For chapter translation, capture Scan comic chapter with a fixed image count first, then a separate screenshot with Translate N images or Stop chapter. The images must show that Scan alone has no OCR/provider progress and that a safety-limited scan says Translate first N images.
+- A vertical example may show right-to-left CJK columns. Do not show mixed Latin-dominant or RTL output as vertical, and do not claim vertical layout for every script.
 - The source images, canvases, or SVGs visible enough to show the user-triggered targets.
 - No hidden, offscreen, tiny, or extension-owned graphic presented as a translated batch result.
 - No claim that every scanned document, manga page, or image can be recognized accurately or translated automatically.
@@ -192,7 +194,7 @@ Capture the options page with:
 - Any claim that translation starts automatically.
 - Private intranet domains or personal site-rule entries.
 - Unsupported claims beyond the verified feature boundaries in `STORE_LISTING.md` and `RELEASE_NOTES.md`.
-- Claims for guaranteed scanned PDF OCR, editable PDF text reflow, page-load/whole-chapter manga translation, or guaranteed reconstruction of textured/tainted images. Exported translated PDFs are flattened visual pages.
+- Claims for guaranteed scanned PDF OCR, editable PDF text reflow, automatic/page-load manga translation, unbounded whole-chapter support, universal reader-site coverage, or guaranteed reconstruction of textured/tainted/freeform-selected images. Exported translated PDFs are flattened visual pages.
 - Claims for layout-perfect Office/eBook conversion.
 - Claims for automatic tab-audio capture, meeting transcription, files above the documented provider limit, or guaranteed support for every speech/video provider.
 - Console errors, developer tools, or local file explorer windows.

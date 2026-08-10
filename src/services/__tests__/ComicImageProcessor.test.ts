@@ -6,7 +6,9 @@ import {
   ComicImageLimitError,
   detectBubbles,
   detectPanels,
+  getTranslationWritingMode,
   groupTextTokens,
+  inferOcrTextDirection,
   inpaintText,
   InpaintSafety,
   layoutTranslation,
@@ -237,6 +239,44 @@ describe('ComicImageProcessor', () => {
     expect(inpaintText(image, mask, safety).data).toEqual(before);
   });
 
+  it('keeps polygon-backed erase masks inside the OCR source polygon', () => {
+    const image = createImage(24, 24, [255, 255, 255, 255]);
+    const textRect = { x: 5, y: 5, width: 10, height: 10 };
+    paintRect(image, textRect, [0, 0, 0, 255]);
+    const polygon = [
+      { x: 10, y: 5 },
+      { x: 15, y: 10 },
+      { x: 10, y: 15 },
+      { x: 5, y: 10 }
+    ];
+    const group = groupTextTokens([
+      token('rotated', 'TEXT', textRect, { sourcePolygon: polygon })
+    ], [])[0];
+
+    const mask = buildTextMask(image, group, undefined, { dilationRadius: 2 });
+    const valueAt = (x: number, y: number): number => (
+      mask.data[(y - mask.rect.y) * mask.width + x - mask.rect.x]
+    );
+
+    expect(valueAt(10, 10)).toBe(1);
+    expect(valueAt(5, 5)).toBe(0);
+    expect(valueAt(14, 5)).toBe(0);
+  });
+
+  it('rejects degenerate and oversized OCR source polygons', () => {
+    const textRect = { x: 1, y: 1, width: 8, height: 8 };
+    expect(() => groupTextTokens([
+      token('degenerate', 'TEXT', textRect, {
+        sourcePolygon: [{ x: 1, y: 1 }, { x: 2, y: 2 }, { x: 3, y: 3 }]
+      })
+    ], [])).toThrow(/non-zero area/);
+    expect(() => groupTextTokens([
+      token('oversized', 'TEXT', textRect, {
+        sourcePolygon: Array.from({ length: 9 }, (_item, index) => ({ x: index, y: index % 2 }))
+      })
+    ], [])).toThrow(/between 3 and 8 points/);
+  });
+
   it('performs bounded deterministic diffusion on a smooth gradient without mutating input', () => {
     const image = createImage(30, 12, [0, 0, 0, 255]);
     for (let x = 0; x < image.width; x += 1) {
@@ -320,6 +360,43 @@ describe('ComicImageProcessor', () => {
     expect(plan.overflow).toBe(true);
     expect(plan.fontSize).toBe(6);
     expect(plan.lines).toEqual([expect.objectContaining({ text: 'W', width: 100 })]);
+  });
+
+  it('typesets vertical CJK from top to bottom and right to left', () => {
+    const text = '\u7ad6\u6392\u6587\u5b57\u5e94\u8be5\u4ece\u53f3\u5411\u5de6';
+    const plan = layoutTranslation(text, { x: 10, y: 20, width: 40, height: 54 }, () => 8, {
+      minFontSize: 8,
+      maxFontSize: 8,
+      lineHeightRatio: 1,
+      padding: 2,
+      writingMode: 'vertical-rl'
+    });
+
+    expect(inferOcrTextDirection(text, { x: 0, y: 0, width: 12, height: 80 })).toBe('vertical');
+    expect(getTranslationWritingMode('vertical', text)).toBe('vertical-rl');
+    expect(getTranslationWritingMode('vertical', 'English translation')).toBe('horizontal');
+    expect(getTranslationWritingMode('vertical', 'Visit 東京 tomorrow')).toBe('horizontal');
+    expect(plan.writingMode).toBe('vertical-rl');
+    expect(plan.overflow).toBe(false);
+    expect(plan.lines.map(line => line.text).join('')).toBe(text);
+    expect(plan.lines[0].x).toBeGreaterThan(plan.lines[7].x);
+    expect(plan.lines[0].y).toBeLessThan(plan.lines[1].y);
+    expect(plan.lines.every(line => (
+      line.x >= 10 && line.x <= 50 && line.y >= 20 && line.y <= 74
+    ))).toBe(true);
+  });
+
+  it('uses vertical presentation forms for common CJK punctuation', () => {
+    const plan = layoutTranslation('「長音ー、句点。」', { x: 0, y: 0, width: 80, height: 120 }, () => 8, {
+      minFontSize: 8,
+      maxFontSize: 8,
+      lineHeightRatio: 1,
+      padding: 2,
+      writingMode: 'vertical-rl'
+    });
+
+    expect(plan.overflow).toBe(false);
+    expect(plan.lines.map(line => line.text).join('')).toBe('﹁長音｜︑句点︒﹂');
   });
 
   it('keeps solid inpainting byte-deterministic and preserves alpha', () => {

@@ -30,6 +30,20 @@ interface PopupVideoSubtitleStatus {
   hasTrack: boolean | null;
 }
 
+interface PopupComicChapterStatus {
+  phase: string;
+  discoveryId: string | null;
+  operationId: string | null;
+  candidateCount: number;
+  processedCount: number;
+  translatedCount: number;
+  unreadableCount: number;
+  failedCount: number;
+  staleCount: number;
+  limitReached: boolean;
+  message: string;
+}
+
 const MAX_SOURCE_TITLE_LENGTH = 160;
 
 class PopupController {
@@ -46,6 +60,9 @@ class PopupController {
   private isTranslatingVisibleImages: boolean = false;
   private imageModeRevision: number = 0;
   private visibleImageInvocation: number = 0;
+  private comicChapterInvocation: number = 0;
+  private isScanningComicChapter: boolean = false;
+  private comicChapterStatus: PopupComicChapterStatus | null = null;
   private imageBatchStatusTimer: number | null = null;
   private isExportingVideoSubtitles: boolean = false;
   private isExportingLiveCaptionTranscript: boolean = false;
@@ -103,6 +120,10 @@ class PopupController {
 
     const translateVisibleImages = document.getElementById('translateVisibleImages') as HTMLButtonElement;
     translateVisibleImages?.addEventListener('click', () => this.translateVisibleImages());
+    const scanComicChapter = document.getElementById('scanComicChapter') as HTMLButtonElement;
+    scanComicChapter?.addEventListener('click', () => this.scanComicChapter());
+    const translateComicChapter = document.getElementById('translateComicChapter') as HTMLButtonElement;
+    translateComicChapter?.addEventListener('click', () => this.handleComicChapterCommand());
     window.addEventListener('pagehide', () => this.cleanup());
 
     // 快速翻译
@@ -174,6 +195,7 @@ class PopupController {
           this.isImageTranslationActive = isImageTranslationMode;
         }
         this.applyImageTranslationTaskStatus(response?.imageTranslationStatus ?? response?.data?.imageTranslationStatus);
+        this.applyComicChapterStatus(response?.comicChapterStatus ?? response?.data?.comicChapterStatus);
 
         this.applyVideoSubtitleSiteStatus(response?.data?.videoSubtitleStatus);
 
@@ -202,7 +224,9 @@ class PopupController {
   private async loadLiveCaptionTranscriptStatus(): Promise<void> {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab?.id) return;
+      if (!tab?.id) {
+        return;
+      }
 
       const response = await this.sendTabMessage(tab.id, { action: 'getLiveCaptionTranscriptStatus' });
       if (response?.success) {
@@ -421,6 +445,8 @@ class PopupController {
           if (!this.isImageTranslationActive) {
             this.isTranslatingVisibleImages = false;
             this.visibleImageInvocation += 1;
+            this.comicChapterInvocation += 1;
+            this.comicChapterStatus = null;
           }
           this.updateImageTranslationStatusUI();
           this.setImageTranslationMessage(state.message || (isActive ? 'Image translation started' : 'Image translation stopped'));
@@ -482,6 +508,143 @@ class PopupController {
       if (invocation === this.visibleImageInvocation) {
         this.setVisibleImageTranslationBusy(false);
       }
+    }
+  }
+
+  private async scanComicChapter(): Promise<void> {
+    if (this.isScanningComicChapter || this.isTranslatingVisibleImages) return;
+    if (!this.isImageTranslationActive) {
+      this.setImageTranslationMessage('Start image translation first');
+      return;
+    }
+
+    this.isScanningComicChapter = true;
+    this.updateComicChapterUI();
+    const invocation = ++this.comicChapterInvocation;
+    const modeRevision = this.imageModeRevision;
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) {
+        this.showError('No active page found.');
+        return;
+      }
+      const response = await this.sendMessageToTabWithInjection(tab, { action: 'discoverComicChapter' });
+      if (invocation !== this.comicChapterInvocation || modeRevision !== this.imageModeRevision) return;
+      const state = response?.data || response;
+      this.applyComicChapterStatus(state);
+      this.setImageTranslationMessage(state?.message || 'Comic chapter scan finished');
+    } catch (error) {
+      console.error('Could not scan comic chapter:', error);
+      this.showError(error instanceof Error ? error.message : 'Could not scan comic chapter.');
+    } finally {
+      if (invocation === this.comicChapterInvocation) {
+        this.isScanningComicChapter = false;
+        this.updateComicChapterUI();
+      }
+    }
+  }
+
+  private async handleComicChapterCommand(): Promise<void> {
+    if (this.comicChapterStatus?.phase === 'running') {
+      await this.stopComicChapterTranslation();
+      return;
+    }
+    await this.startComicChapterTranslation();
+  }
+
+  private async startComicChapterTranslation(): Promise<void> {
+    const discoveryId = this.comicChapterStatus?.discoveryId;
+    if (!this.isImageTranslationActive || !discoveryId || this.isTranslatingVisibleImages) return;
+
+    const invocation = ++this.comicChapterInvocation;
+    const modeRevision = this.imageModeRevision;
+    this.isTranslatingVisibleImages = true;
+    this.comicChapterStatus = {
+      ...this.comicChapterStatus!,
+      phase: 'running',
+      operationId: this.comicChapterStatus?.operationId || 'pending',
+      message: `Translating chapter image 1 of ${this.comicChapterStatus?.candidateCount || 0}`
+    };
+    this.updateImageTranslationStatusUI();
+    this.updateComicChapterUI();
+    this.scheduleImageBatchStatusPoll();
+
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) {
+        this.comicChapterStatus = {
+          ...this.comicChapterStatus!,
+          phase: 'failed',
+          operationId: null,
+          message: 'No active page found.'
+        };
+        this.showError('No active page found.');
+        return;
+      }
+      const response = await this.sendMessageToTabWithInjection(tab, {
+        action: 'startComicChapterTranslation',
+        data: { discoveryId }
+      });
+      if (invocation !== this.comicChapterInvocation || modeRevision !== this.imageModeRevision) return;
+      const state = response?.data || response;
+      this.applyComicChapterStatus(state);
+      if (!response?.success) this.showError(response?.error || state?.message || 'Could not translate comic chapter.');
+      else this.setImageTranslationMessage(state?.message || 'Comic chapter translation finished');
+    } catch (error) {
+      console.error('Could not translate comic chapter:', error);
+      const message = error instanceof Error ? error.message : 'Could not translate comic chapter.';
+      this.comicChapterStatus = {
+        ...this.comicChapterStatus!,
+        phase: 'failed',
+        operationId: null,
+        message
+      };
+      this.showError(message);
+    } finally {
+      if (invocation === this.comicChapterInvocation) {
+        this.isTranslatingVisibleImages = this.comicChapterStatus?.phase === 'running';
+        this.updateImageTranslationStatusUI();
+        this.updateComicChapterUI();
+        this.scheduleImageBatchStatusPoll();
+      }
+    }
+  }
+
+  private async stopComicChapterTranslation(): Promise<void> {
+    const invocation = ++this.comicChapterInvocation;
+    this.isTranslatingVisibleImages = false;
+    this.updateImageTranslationStatusUI();
+    this.updateComicChapterUI();
+    this.clearImageBatchStatusPoll();
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id) {
+        this.comicChapterStatus = {
+          ...this.comicChapterStatus!,
+          phase: 'failed',
+          operationId: null,
+          message: 'Could not stop comic chapter translation: no active page.'
+        };
+        this.updateComicChapterUI();
+        this.showError(this.comicChapterStatus.message);
+        return;
+      }
+      const response = await this.sendMessageToTabWithInjection(tab, { action: 'stopComicChapterTranslation' });
+      if (invocation !== this.comicChapterInvocation) return;
+      const state = response?.data || response;
+      this.applyComicChapterStatus(state);
+      this.setImageTranslationMessage(state?.message || 'Comic chapter translation stopped');
+    } catch (error) {
+      console.error('Could not stop comic chapter translation:', error);
+      const message = error instanceof Error ? error.message : 'Could not stop comic chapter translation.';
+      this.comicChapterStatus = {
+        ...this.comicChapterStatus!,
+        phase: 'failed',
+        operationId: null,
+        message
+      };
+      this.updateComicChapterUI();
+      this.showError(message);
     }
   }
 
@@ -826,6 +989,50 @@ class PopupController {
         ? 'Translating...'
         : 'Translate visible images';
     }
+    this.updateComicChapterUI();
+  }
+
+  private applyComicChapterStatus(status: any): void {
+    if (!status || typeof status !== 'object' || typeof status.phase !== 'string') return;
+    this.comicChapterStatus = {
+      phase: status.phase,
+      discoveryId: typeof status.discoveryId === 'string' ? status.discoveryId : null,
+      operationId: typeof status.operationId === 'string' ? status.operationId : null,
+      candidateCount: Number.isFinite(status.candidateCount) ? status.candidateCount : 0,
+      processedCount: Number.isFinite(status.processedCount) ? status.processedCount : 0,
+      translatedCount: Number.isFinite(status.translatedCount) ? status.translatedCount : 0,
+      unreadableCount: Number.isFinite(status.unreadableCount) ? status.unreadableCount : 0,
+      failedCount: Number.isFinite(status.failedCount) ? status.failedCount : 0,
+      staleCount: Number.isFinite(status.staleCount) ? status.staleCount : 0,
+      limitReached: status.limitReached === true,
+      message: typeof status.message === 'string' ? status.message : ''
+    };
+    if (status.phase === 'running') this.isTranslatingVisibleImages = true;
+    if (typeof status.message === 'string' && status.message) this.setImageTranslationMessage(status.message);
+    this.updateComicChapterUI();
+  }
+
+  private updateComicChapterUI(): void {
+    const scanButton = document.getElementById('scanComicChapter') as HTMLButtonElement | null;
+    const translateButton = document.getElementById('translateComicChapter') as HTMLButtonElement | null;
+    const running = this.comicChapterStatus?.phase === 'running';
+    const ready = this.comicChapterStatus?.phase === 'awaiting-confirmation' &&
+      Boolean(this.comicChapterStatus.discoveryId) &&
+      this.comicChapterStatus.candidateCount > 0;
+
+    if (scanButton) {
+      scanButton.disabled = !this.isImageTranslationActive || this.isScanningComicChapter || running || this.isTranslatingVisibleImages;
+      scanButton.textContent = this.isScanningComicChapter ? 'Scanning...' : 'Scan comic chapter';
+    }
+    if (translateButton) {
+      translateButton.disabled = running ? false : !this.isImageTranslationActive || !ready || this.isTranslatingVisibleImages;
+      translateButton.textContent = running
+        ? 'Stop chapter'
+        : ready ? `${this.comicChapterStatus?.limitReached ? 'Translate first' : 'Translate'} ${
+          this.comicChapterStatus?.candidateCount || 0
+        } images` : 'Translate chapter';
+      translateButton.classList.toggle('active', running);
+    }
   }
 
   private applyImageTranslationTaskStatus(status: any): void {
@@ -874,12 +1081,18 @@ class PopupController {
   private async refreshImageTranslationTaskStatus(): Promise<void> {
     const modeRevision = this.imageModeRevision;
     const invocation = this.visibleImageInvocation;
+    const comicChapterInvocation = this.comicChapterInvocation;
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab?.id) return;
       const response = await this.sendTabMessage(tab.id, { action: 'getTranslationStatus' });
-      if (modeRevision !== this.imageModeRevision || invocation !== this.visibleImageInvocation) return;
+      if (
+        modeRevision !== this.imageModeRevision ||
+        invocation !== this.visibleImageInvocation ||
+        comicChapterInvocation !== this.comicChapterInvocation
+      ) return;
       this.applyImageTranslationTaskStatus(response?.imageTranslationStatus ?? response?.data?.imageTranslationStatus);
+      this.applyComicChapterStatus(response?.comicChapterStatus ?? response?.data?.comicChapterStatus);
       this.updateImageTranslationStatusUI();
     } catch {
       this.imageBatchStatusTimer = null;

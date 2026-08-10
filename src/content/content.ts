@@ -19,6 +19,7 @@ import {
   LiveCaptionTranslator
 } from './components/LiveCaptionTranslator';
 import {
+  ComicChapterState,
   ImageTranslator,
   ImageTranslatorState,
   SingleImageTranslationResult,
@@ -236,6 +237,16 @@ class ContentScript {
         const result = await this.translateVisibleImages();
         return { success: true, data: result };
       },
+      'discoverComicChapter': async () => {
+        return { success: true, data: this.discoverComicChapter() };
+      },
+      'startComicChapterTranslation': async (request) => {
+        const result = await this.startComicChapterTranslation(request.data?.discoveryId);
+        return { success: result.phase !== 'failed', data: result, error: result.phase === 'failed' ? result.message : undefined };
+      },
+      'stopComicChapterTranslation': async () => {
+        return { success: true, data: this.stopComicChapterTranslation() };
+      },
       'translateImageFromContextMenu': async (request) => {
         const result = await this.translateImageFromContextMenu(request.data?.srcUrl);
         return { success: result.translated, data: result, error: result.translated ? undefined : result.message };
@@ -272,6 +283,7 @@ class ContentScript {
             isLiveCaptionMode: this.liveCaptionTranslator.getStatus().isActive,
             isImageTranslationMode: this.imageTranslator.getStatus().isActive,
             imageTranslationStatus: this.imageTranslator.getStatus(),
+            comicChapterStatus: this.imageTranslator.getComicChapterState(),
             isInitialized: this.isInitialized
           } 
         };
@@ -417,6 +429,18 @@ class ContentScript {
 
   private async translateVisibleImages(): Promise<VisibleImageTranslationResult> {
     return this.imageTranslator.translateVisibleImages();
+  }
+
+  private discoverComicChapter(): ComicChapterState {
+    return this.imageTranslator.discoverComicChapter();
+  }
+
+  private async startComicChapterTranslation(discoveryId: unknown): Promise<ComicChapterState> {
+    return this.imageTranslator.startComicChapterTranslation(discoveryId);
+  }
+
+  private stopComicChapterTranslation(): ComicChapterState {
+    return this.imageTranslator.stopComicChapterTranslation();
   }
 
   private async translateImageFromContextMenu(srcUrl: unknown): Promise<SingleImageTranslationResult> {

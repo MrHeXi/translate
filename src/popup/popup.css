@@ -157,6 +157,12 @@ body {
   background-color: #eef4ff;
 }
 
+.image-command-btn.active {
+  border-color: #b42318;
+  background: #fff1f0;
+  color: #b42318;
+}
+
 .image-command-btn:disabled {
   border-color: #cbd5e1;
   color: #94a3b8;

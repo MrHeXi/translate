@@ -282,7 +282,11 @@ describe('product packaging contract', () => {
     expect(listing).toContain('common meeting speaker labels');
     expect(listing).toContain('local TXT/SRT/VTT/JSON transcript export');
     expect(listing).toContain('Manual image text translation');
-    expect(listing).toContain('user-triggered visible-image batch');
+    expect(listing).toContain('visible-image batch');
+    expect(listing).toContain('freeform `Z` lasso');
+    expect(listing).toContain('explicit Scan then Translate chapter entry points');
+    expect(listing).toContain('scanning only reads a bounded DOM snapshot and does not start OCR');
+    expect(listing).toContain('predominantly CJK vertical text');
     expect(listing).toContain('Opening or scrolling a page never starts OCR');
     expect(listing).toContain('bundled offline OCR');
     expect(listing).toContain('selected OCR language');
@@ -330,10 +334,10 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('68 test suites and 645 tests');
-    expect(releaseNotes).toContain('17,885,626');
-    expect(releaseNotes).toContain('631B513B29091A3D7FD54F5D052AC9338A33648B85DB1DBBD6929F35D775BC70');
-    expect(releaseNotes).toContain('368B68FAA171850158095DC3D2C61C96BF6C845CC3E55EE0E35EF90203180FC8');
+    expect(releaseNotes).toContain('70 test suites and 671 tests');
+    expect(releaseNotes).toContain('17,896,345');
+    expect(releaseNotes).toContain('C9A91A71F679198DD3DC29987D81ED759DB296DFA36DC476519A5C2FAA821DDA');
+    expect(releaseNotes).toContain('DCF2603BB1B74418F868557387930676A9FA6505DCC81D1B9771EE1B6E70332B');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('webpack --mode=production');
     expect(releaseNotes).toContain('Expected build warnings');
@@ -358,7 +362,9 @@ describe('product packaging contract', () => {
     expect(releaseNotes).toContain('Deterministic local comic reconstruction for safe regular bubbles');
     expect(releaseNotes).toContain('Content-owned visible-image batch progress survives popup closure');
     expect(releaseNotes).toContain('frame-aware right-click command');
-    expect(releaseNotes).toContain('one-shot `Z` region selector');
+    expect(releaseNotes).toContain('one-shot freeform `Z` lasso');
+    expect(releaseNotes).toContain('Scan comic chapter reads a fixed bounded DOM snapshot without OCR or provider work');
+    expect(releaseNotes).toContain('120,000 source characters');
     expect(releaseNotes).toContain('Per-image Retranslate, Apply, Undo');
     expect(releaseNotes).toContain('Dedicated local Image Translator workspace');
     expect(releaseNotes).toContain('optional per-image local-only quality ratings');
@@ -401,7 +407,8 @@ describe('product packaging contract', () => {
     expect(screenshotGuide).toContain('Translate visible images');
     expect(screenshotGuide).toContain('temporary reconstructed canvas');
     expect(screenshotGuide).toContain('non-destructive region overlay fallback');
-    expect(screenshotGuide).toContain('completed `Z`-armed region drag');
+    expect(screenshotGuide).toContain('freeform lasso before release');
+    expect(screenshotGuide).toContain('Scan comic chapter with a fixed image count');
     expect(screenshotGuide).toContain('Download PNG');
     expect(screenshotGuide).toContain('dedicated Image Translator');
     expect(screenshotGuide).toContain('loading a preview does not start translation');
@@ -420,7 +427,7 @@ describe('product packaging contract', () => {
     const roadmap = readProjectFile('docs/superpowers/specs/2026-07-07-immersive-replication-roadmap.md');
 
     expect(roadmap).toContain('Web page bilingual translation');
-    expect(roadmap).toContain('Baseline release: Immersive Translate `v1.31.5`');
+    expect(roadmap).toContain('Baseline release: Immersive Translate `v1.32.1`');
     expect(roadmap).toContain('product implementation is closed source');
     expect(roadmap).toContain('Intentional parity exception');
     expect(roadmap).toContain('never translates a page automatically on load');
@@ -480,6 +487,11 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('cache-bypassing Retranslate, non-destructive Apply/Undo');
     expect(roadmap).toContain('dedicated local image workspace');
     expect(roadmap).toContain('quality ratings locally without source text, pixels, or file names');
+    expect(roadmap).toContain('preserve bounded browser OCR source polygons');
+    expect(roadmap).toContain('infer right-to-left vertical CJK source columns');
+    expect(roadmap).toContain('explicit two-step Scan then Translate workflow');
+    expect(roadmap).toContain('120,000 source characters');
+    expect(roadmap).toContain('tiled OCR and reconstruction for very long high-resolution comic strips');
     expect(roadmap).toContain('Multiple translation engines');
     expect(roadmap).toContain('29 implemented provider adapters');
     expect(roadmap).toContain('Papago, Baidu, Volcengine, Alibaba, Amazon, IBM Watson, Youdao, and SYSTRAN');

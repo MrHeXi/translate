@@ -1048,6 +1048,41 @@ describe('Content script MessageManager contract', () => {
       }
     });
 
+    const chapterScanResponse = await sendDirectMessage({ action: 'discoverComicChapter' });
+    expect(chapterScanResponse).toEqual({
+      success: true,
+      data: expect.objectContaining({
+        phase: 'failed',
+        discoveryId: null,
+        candidateCount: 0,
+        message: 'No comic chapter images found'
+      })
+    });
+
+    const chapterStartResponse = await sendDirectMessage({
+      action: 'startComicChapterTranslation',
+      data: { discoveryId: 'missing-discovery' }
+    });
+    expect(chapterStartResponse).toEqual({
+      success: false,
+      data: expect.objectContaining({
+        phase: 'failed',
+        message: expect.stringMatching(/missing|stale/i)
+      }),
+      error: expect.stringMatching(/missing|stale/i)
+    });
+
+    const chapterStopResponse = await sendDirectMessage({ action: 'stopComicChapterTranslation' });
+    expect(chapterStopResponse).toEqual({
+      success: true,
+      data: expect.objectContaining({
+        phase: 'idle',
+        discoveryId: null,
+        operationId: null,
+        message: 'Comic chapter translation stopped'
+      })
+    });
+
     const visibleImageResponse = await sendDirectMessage({ action: 'translateVisibleImages' });
     expect(visibleImageResponse).toEqual({
       success: true,
@@ -1070,7 +1105,11 @@ describe('Content script MessageManager contract', () => {
         isLearningMode: false,
         isVideoSubtitleMode: false,
         isLiveCaptionMode: false,
-        isImageTranslationMode: true
+        isImageTranslationMode: true,
+        comicChapterStatus: expect.objectContaining({
+          phase: 'idle',
+          message: 'Comic chapter translation stopped'
+        })
       })
     });
 

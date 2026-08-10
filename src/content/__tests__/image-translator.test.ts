@@ -364,6 +364,195 @@ describe('ImageTranslator', () => {
     expect(translateText).not.toHaveBeenCalled();
   });
 
+  it('scans a comic chapter without OCR and translates only after confirmation', async () => {
+    document.body.innerHTML = `
+      <main class="chapter-reader">
+        <img id="page-1" src="/page-1.jpg" alt="First chapter page">
+        <img id="page-2" src="/page-2.jpg" alt="Second chapter page">
+      </main>
+    `;
+    const images = Array.from(document.querySelectorAll('img')) as HTMLImageElement[];
+    images.forEach((image, index) => {
+      Object.defineProperty(image, 'complete', { configurable: true, value: true });
+      Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 720 });
+      Object.defineProperty(image, 'naturalHeight', { configurable: true, value: 1200 });
+      setRect(image, 10, 2000 + index * 1200, 720, 1200);
+    });
+    const translateText = jest.fn(async (text: string, _request: ImageTranslationRequest) => (
+      `Translated: ${text}`
+    ));
+    translator.enable(translateText);
+
+    const discovery = translator.discoverComicChapter();
+
+    expect(discovery).toEqual(expect.objectContaining({
+      phase: 'awaiting-confirmation',
+      candidateCount: 2,
+      acceptedCount: 2,
+      discoveryId: expect.stringMatching(/^comic-chapter:/)
+    }));
+    expect(workerFactory).not.toHaveBeenCalled();
+    expect(recognize).not.toHaveBeenCalled();
+    expect(translateText).not.toHaveBeenCalled();
+
+    const result = await translator.startComicChapterTranslation(discovery.discoveryId);
+
+    expect(result).toEqual(expect.objectContaining({
+      phase: 'completed',
+      processedCount: 2,
+      translatedCount: 2,
+      staleCount: 0
+    }));
+    expect(translateText).toHaveBeenCalledTimes(2);
+    expect(translateText.mock.calls[0][1]).toEqual(expect.objectContaining({
+      requestId: expect.stringMatching(/^comic-chapter:/)
+    }));
+  });
+
+  it('rejects a stale chapter snapshot without OCR or provider work', async () => {
+    document.body.innerHTML = '<main class="reader"><img id="page" src="/before.jpg" alt="Chapter page"></main>';
+    const image = document.getElementById('page') as HTMLImageElement;
+    Object.defineProperty(image, 'complete', { configurable: true, value: true });
+    Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 720 });
+    Object.defineProperty(image, 'naturalHeight', { configurable: true, value: 1200 });
+    setRect(image, 0, 1000, 720, 1200);
+    const translateText = jest.fn(async text => text);
+    translator.enable(translateText);
+    const discovery = translator.discoverComicChapter();
+    image.src = '/after.jpg';
+
+    const result = await translator.startComicChapterTranslation(discovery.discoveryId);
+
+    expect(result.phase).toBe('failed');
+    expect(result.message).toMatch(/stale|Scan again/i);
+    expect(recognize).not.toHaveBeenCalled();
+    expect(translateText).not.toHaveBeenCalled();
+  });
+
+  it('rejects a chapter snapshot when a new page is added after scanning', async () => {
+    document.body.innerHTML = '<main class="reader"><img id="page-1" src="/page-1.jpg" alt="Page one"></main>';
+    const first = document.getElementById('page-1') as HTMLImageElement;
+    Object.defineProperty(first, 'naturalWidth', { configurable: true, value: 720 });
+    Object.defineProperty(first, 'naturalHeight', { configurable: true, value: 1200 });
+    setRect(first, 0, 1000, 720, 1200);
+    const translateText = jest.fn(async (text: string) => text);
+    translator.enable(translateText);
+    const discovery = translator.discoverComicChapter();
+    const second = document.createElement('img');
+    second.src = '/page-2.jpg';
+    second.alt = 'Page two';
+    Object.defineProperty(second, 'naturalWidth', { configurable: true, value: 720 });
+    Object.defineProperty(second, 'naturalHeight', { configurable: true, value: 1200 });
+    setRect(second, 0, 2200, 720, 1200);
+    document.querySelector('main')!.appendChild(second);
+
+    const result = await translator.startComicChapterTranslation(discovery.discoveryId);
+
+    expect(result.phase).toBe('failed');
+    expect(result.message).toMatch(/stale|Scan again/i);
+    expect(recognize).not.toHaveBeenCalled();
+    expect(translateText).not.toHaveBeenCalled();
+  });
+
+  it('stops a chapter request immediately and ignores a late provider result', async () => {
+    document.body.innerHTML = '<main class="reader"><img id="page" src="/page.jpg" alt="Pending page"></main>';
+    const image = document.getElementById('page') as HTMLImageElement;
+    Object.defineProperty(image, 'complete', { configurable: true, value: true });
+    Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 720 });
+    Object.defineProperty(image, 'naturalHeight', { configurable: true, value: 1200 });
+    setRect(image, 0, 1000, 720, 1200);
+    let resolveTranslation!: (value: string) => void;
+    const pendingTranslation = new Promise<string>(resolve => {
+      resolveTranslation = resolve;
+    });
+    const translateText = jest.fn((_text: string, _request: ImageTranslationRequest) => pendingTranslation);
+    translator.enable(translateText);
+    const discovery = translator.discoverComicChapter();
+    const running = translator.startComicChapterTranslation(discovery.discoveryId);
+    await flushPromises();
+    const request = translateText.mock.calls[0][1] as ImageTranslationRequest;
+
+    const stopped = translator.stopComicChapterTranslation();
+
+    expect(stopped.phase).toBe('idle');
+    expect(request.signal.aborted).toBe(true);
+    resolveTranslation('Late translation');
+    await running;
+    await flushPromises();
+    expect(document.body.textContent).not.toContain('Late translation');
+    expect(document.querySelector('.lexibridge-image-translation-overlay')).toBeNull();
+  });
+
+  it('does not start an unrelated single-image translation while a chapter is running', async () => {
+    document.body.innerHTML = `
+      <main class="reader"><img id="chapter-page" src="/page.jpg" alt="Chapter text"></main>
+      <img id="unrelated" src="/unrelated.jpg" alt="Unrelated text">
+    `;
+    const chapterPage = document.getElementById('chapter-page') as HTMLImageElement;
+    const unrelated = document.getElementById('unrelated') as HTMLImageElement;
+    [chapterPage, unrelated].forEach((image, index) => {
+      Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 720 });
+      Object.defineProperty(image, 'naturalHeight', { configurable: true, value: 1200 });
+      setRect(image, 0, 1000 + index * 1300, 720, 1200);
+    });
+    let resolveTranslation!: (value: string) => void;
+    const pending = new Promise<string>(resolve => {
+      resolveTranslation = resolve;
+    });
+    const translateText = jest.fn((_text: string, _request: ImageTranslationRequest) => pending);
+    translator.enable(translateText);
+    const discovery = translator.discoverComicChapter();
+    const running = translator.startComicChapterTranslation(discovery.discoveryId);
+    await flushPromises();
+
+    click(unrelated);
+    await flushPromises();
+
+    expect(translateText).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).not.toContain('Unrelated text');
+    translator.stopComicChapterTranslation();
+    resolveTranslation('Late chapter result');
+    await running;
+  });
+
+  it('reports a partial chapter result when the source character limit is reached', async () => {
+    const main = document.createElement('main');
+    main.className = 'reader';
+    for (let index = 0; index < 16; index += 1) {
+      const image = document.createElement('img');
+      image.src = `/page-${index}.jpg`;
+      Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 720 });
+      Object.defineProperty(image, 'naturalHeight', { configurable: true, value: 1200 });
+      setRect(image, 0, 1000 + index * 1300, 720, 1200);
+      main.appendChild(image);
+    }
+    document.body.appendChild(main);
+    jest.spyOn(translator as any, 'extractImageTextBlocks').mockResolvedValue([{ text: 'x'.repeat(8_000) }]);
+    const translateText = jest.fn(async (text: string) => text);
+    translator.enable(translateText);
+    const discovery = translator.discoverComicChapter();
+
+    const result = await translator.startComicChapterTranslation(discovery.discoveryId);
+
+    expect(result.limitReached).toBe(true);
+    expect(result.processedCount).toBe(15);
+    expect(result.message).toContain('partial result');
+  });
+
+  it('bounds page-controlled accessible image text before provider dispatch', async () => {
+    document.body.innerHTML = `<img id="target" alt="${'x'.repeat(9_000)}">`;
+    const image = document.getElementById('target') as HTMLImageElement;
+    setRect(image, 0, 0, 200, 100);
+    const translateText = jest.fn(async (text: string) => text);
+    translator.enable(translateText);
+
+    click(image);
+    await flushPromises();
+
+    expect(translateText).toHaveBeenCalledTimes(1);
+    expect(translateText.mock.calls[0][0]).toHaveLength(8_000);
+  });
+
   it('translates readable image metadata after manual enablement', async () => {
     document.body.innerHTML = '<img id="target" alt="Sale ends tonight">';
     const image = document.getElementById('target') as HTMLImageElement;
@@ -753,6 +942,172 @@ describe('ImageTranslator', () => {
     expect(translateText).toHaveBeenCalledWith('Selected bubble text', expectImageTranslationRequest());
     expect(overlay?.textContent).toContain('Selected bubble text');
     expect(overlay?.textContent).toContain('Translated: Selected bubble text');
+  });
+
+  it('masks a freeform selection and waits for mouseup before OCR', async () => {
+    document.body.innerHTML = '<img id="target" src="comic.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 400, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 200, configurable: true });
+    setRect(image, 10, 20, 200, 100);
+
+    const maskedContext = {
+      fillRect: jest.fn(),
+      save: jest.fn(),
+      restore: jest.fn(),
+      beginPath: jest.fn(),
+      moveTo: jest.fn(),
+      lineTo: jest.fn(),
+      closePath: jest.fn(),
+      clip: jest.fn(),
+      drawImage: jest.fn()
+    };
+    getContext.mockReturnValue(maskedContext as unknown as CanvasRenderingContext2D);
+    const detect = jest.fn(async () => [{
+      rawValue: 'Freeform text',
+      boundingBox: { x: 10, y: 10, width: 60, height: 20 }
+    }]);
+    Object.defineProperty(window, 'createImageBitmap', {
+      value: jest.fn(async () => ({ close: jest.fn() })),
+      configurable: true
+    });
+    (window as any).TextDetector = jest.fn(() => ({ detect }));
+    const translateText = jest.fn(async text => `Translated: ${text}`);
+    const renderComic = jest.spyOn(translator as any, 'tryRenderComicImage').mockResolvedValue(false);
+    translator.enable(translateText);
+
+    mouse(image, 'mousedown', 30, 40);
+    mouse(document, 'mousemove', 90, 40);
+    mouse(document, 'mousemove', 90, 80);
+    mouse(document, 'mousemove', 30, 80);
+    expect(detect).not.toHaveBeenCalled();
+    expect(translateText).not.toHaveBeenCalled();
+    expect((document.getElementById('lexibridge-image-selection-box') as HTMLElement).style.clipPath)
+      .toContain('polygon(');
+
+    mouse(document, 'mouseup', 30, 40);
+    await flushPromises();
+
+    expect(maskedContext.fillRect).toHaveBeenCalledWith(0, 0, 120, 80);
+    expect(maskedContext.moveTo).toHaveBeenCalled();
+    expect(maskedContext.lineTo).toHaveBeenCalled();
+    expect(maskedContext.clip).toHaveBeenCalled();
+    expect(maskedContext.drawImage).toHaveBeenCalledWith(
+      image, 40, 40, 120, 80, 0, 0, 120, 80
+    );
+    expect(renderComic).not.toHaveBeenCalled();
+    expect(detect).toHaveBeenCalledTimes(1);
+    expect(translateText).toHaveBeenCalledWith('Freeform text', expectImageTranslationRequest());
+  });
+
+  it('samples the full freeform path when a lasso exceeds the polygon point limit', () => {
+    const points = Array.from({ length: 130 }, (_item, index) => ({
+      x: index,
+      y: index % 2 === 0 ? 0 : 100
+    }));
+
+    const limited = (translator as any).limitSelectionPolygonPoints(points, 64) as Array<{
+      x: number;
+      y: number;
+    }>;
+
+    expect(limited).toHaveLength(64);
+    expect(limited[0]).toEqual(points[0]);
+    expect(limited[limited.length - 1]).toEqual(points[points.length - 1]);
+    expect(Math.max(...limited.map(point => point.x))).toBe(129);
+  });
+
+  it('cancels an unfinished lasso when the window loses focus', async () => {
+    document.body.innerHTML = '<img id="target" src="comic.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    setRect(image, 0, 0, 240, 160);
+    const detect = jest.fn(async () => [{
+      rawValue: 'Should not run',
+      boundingBox: { x: 10, y: 10, width: 60, height: 20 }
+    }]);
+    Object.defineProperty(window, 'createImageBitmap', {
+      value: jest.fn(async () => ({ close: jest.fn() })),
+      configurable: true
+    });
+    (window as any).TextDetector = jest.fn(() => ({ detect }));
+    const translateText = jest.fn(async (text: string) => text);
+    translator.enable(translateText);
+
+    mouse(image, 'mousedown', 20, 20);
+    mouse(document, 'mousemove', 180, 100);
+    window.dispatchEvent(new Event('blur'));
+    mouse(document, 'mouseup', 180, 100);
+    await flushPromises();
+
+    expect(document.getElementById('lexibridge-image-selection-box')).toBeNull();
+    expect(detect).not.toHaveBeenCalled();
+    expect(translateText).not.toHaveBeenCalled();
+  });
+
+  it('preserves late lasso turns after more than 512 pointer samples', async () => {
+    document.body.innerHTML = '<img id="target" src="comic.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    setRect(image, 0, 0, 720, 200);
+    const translateTarget = jest.spyOn(translator as any, 'translateTarget').mockResolvedValue('translated');
+    translator.enable(async text => text);
+
+    mouse(image, 'mousedown', 0, 40);
+    for (let index = 1; index <= 700; index += 1) {
+      const y = index < 512 || index % 2 === 0 ? 40 : 180;
+      mouse(document, 'mousemove', index, y);
+    }
+    mouse(document, 'mouseup', 700, 40);
+    await flushPromises();
+
+    const region = translateTarget.mock.calls[0][2] as {
+      isFreeform: boolean;
+      polygon: Array<{ x: number; y: number }>;
+    };
+    expect(region.isFreeform).toBe(true);
+    expect(region.polygon.length).toBeGreaterThan(4);
+    expect(region.polygon.filter(point => point.x > 550 && point.y > 100).length).toBeGreaterThan(1);
+  });
+
+  it('preserves browser OCR corner points for polygon-safe reconstruction', async () => {
+    document.body.innerHTML = '<img id="target" src="rotated.png">';
+    const image = document.getElementById('target') as HTMLImageElement;
+    Object.defineProperty(image, 'complete', { value: true, configurable: true });
+    Object.defineProperty(image, 'naturalWidth', { value: 200, configurable: true });
+    Object.defineProperty(image, 'naturalHeight', { value: 100, configurable: true });
+    setRect(image, 10, 20, 200, 100);
+    Object.defineProperty(window, 'createImageBitmap', {
+      value: jest.fn(async () => ({ close: jest.fn() })),
+      configurable: true
+    });
+    (window as any).TextDetector = jest.fn(() => ({
+      detect: jest.fn(async () => [{
+        rawValue: 'Rotated text',
+        boundingBox: { x: 20, y: 10, width: 40, height: 30 },
+        cornerPoints: [
+          { x: 30, y: 10 },
+          { x: 60, y: 20 },
+          { x: 50, y: 40 },
+          { x: 20, y: 30 }
+        ]
+      }])
+    }));
+    const render = jest.spyOn(translator as any, 'tryRenderComicImage').mockResolvedValue(false);
+    translator.enable(async text => `Translated: ${text}`);
+
+    click(image);
+    await flushPromises();
+
+    const blocks = render.mock.calls[0][1] as Array<{ sourceRect: unknown; sourcePolygon: unknown }>;
+    expect(blocks[0]).toEqual(expect.objectContaining({
+      sourceRect: { x: 20, y: 10, width: 40, height: 30 },
+      sourcePolygon: [
+        { x: 30, y: 10 },
+        { x: 60, y: 20 },
+        { x: 50, y: 40 },
+        { x: 20, y: 30 }
+      ]
+    }));
   });
 
   it('reconstructs a safe comic bubble, removes source pixels, and typesets inside the image', async () => {

@@ -11,6 +11,11 @@ export interface PixelRect {
   readonly height: number;
 }
 
+export interface PixelPoint {
+  readonly x: number;
+  readonly y: number;
+}
+
 export type OcrTokenLevel = 'symbol' | 'word' | 'line' | 'page-fallback';
 export type TextDirection = 'ltr' | 'rtl' | 'vertical' | 'unknown';
 
@@ -19,6 +24,7 @@ export interface OcrToken {
   readonly text: string;
   readonly confidence: number;
   readonly rect: PixelRect;
+  readonly sourcePolygon?: readonly PixelPoint[];
   readonly level: OcrTokenLevel;
   readonly direction?: TextDirection;
 }
@@ -48,6 +54,7 @@ export interface TextGroup {
   readonly panelId?: string;
   readonly tokenIds: readonly string[];
   readonly tokenRects: readonly PixelRect[];
+  readonly sourcePolygons: readonly (readonly PixelPoint[] | undefined)[];
   readonly sourceText: string;
   readonly rect: PixelRect;
   readonly direction: TextDirection;
@@ -82,7 +89,7 @@ export interface TypesetLine {
 
 export interface TypesetPlan {
   readonly bounds: PixelRect;
-  readonly writingMode: 'horizontal';
+  readonly writingMode: 'horizontal' | 'vertical-rl';
   readonly direction: 'ltr' | 'rtl';
   readonly fontSize: number;
   readonly lineHeight: number;
@@ -155,6 +162,7 @@ export interface TypesetOptions {
   readonly lineHeightRatio?: number;
   readonly padding?: number;
   readonly direction?: 'ltr' | 'rtl';
+  readonly writingMode?: 'horizontal' | 'vertical-rl';
   readonly signal?: AbortSignal;
 }
 
@@ -186,8 +194,20 @@ interface WrapResult {
   readonly overflow: boolean;
 }
 
+interface VerticalWrapResult {
+  readonly glyphs: readonly {
+    text: string;
+    width: number;
+    column: number;
+    row: number;
+  }[];
+  readonly columnCount: number;
+  readonly overflow: boolean;
+}
+
 const EMPTY_COLOR: RgbaColor = [0, 0, 0, 0];
 const MAX_BUBBLE_SEARCH_PIXELS = 65_536;
+const MAX_OCR_POLYGON_POINTS = 8;
 
 export function validatePixelImage(image: PixelImage, purpose: 'analysis' | 'composite' = 'analysis'): void {
   if (!Number.isInteger(image.width) || image.width <= 0 || !Number.isInteger(image.height) || image.height <= 0) {
@@ -389,18 +409,28 @@ export function buildTextMask(
 
   const background = bubble?.backgroundColor || sampleRingMedian(image, group.rect, 3, options.signal).color;
   const contrastThreshold = clamp(options.contrastThreshold ?? 48, 1, 255);
-  const sourceMask = new Uint8Array(workingBounds.width * workingBounds.height);
-  const tokenCoverage = new Uint8Array(sourceMask.length);
+  const rectangleSourceMask = new Uint8Array(workingBounds.width * workingBounds.height);
+  const polygonSourceMask = new Uint8Array(rectangleSourceMask.length);
+  const rectangleCoverage = new Uint8Array(rectangleSourceMask.length);
+  const polygonCoverage = new Uint8Array(rectangleSourceMask.length);
   let rasterizedTokenPixels = 0;
 
-  for (const tokenRect of group.tokenRects) {
+  for (let tokenIndex = 0; tokenIndex < group.tokenRects.length; tokenIndex += 1) {
     throwIfAborted(options.signal);
+    const tokenRect = group.tokenRects[tokenIndex];
+    const sourcePolygon = group.sourcePolygons[tokenIndex];
     const clippedToken = clipRect(tokenRect, workingBounds);
     rasterizedTokenPixels += rectArea(clippedToken);
-    if (rasterizedTokenPixels > sourceMask.length * 8) return emptyMask(group.rect);
+    if (rasterizedTokenPixels > rectangleSourceMask.length * 8) return emptyMask(group.rect);
     for (let y = clippedToken.y; y < rectBottom(clippedToken); y += 1) {
-      const rowStart = (y - workingBounds.y) * workingBounds.width + clippedToken.x - workingBounds.x;
-      tokenCoverage.fill(1, rowStart, rowStart + clippedToken.width);
+      if ((y & 15) === 0) throwIfAborted(options.signal);
+      const rowStart = (y - workingBounds.y) * workingBounds.width;
+      for (let x = clippedToken.x; x < rectRight(clippedToken); x += 1) {
+        if (sourcePolygon && !isPointInsidePolygon(x + 0.5, y + 0.5, sourcePolygon)) continue;
+        const index = rowStart + x - workingBounds.x;
+        if (sourcePolygon) polygonCoverage[index] = 1;
+        else rectangleCoverage[index] = 1;
+      }
     }
   }
 
@@ -409,17 +439,36 @@ export function buildTextMask(
     const sourceY = workingBounds.y + localY;
     for (let localX = 0; localX < workingBounds.width; localX += 1) {
       const sourceX = workingBounds.x + localX;
-      if (!tokenCoverage[localY * workingBounds.width + localX]) continue;
+      const index = localY * workingBounds.width + localX;
+      if (!rectangleCoverage[index] && !polygonCoverage[index]) continue;
       const pixel = readPixel(image, sourceX, sourceY);
       if (pixel[3] > 0 && colorDistance(pixel, background) >= contrastThreshold) {
-        sourceMask[localY * workingBounds.width + localX] = 1;
+        if (rectangleCoverage[index]) rectangleSourceMask[index] = 1;
+        if (polygonCoverage[index]) polygonSourceMask[index] = 1;
       }
     }
   }
 
-  const dilated = dilateMask(sourceMask, workingBounds.width, workingBounds.height, dilationRadius, options.signal);
+  const rectangleDilated = dilateMask(
+    rectangleSourceMask,
+    workingBounds.width,
+    workingBounds.height,
+    dilationRadius,
+    options.signal
+  );
+  const polygonDilated = dilateMask(
+    polygonSourceMask,
+    workingBounds.width,
+    workingBounds.height,
+    dilationRadius,
+    options.signal
+  );
+  const dilated = new Uint8Array(rectangleDilated.length);
   let pixelCount = 0;
-  for (let index = 0; index < dilated.length; index += 1) pixelCount += dilated[index];
+  for (let index = 0; index < dilated.length; index += 1) {
+    dilated[index] = rectangleDilated[index] || (polygonCoverage[index] ? polygonDilated[index] : 0);
+    pixelCount += dilated[index];
+  }
 
   return {
     rect: workingBounds,
@@ -595,6 +644,64 @@ export function layoutTranslation(
   const maxFontSize = Math.max(minFontSize, Math.round(options.maxFontSize ?? Math.min(64, availableHeight || minFontSize)));
   const lineHeightRatio = clamp(options.lineHeightRatio ?? 1.2, 1, 2);
   const direction = options.direction || inferTextDirection(text);
+  const writingMode = options.writingMode || 'horizontal';
+
+  if (writingMode === 'vertical-rl') {
+    const evaluate = (fontSize: number): {
+      wrap: VerticalWrapResult;
+      lineHeight: number;
+      columnAdvance: number;
+    } => {
+      throwIfAborted(options.signal);
+      const lineHeight = fontSize * lineHeightRatio;
+      const columnAdvance = fontSize * lineHeightRatio;
+      const wrap = wrapVerticalText(
+        text,
+        availableWidth,
+        availableHeight,
+        fontSize,
+        lineHeight,
+        columnAdvance,
+        measure,
+        options.signal
+      );
+      return { wrap, lineHeight, columnAdvance };
+    };
+
+    let selectedFontSize = minFontSize;
+    let selected = evaluate(minFontSize);
+    if (!selected.wrap.overflow) {
+      let low = minFontSize;
+      let high = maxFontSize;
+      while (low <= high) {
+        throwIfAborted(options.signal);
+        const candidate = Math.floor((low + high) / 2);
+        const result = evaluate(candidate);
+        if (result.wrap.overflow) {
+          high = candidate - 1;
+        } else {
+          selectedFontSize = candidate;
+          selected = result;
+          low = candidate + 1;
+        }
+      }
+    }
+
+    return {
+      bounds,
+      writingMode,
+      direction,
+      fontSize: selectedFontSize,
+      lineHeight: selected.lineHeight,
+      lines: selected.wrap.glyphs.map(glyph => ({
+        text: glyph.text,
+        width: glyph.width,
+        x: bounds.x + bounds.width - padding - selected.columnAdvance * (glyph.column + 0.5),
+        y: bounds.y + padding + selected.lineHeight * (glyph.row + 0.5)
+      })),
+      overflow: selected.wrap.overflow
+    };
+  }
 
   const evaluate = (fontSize: number): { wrap: WrapResult; lineHeight: number } => {
     throwIfAborted(options.signal);
@@ -631,13 +738,28 @@ export function layoutTranslation(
 
   return {
     bounds,
-    writingMode: 'horizontal',
+    writingMode,
     direction,
     fontSize: selectedFontSize,
     lineHeight: selected.lineHeight,
     lines,
     overflow: selected.wrap.overflow
   };
+}
+
+export function inferOcrTextDirection(text: string, rect: PixelRect): TextDirection {
+  const graphemeCount = splitGraphemes(text).filter(grapheme => !/^\s+$/u.test(grapheme)).length;
+  if (graphemeCount >= 2 && rect.height >= rect.width * 1.35 && isPredominantlyCjk(text)) return 'vertical';
+  return inferTextDirection(text);
+}
+
+export function getTranslationWritingMode(
+  sourceDirection: TextDirection,
+  translatedText: string
+): 'horizontal' | 'vertical-rl' {
+  return sourceDirection === 'vertical' && isPredominantlyCjk(translatedText)
+    ? 'vertical-rl'
+    : 'horizontal';
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -655,6 +777,7 @@ function validateTokenCollection(tokens: readonly OcrToken[]): void {
     if (!token.id || ids.has(token.id)) throw new TypeError(`OCR token ids must be non-empty and unique: ${token.id}`);
     ids.add(token.id);
     assertValidRect(token.rect, `OCR token ${token.id}`);
+    if (token.sourcePolygon) assertValidPolygon(token.sourcePolygon, `OCR token ${token.id} source polygon`);
     if (!Number.isFinite(token.confidence) || token.confidence < 0 || token.confidence > 100) {
       throw new TypeError(`OCR token ${token.id} confidence must be between 0 and 100`);
     }
@@ -663,7 +786,14 @@ function validateTokenCollection(tokens: readonly OcrToken[]): void {
 
 function validateTokens(tokens: readonly OcrToken[], image: PixelImage): void {
   validateTokenCollection(tokens);
-  tokens.forEach(token => assertRectInsideImage(token.rect, image, `OCR token ${token.id}`));
+  tokens.forEach(token => {
+    assertRectInsideImage(token.rect, image, `OCR token ${token.id}`);
+    token.sourcePolygon?.forEach(point => {
+      if (point.x < 0 || point.y < 0 || point.x > image.width || point.y > image.height) {
+        throw new RangeError(`OCR token ${token.id} source polygon lies outside PixelImage bounds`);
+      }
+    });
+  });
 }
 
 function assertValidRect(rect: PixelRect, label: string): void {
@@ -681,6 +811,24 @@ function assertRectInsideImage(rect: PixelRect, image: PixelImage, label: string
   if (rect.x < 0 || rect.y < 0 || rectRight(rect) > image.width || rectBottom(rect) > image.height) {
     throw new RangeError(`${label} lies outside PixelImage bounds`);
   }
+}
+
+function assertValidPolygon(polygon: readonly PixelPoint[], label: string): void {
+  if (polygon.length < 3 || polygon.length > MAX_OCR_POLYGON_POINTS) {
+    throw new TypeError(`${label} must contain between 3 and ${MAX_OCR_POLYGON_POINTS} points`);
+  }
+  polygon.forEach(point => {
+    if (!Number.isInteger(point.x) || !Number.isInteger(point.y) || point.x < 0 || point.y < 0) {
+      throw new TypeError(`${label} must use finite integer source-pixel coordinates`);
+    }
+  });
+  let twiceArea = 0;
+  for (let index = 0; index < polygon.length; index += 1) {
+    const current = polygon[index];
+    const next = polygon[(index + 1) % polygon.length];
+    twiceArea += current.x * next.y - next.x * current.y;
+  }
+  if (Math.abs(twiceArea) < 1) throw new TypeError(`${label} must enclose a non-zero area`);
 }
 
 function sampleBorderMedian(image: PixelImage, signal?: AbortSignal): RgbaColor {
@@ -1012,6 +1160,7 @@ function createTextGroup(tokens: readonly OcrToken[], bubble?: BubbleRegion): Om
     panelId: bubble?.panelId,
     tokenIds: ordered.map(token => token.id),
     tokenRects: ordered.map(token => token.rect),
+    sourcePolygons: ordered.map(token => token.sourcePolygon),
     sourceText: joinTokenText(ordered),
     rect,
     direction,
@@ -1025,8 +1174,12 @@ function chooseGroupDirection(tokens: readonly OcrToken[]): TextDirection {
     const direction = token.direction || 'unknown';
     counts.set(direction, (counts.get(direction) || 0) + 1);
   });
-  return (['vertical', 'rtl', 'ltr', 'unknown'] as TextDirection[])
-    .sort((left, right) => (counts.get(right) || 0) - (counts.get(left) || 0))[0];
+  const knownDirections = (['vertical', 'rtl', 'ltr'] as TextDirection[])
+    .sort((left, right) => (counts.get(right) || 0) - (counts.get(left) || 0));
+  if ((counts.get(knownDirections[0]) || 0) > 0) return knownDirections[0];
+
+  const rect = unionRects(tokens.map(token => token.rect));
+  return inferOcrTextDirection(joinTokenText(tokens), rect);
 }
 
 function compareTokens(left: OcrToken, right: OcrToken, direction: TextDirection): number {
@@ -1190,6 +1343,61 @@ function wrapText(
   return { lines, overflow: widthOverflow || heightOverflow };
 }
 
+function wrapVerticalText(
+  text: string,
+  availableWidth: number,
+  availableHeight: number,
+  fontSize: number,
+  lineHeight: number,
+  columnAdvance: number,
+  measure: TextMeasure,
+  signal?: AbortSignal
+): VerticalWrapResult {
+  if (!text) return { glyphs: [], columnCount: 0, overflow: false };
+  if (availableWidth <= 0 || availableHeight <= 0) {
+    return { glyphs: [], columnCount: 0, overflow: true };
+  }
+
+  const maxRows = Math.floor(availableHeight / lineHeight);
+  if (maxRows < 1) return { glyphs: [], columnCount: 0, overflow: true };
+
+  const glyphs: Array<{ text: string; width: number; column: number; row: number }> = [];
+  const graphemes = splitGraphemes(text.replace(/\r\n?/g, '\n').replace(/[\t ]+/g, ' '));
+  let column = 0;
+  let row = 0;
+  let widthOverflow = false;
+
+  for (const sourceGrapheme of graphemes) {
+    throwIfAborted(signal);
+    if (sourceGrapheme === '\n') {
+      if (row > 0) {
+        column += 1;
+        row = 0;
+      }
+      continue;
+    }
+    if (row >= maxRows) {
+      column += 1;
+      row = 0;
+    }
+    const grapheme = getVerticalGlyph(sourceGrapheme);
+    const width = measure(grapheme, fontSize);
+    if (!Number.isFinite(width) || width < 0) {
+      throw new TypeError('TextMeasure must return a finite non-negative width');
+    }
+    if (width > columnAdvance + 0.0001) widthOverflow = true;
+    glyphs.push({ text: grapheme, width, column, row });
+    row += 1;
+  }
+
+  const columnCount = glyphs.length > 0 ? Math.max(...glyphs.map(glyph => glyph.column)) + 1 : 0;
+  return {
+    glyphs,
+    columnCount,
+    overflow: widthOverflow || columnCount * columnAdvance > availableWidth + 0.0001
+  };
+}
+
 function createWrapUnits(text: string): string[] {
   const units: string[] = [];
   let word = '';
@@ -1245,6 +1453,46 @@ function inferTextDirection(text: string): 'ltr' | 'rtl' {
 
 function isCjk(text: string): boolean {
   return /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(text);
+}
+
+function isPredominantlyCjk(text: string): boolean {
+  let cjkCount = 0;
+  let otherLetterOrNumberCount = 0;
+  splitGraphemes(text).forEach(grapheme => {
+    if (isCjk(grapheme)) cjkCount += 1;
+    else if (/^[\p{L}\p{N}]$/u.test(grapheme)) otherLetterOrNumberCount += 1;
+  });
+  return cjkCount > 0 && cjkCount >= otherLetterOrNumberCount;
+}
+
+function getVerticalGlyph(grapheme: string): string {
+  const substitutions: Readonly<Record<string, string>> = {
+    '(': '︵',
+    ')': '︶',
+    '[': '︹',
+    ']': '︺',
+    '{': '︷',
+    '}': '︸',
+    '「': '﹁',
+    '」': '﹂',
+    '『': '﹃',
+    '』': '﹄',
+    '【': '︻',
+    '】': '︼',
+    '《': '︽',
+    '》': '︾',
+    '、': '︑',
+    '。': '︒',
+    '，': '︐',
+    '：': '︓',
+    '；': '︔',
+    '！': '︕',
+    '？': '︖',
+    '…': '︙',
+    '—': '︱',
+    'ー': '｜'
+  };
+  return substitutions[grapheme] || grapheme;
 }
 
 function startsWithCjk(text: string): boolean {
@@ -1325,6 +1573,26 @@ function compareRects(left: PixelRect, right: PixelRect): number {
 
 function pointInsideRect(x: number, y: number, rect: PixelRect): boolean {
   return x >= rect.x && x < rectRight(rect) && y >= rect.y && y < rectBottom(rect);
+}
+
+export function isPointInsidePolygon(x: number, y: number, polygon: readonly PixelPoint[]): boolean {
+  let inside = false;
+  for (let currentIndex = 0, previousIndex = polygon.length - 1; currentIndex < polygon.length; previousIndex = currentIndex++) {
+    const current = polygon[currentIndex];
+    const previous = polygon[previousIndex];
+    if (pointOnSegment(x, y, previous, current)) return true;
+    const crosses = (current.y > y) !== (previous.y > y) &&
+      x < ((previous.x - current.x) * (y - current.y)) / (previous.y - current.y) + current.x;
+    if (crosses) inside = !inside;
+  }
+  return inside;
+}
+
+function pointOnSegment(x: number, y: number, start: PixelPoint, end: PixelPoint): boolean {
+  const cross = (x - start.x) * (end.y - start.y) - (y - start.y) * (end.x - start.x);
+  if (Math.abs(cross) > 0.0001) return false;
+  return x >= Math.min(start.x, end.x) && x <= Math.max(start.x, end.x) &&
+    y >= Math.min(start.y, end.y) && y <= Math.max(start.y, end.y);
 }
 
 function rectDistance(left: PixelRect, right: PixelRect): number {

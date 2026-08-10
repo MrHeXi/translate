@@ -6,17 +6,26 @@ import {
 } from '../../services/BundledOcrService';
 import { createTranslationRequestNamespace } from '../../services/TranslationRequestId';
 import {
+  COMIC_CHAPTER_LIMITS,
+  ComicChapterDiscovery,
+  ComicSiteAdapterRegistry,
+  comicSiteAdapterRegistry
+} from '../../services/ComicSiteAdapterRegistry';
+import {
   applyInpaintToImage,
   assessInpaintSafety,
   buildTextMask,
   COMIC_IMAGE_LIMITS,
   detectBubbles,
   detectPanels,
+  getTranslationWritingMode,
   groupTextTokens,
+  inferOcrTextDirection,
   layoutTranslation,
   OcrToken,
   OcrTokenLevel,
   PixelImage,
+  PixelPoint,
   PixelRect,
   RgbaColor,
   TypesetPlan
@@ -48,6 +57,34 @@ export interface SingleImageTranslationResult {
   message: string;
 }
 
+export type ComicChapterPhase =
+  | 'idle'
+  | 'awaiting-confirmation'
+  | 'running'
+  | 'completed'
+  | 'stale'
+  | 'failed';
+
+export interface ComicChapterState {
+  phase: ComicChapterPhase;
+  isActive: boolean;
+  discoveryId: string | null;
+  operationId: string | null;
+  adapterId: string;
+  adapterVersion: number;
+  siteLabel: string;
+  navigationKey: string;
+  candidateCount: number;
+  acceptedCount: number;
+  processedCount: number;
+  translatedCount: number;
+  unreadableCount: number;
+  failedCount: number;
+  staleCount: number;
+  limitReached: boolean;
+  message: string;
+}
+
 export interface ImageTranslationRequest {
   requestId: string;
   signal: AbortSignal;
@@ -58,6 +95,7 @@ type CreateTranslationCacheKey = (text: string) => string;
 
 interface DetectedText {
   rawValue?: string;
+  cornerPoints?: Array<{ x?: number; y?: number }>;
   boundingBox?: {
     x?: number;
     y?: number;
@@ -80,6 +118,8 @@ interface ImageSelectionRegion {
   width: number;
   height: number;
   viewportRect: DOMRect;
+  polygon: readonly PixelPoint[];
+  isFreeform: boolean;
 }
 
 interface ImageSelectionState {
@@ -89,12 +129,14 @@ interface ImageSelectionState {
   startY: number;
   currentX: number;
   currentY: number;
+  points: PixelPoint[];
 }
 
 interface ImageTextBlock {
   text: string;
   viewportRect?: DOMRect;
   sourceRect?: PixelRect;
+  sourcePolygon?: readonly PixelPoint[];
   confidence?: number;
   level?: OcrTokenLevel;
 }
@@ -131,6 +173,9 @@ const MAX_IMAGE_TRANSLATION_CONCURRENCY = 4;
 const MAX_COMIC_RECONSTRUCTION_BLOCKS = 64;
 const MAX_COMIC_RECONSTRUCTION_PIXELS = 1_500_000;
 const CONTEXT_MENU_TARGET_MAX_AGE_MS = 5_000;
+const MAX_SELECTION_POLYGON_POINTS = 64;
+const MAX_RAW_SELECTION_POINTS = 512;
+const MAX_IMAGE_TEXT_CHARACTERS = 8_000;
 
 declare global {
   interface Window {
@@ -141,6 +186,7 @@ declare global {
 export class ImageTranslator {
   private readonly requestNamespace = createTranslationRequestNamespace('image-text');
   private readonly batchNamespace = createTranslationRequestNamespace('image-batch');
+  private readonly chapterNamespace = createTranslationRequestNamespace('comic-chapter');
   private isActive = false;
   private translateText: TranslateText | null = null;
   private createTranslationCacheKey: CreateTranslationCacheKey = text => text;
@@ -155,6 +201,7 @@ export class ImageTranslator {
   private targetTranslationRuns: WeakMap<Element, number> = new WeakMap();
   private nextTargetTranslationRun = 0;
   private visibleImageRun = 0;
+  private comicChapterRun = 0;
   private nextOverlayId = 0;
   private interactionEpoch = 0;
   private requestSequence = 0;
@@ -166,6 +213,34 @@ export class ImageTranslator {
     operationId: string;
     promise: Promise<VisibleImageTranslationResult>;
   } | null = null;
+  private activeComicChapterBatch: {
+    operationId: string;
+    promise: Promise<ComicChapterState>;
+  } | null = null;
+  private comicChapterSnapshot: {
+    discoveryId: string;
+    discovery: ComicChapterDiscovery;
+  } | null = null;
+  private comicChapterState: ComicChapterState = {
+    phase: 'idle',
+    isActive: false,
+    discoveryId: null,
+    operationId: null,
+    adapterId: '',
+    adapterVersion: 1,
+    siteLabel: '',
+    navigationKey: '',
+    candidateCount: 0,
+    acceptedCount: 0,
+    processedCount: 0,
+    translatedCount: 0,
+    unreadableCount: 0,
+    failedCount: 0,
+    staleCount: 0,
+    limitReached: false,
+    message: 'No comic chapter scanned'
+  };
+  private hasImageCandidateSnapshot = false;
   private processedImageCount = 0;
   private totalImageCount = 0;
   private batchSequence = 0;
@@ -201,6 +276,12 @@ export class ImageTranslator {
   private boundHandleMouseUp = (event: MouseEvent): void => {
     void this.handleMouseUp(event);
   };
+  private boundCancelSelectionGesture = (): void => {
+    this.cancelSelectionGesture();
+  };
+  private boundHandleVisibilityChange = (): void => {
+    if (document.visibilityState !== 'visible') this.cancelSelectionGesture();
+  };
   private boundHandleContextMenu = (event: MouseEvent): void => {
     const target = this.getImageTarget(event);
     if (target) {
@@ -223,7 +304,10 @@ export class ImageTranslator {
     this.refreshOverlayPositions();
   };
 
-  constructor(private readonly imageOcrService: BundledOcrService = bundledOcrService) {}
+  constructor(
+    private readonly imageOcrService: BundledOcrService = bundledOcrService,
+    private readonly comicAdapters: ComicSiteAdapterRegistry = comicSiteAdapterRegistry
+  ) {}
 
   initialize(): void {
     if (this.isInitialized) return;
@@ -232,6 +316,9 @@ export class ImageTranslator {
     document.addEventListener('mouseover', this.boundHandleMouseOver, true);
     document.addEventListener('mouseout', this.boundHandleMouseOut, true);
     document.addEventListener('keydown', this.boundHandleKeyDown, true);
+    document.addEventListener('pointercancel', this.boundCancelSelectionGesture, true);
+    document.addEventListener('visibilitychange', this.boundHandleVisibilityChange);
+    window.addEventListener('blur', this.boundCancelSelectionGesture);
   }
 
   configure(
@@ -292,6 +379,7 @@ export class ImageTranslator {
     this.ensureResultObserver();
 
     const hasImage = this.findImageCandidates().length > 0;
+    this.hasImageCandidateSnapshot = hasImage;
 
     return {
       isActive: true,
@@ -321,6 +409,7 @@ export class ImageTranslator {
     window.addEventListener('scroll', this.boundHandleViewportChange, true);
     window.addEventListener('resize', this.boundHandleViewportChange);
     const hasImage = this.findImageCandidates().length > 0;
+    this.hasImageCandidateSnapshot = hasImage;
     return {
       isActive: true,
       hasImage,
@@ -337,10 +426,14 @@ export class ImageTranslator {
     this.isActive = false;
     this.interactionMode = 'off';
     this.visibleImageRun += 1;
+    this.comicChapterRun += 1;
     this.activeVisibleImageBatch = null;
+    this.activeComicChapterBatch = null;
     this.processedImageCount = 0;
     this.totalImageCount = 0;
     this.statusMessage = 'Image translation stopped';
+    this.resetComicChapterState('No comic chapter scanned', false);
+    this.comicChapterSnapshot = null;
     this.abortActiveRequests();
     this.abortActiveProcessing();
     this.cancelActiveDownloads();
@@ -371,15 +464,17 @@ export class ImageTranslator {
     this.styleElement?.remove();
     this.styleElement = null;
     this.targetTranslationRuns = new WeakMap();
+    this.hasImageCandidateSnapshot = false;
     void this.terminateBundledOcrSession();
   }
 
   getStatus(): ImageTranslatorState {
+    this.refreshComicChapterStaleness();
     return {
       isActive: this.isActive,
-      hasImage: this.findImageCandidates().length > 0,
-      isBatchRunning: Boolean(this.activeVisibleImageBatch),
-      operationId: this.activeVisibleImageBatch?.operationId || null,
+      hasImage: this.hasImageCandidateSnapshot,
+      isBatchRunning: Boolean(this.activeVisibleImageBatch || this.activeComicChapterBatch),
+      operationId: this.activeVisibleImageBatch?.operationId || this.activeComicChapterBatch?.operationId || null,
       processedImageCount: this.processedImageCount,
       totalImageCount: this.totalImageCount,
       message: this.statusMessage
@@ -400,7 +495,9 @@ export class ImageTranslator {
   invalidateForSettingsChange(): void {
     this.interactionEpoch += 1;
     this.visibleImageRun += 1;
+    this.comicChapterRun += 1;
     this.activeVisibleImageBatch = null;
+    this.activeComicChapterBatch = null;
     this.processedImageCount = 0;
     this.totalImageCount = 0;
     this.abortActiveRequests();
@@ -411,6 +508,7 @@ export class ImageTranslator {
     this.translationCacheGenerations.clear();
     this.targetTranslationRuns = new WeakMap();
     this.removeAllOverlays();
+    this.markComicChapterStale('Image settings changed. Scan the chapter again.');
     this.statusMessage = this.isActive ? 'Image translation settings updated' : 'Image translation stopped';
   }
 
@@ -421,6 +519,9 @@ export class ImageTranslator {
       document.removeEventListener('mouseover', this.boundHandleMouseOver, true);
       document.removeEventListener('mouseout', this.boundHandleMouseOut, true);
       document.removeEventListener('keydown', this.boundHandleKeyDown, true);
+      document.removeEventListener('pointercancel', this.boundCancelSelectionGesture, true);
+      document.removeEventListener('visibilitychange', this.boundHandleVisibilityChange);
+      window.removeEventListener('blur', this.boundCancelSelectionGesture);
       this.isInitialized = false;
     }
     this.lastContextMenuTarget = null;
@@ -452,6 +553,17 @@ export class ImageTranslator {
   }
 
   translateVisibleImages(): Promise<VisibleImageTranslationResult> {
+    if (this.activeComicChapterBatch) {
+      return Promise.resolve({
+        isActive: this.isActive,
+        visibleImageCount: 0,
+        translatedImageCount: 0,
+        unreadableImageCount: 0,
+        failedImageCount: 0,
+        operationId: null,
+        message: 'Comic chapter translation is running'
+      });
+    }
     if (this.activeVisibleImageBatch) return this.activeVisibleImageBatch.promise;
 
     const operationId = `${this.batchNamespace}:${++this.batchSequence}`;
@@ -555,8 +667,241 @@ export class ImageTranslator {
     };
   }
 
+  discoverComicChapter(): ComicChapterState {
+    if (!this.isActive || this.interactionMode !== 'page' || !this.translateText) {
+      return this.getComicChapterFailure('Start image translation before scanning a comic chapter.');
+    }
+    if (this.activeVisibleImageBatch || this.activeComicChapterBatch) {
+      return { ...this.comicChapterState, message: 'Wait for the current image task to finish.' };
+    }
+
+    this.comicChapterSnapshot?.discovery.candidates.forEach(candidate => {
+      this.removeTargetOverlays(candidate.element);
+    });
+    const discovery = this.comicAdapters.discover(document, window.location);
+    const discoveryId = `${this.chapterNamespace}:discovery:${++this.batchSequence}`;
+    this.comicChapterSnapshot = discovery.candidates.length > 0
+      ? { discoveryId, discovery }
+      : null;
+    this.comicChapterState = {
+      phase: discovery.candidates.length > 0 ? 'awaiting-confirmation' : 'failed',
+      isActive: this.isActive,
+      discoveryId: discovery.candidates.length > 0 ? discoveryId : null,
+      operationId: null,
+      adapterId: discovery.adapterId,
+      adapterVersion: discovery.adapterVersion,
+      siteLabel: discovery.siteLabel,
+      navigationKey: discovery.navigationKey,
+      candidateCount: discovery.candidates.length,
+      acceptedCount: discovery.candidates.length,
+      processedCount: 0,
+      translatedCount: 0,
+      unreadableCount: 0,
+      failedCount: 0,
+      staleCount: 0,
+      limitReached: discovery.limitReached,
+      message: discovery.candidates.length > 0
+        ? `Found ${discovery.candidates.length} chapter images${
+          discovery.limitReached ? ' (scan limit reached)' : ''
+        }`
+        : 'No comic chapter images found'
+    };
+    return { ...this.comicChapterState };
+  }
+
+  getComicChapterState(): ComicChapterState {
+    this.refreshComicChapterStaleness();
+    return { ...this.comicChapterState, isActive: this.isActive };
+  }
+
+  startComicChapterTranslation(discoveryId: unknown): Promise<ComicChapterState> {
+    const normalizedDiscoveryId = typeof discoveryId === 'string' ? discoveryId.trim() : '';
+    if (this.activeComicChapterBatch) {
+      return this.activeComicChapterBatch.promise;
+    }
+    if (!this.isActive || this.interactionMode !== 'page' || !this.translateText) {
+      return Promise.resolve(this.getComicChapterFailure('Start image translation first.'));
+    }
+    if (this.activeVisibleImageBatch) {
+      return Promise.resolve({ ...this.comicChapterState, message: 'Visible image translation is running.' });
+    }
+
+    this.refreshComicChapterStaleness();
+    const snapshot = this.comicChapterSnapshot;
+    if (
+      !snapshot ||
+      !normalizedDiscoveryId ||
+      normalizedDiscoveryId !== snapshot.discoveryId ||
+      this.comicChapterState.phase !== 'awaiting-confirmation'
+    ) {
+      return Promise.resolve(this.getComicChapterFailure('Comic chapter scan is missing or stale. Scan again.'));
+    }
+
+    this.abortActiveRequests();
+    this.abortActiveProcessing();
+    this.pendingTranslationCache.clear();
+    this.targetTranslationRuns = new WeakMap();
+    this.removeAllOverlays();
+    const operationId = `${this.chapterNamespace}:${++this.batchSequence}`;
+    const runId = ++this.comicChapterRun;
+    this.processedImageCount = 0;
+    this.totalImageCount = snapshot.discovery.candidates.length;
+    this.comicChapterState = {
+      ...this.comicChapterState,
+      phase: 'running',
+      operationId,
+      processedCount: 0,
+      translatedCount: 0,
+      unreadableCount: 0,
+      failedCount: 0,
+      staleCount: 0,
+      message: `Translating chapter image 1 of ${this.totalImageCount}`
+    };
+    this.statusMessage = this.comicChapterState.message;
+
+    const promise = this.runComicChapterTranslation(snapshot, runId).finally(() => {
+      if (this.activeComicChapterBatch?.operationId === operationId) {
+        this.activeComicChapterBatch = null;
+      }
+    });
+    this.activeComicChapterBatch = { operationId, promise };
+    return promise;
+  }
+
+  stopComicChapterTranslation(): ComicChapterState {
+    this.comicChapterRun += 1;
+    this.activeComicChapterBatch = null;
+    this.abortActiveRequests();
+    this.abortActiveProcessing();
+    this.cancelActiveDownloads();
+    this.pendingTranslationCache.clear();
+    this.targetTranslationRuns = new WeakMap();
+    this.comicChapterSnapshot?.discovery.candidates.forEach(candidate => {
+      this.removeTargetOverlays(candidate.element);
+    });
+    this.comicChapterSnapshot = null;
+    this.processedImageCount = 0;
+    this.totalImageCount = 0;
+    this.resetComicChapterState('Comic chapter translation stopped', this.isActive);
+    this.statusMessage = this.isActive ? 'Comic chapter translation stopped' : 'Image translation stopped';
+    void this.terminateBundledOcrSession();
+    return { ...this.comicChapterState };
+  }
+
+  private async runComicChapterTranslation(
+    snapshot: { discoveryId: string; discovery: ComicChapterDiscovery },
+    runId: number
+  ): Promise<ComicChapterState> {
+    let translatedCount = 0;
+    let unreadableCount = 0;
+    let failedCount = 0;
+    let staleCount = 0;
+    let textBlockCount = 0;
+    let sourceCharacterCount = 0;
+    let retainedReconstructionPixels = 0;
+    let limitReached = snapshot.discovery.limitReached;
+
+    this.targetTranslationRuns = new WeakMap();
+    snapshot.discovery.candidates.forEach(candidate => this.removeTargetOverlays(candidate.element));
+
+    chapterImages: for (const candidate of snapshot.discovery.candidates) {
+      if (!this.isComicChapterRunActive(runId)) break;
+      if (!this.comicAdapters.isCandidateCurrent(candidate, window.location, snapshot.discovery.navigationKey)) {
+        staleCount += 1;
+        this.removeTargetOverlays(candidate.element);
+      } else {
+        const imageBlocks = await this.extractImageTextBlocks(candidate.element);
+        if (!this.isComicChapterRunActive(runId)) break;
+        if (!this.comicAdapters.isCandidateCurrent(candidate, window.location, snapshot.discovery.navigationKey)) {
+          staleCount += 1;
+          this.removeTargetOverlays(candidate.element);
+        } else if (imageBlocks.length === 0) {
+          unreadableCount += 1;
+        } else {
+          const remainingBlocks = COMIC_CHAPTER_LIMITS.maxTextBlocks - textBlockCount;
+          if (remainingBlocks <= 0) {
+            limitReached = true;
+            break;
+          }
+          const blockCandidates = imageBlocks.slice(0, remainingBlocks);
+          const acceptedBlocks: ImageTextBlock[] = [];
+          for (const block of blockCandidates) {
+            if (sourceCharacterCount + block.text.length > COMIC_CHAPTER_LIMITS.maxSourceCharacters) {
+              limitReached = true;
+              break;
+            }
+            acceptedBlocks.push(block);
+            sourceCharacterCount += block.text.length;
+          }
+          if (acceptedBlocks.length < imageBlocks.length) limitReached = true;
+          if (acceptedBlocks.length === 0) break chapterImages;
+          textBlockCount += acceptedBlocks.length;
+
+          const sourceWidth = Math.max(1, candidate.element.naturalWidth || candidate.element.width);
+          const sourceHeight = Math.max(1, candidate.element.naturalHeight || candidate.element.height);
+          const sourcePixels = sourceWidth * sourceHeight;
+          const allowReconstruction = Number.isSafeInteger(sourcePixels) &&
+            sourcePixels <= MAX_COMIC_RECONSTRUCTION_PIXELS &&
+            retainedReconstructionPixels + sourcePixels <= COMIC_CHAPTER_LIMITS.maxRetainedReconstructionPixels;
+          if (allowReconstruction) retainedReconstructionPixels += sourcePixels;
+
+          const outcome = await this.translateImageBlocks(
+            candidate.element,
+            acceptedBlocks,
+            undefined,
+            false,
+            undefined,
+            undefined,
+            allowReconstruction,
+            this.chapterNamespace
+          );
+          if (outcome === 'translated') translatedCount += 1;
+          else if (outcome === 'failed') failedCount += 1;
+          else if (!this.isComicChapterRunActive(runId)) break;
+          else staleCount += 1;
+        }
+      }
+
+      if (!this.isComicChapterRunActive(runId)) break;
+      this.processedImageCount += 1;
+      this.comicChapterState = {
+        ...this.comicChapterState,
+        processedCount: this.processedImageCount,
+        translatedCount,
+        unreadableCount,
+        failedCount,
+        staleCount,
+        limitReached,
+        message: this.processedImageCount < this.totalImageCount
+          ? `Translating chapter image ${this.processedImageCount + 1} of ${this.totalImageCount}`
+          : 'Finishing comic chapter translation'
+      };
+      this.statusMessage = this.comicChapterState.message;
+    }
+
+    if (!this.isComicChapterRunActive(runId)) return { ...this.comicChapterState };
+    const limitSuffix = limitReached ? ' (partial result: safety limit reached)' : '';
+    const completedMessage = translatedCount > 0
+      ? `Translated ${translatedCount} of ${snapshot.discovery.candidates.length} chapter images${limitSuffix}`
+      : `No comic chapter text could be translated${limitSuffix}`;
+    this.comicChapterState = {
+      ...this.comicChapterState,
+      phase: staleCount === snapshot.discovery.candidates.length ? 'stale' : 'completed',
+      operationId: null,
+      processedCount: this.processedImageCount,
+      translatedCount,
+      unreadableCount,
+      failedCount,
+      staleCount,
+      limitReached,
+      message: completedMessage
+    };
+    this.statusMessage = completedMessage;
+    return { ...this.comicChapterState };
+  }
+
   private async handleImageClick(event: MouseEvent): Promise<void> {
-    if (!this.isActive || !this.translateText) return;
+    if (!this.isActive || !this.translateText || this.activeComicChapterBatch) return;
 
     if (this.suppressNextClick) {
       event.preventDefault();
@@ -578,7 +923,9 @@ export class ImageTranslator {
     forceRefresh: boolean,
     region?: ImageSelectionRegion
   ): Promise<ImageTranslationOutcome> {
-    if (!this.isActive || !this.translateText || !target.isConnected) return 'cancelled';
+    if (!this.isActive || !this.translateText || !target.isConnected || this.activeComicChapterBatch) {
+      return 'cancelled';
+    }
 
     const targetRunId = ++this.nextTargetTranslationRun;
     this.targetTranslationRuns.set(target, targetRunId);
@@ -973,7 +1320,7 @@ export class ImageTranslator {
   }
 
   private handleMouseDown(event: MouseEvent): void {
-    if (!this.isActive || event.button !== 0) return;
+    if (!this.isActive || event.button !== 0 || this.activeComicChapterBatch) return;
 
     const target = this.getImageTarget(event);
     if (!target) return;
@@ -986,7 +1333,8 @@ export class ImageTranslator {
       startX: event.clientX,
       startY: event.clientY,
       currentX: event.clientX,
-      currentY: event.clientY
+      currentY: event.clientY,
+      points: [{ x: event.clientX, y: event.clientY }]
     };
     this.updateSelectionBox(this.selectionState);
   }
@@ -996,6 +1344,7 @@ export class ImageTranslator {
 
     this.selectionState.currentX = event.clientX;
     this.selectionState.currentY = event.clientY;
+    this.appendSelectionPoint(this.selectionState, event.clientX, event.clientY);
     this.updateSelectionBox(this.selectionState);
   }
 
@@ -1004,6 +1353,7 @@ export class ImageTranslator {
 
     this.selectionState.currentX = event.clientX;
     this.selectionState.currentY = event.clientY;
+    this.appendSelectionPoint(this.selectionState, event.clientX, event.clientY);
     const selectionState = this.selectionState;
     this.selectionState = null;
 
@@ -1027,7 +1377,9 @@ export class ImageTranslator {
     region?: ImageSelectionRegion,
     forceRefresh = false,
     existingTargetRunId?: number,
-    existingSourceFingerprint?: string
+    existingSourceFingerprint?: string,
+    allowReconstruction = true,
+    requestNamespace = this.requestNamespace
   ): Promise<ImageTranslationOutcome> {
     if (!this.translateText || !this.isActive) return 'cancelled';
 
@@ -1037,14 +1389,14 @@ export class ImageTranslator {
     this.renderImageBlocks(target, imageBlocks, imageBlocks.map(() => 'Translating...'), region);
 
     try {
-      const translatedBlocks = await this.translateImageTextBlocks(imageBlocks, forceRefresh);
+      const translatedBlocks = await this.translateImageTextBlocks(imageBlocks, forceRefresh, requestNamespace);
 
       if (this.isTargetTranslationRunActive(target, targetRunId)) {
         if (!this.isSourceFingerprintCurrent(target, sourceFingerprint, region)) {
           this.removeTargetOverlays(target);
           return 'cancelled';
         }
-        const renderedComic = await this.tryRenderComicImage(
+        const renderedComic = allowReconstruction && !region?.isFreeform && await this.tryRenderComicImage(
           target,
           imageBlocks,
           translatedBlocks,
@@ -1076,7 +1428,7 @@ export class ImageTranslator {
     }
   }
 
-  private async translateCachedImageText(text: string): Promise<string> {
+  private async translateCachedImageText(text: string, requestNamespace = this.requestNamespace): Promise<string> {
     if (!this.translateText) return '';
 
     const cacheKey = this.createTranslationCacheKey(text);
@@ -1086,7 +1438,7 @@ export class ImageTranslator {
       let pendingTranslation = this.pendingTranslationCache.get(cacheKey);
       if (!pendingTranslation) {
         const controller = new AbortController();
-        const requestId = `${this.requestNamespace}:${++this.requestSequence}`;
+        const requestId = `${requestNamespace}:${++this.requestSequence}`;
         this.activeRequestControllers.add(controller);
         pendingTranslation = this.translateText(text, {
           requestId,
@@ -1117,7 +1469,8 @@ export class ImageTranslator {
 
   private async translateImageTextBlocks(
     blocks: ImageTextBlock[],
-    forceRefresh = false
+    forceRefresh = false,
+    requestNamespace = this.requestNamespace
   ): Promise<string[]> {
     if (forceRefresh) this.invalidateTranslationCacheForBlocks(blocks);
 
@@ -1129,7 +1482,7 @@ export class ImageTranslator {
         const index = nextIndex;
         nextIndex += 1;
         if (index >= blocks.length) return;
-        results[index] = await this.translateCachedImageText(blocks[index].text);
+        results[index] = await this.translateCachedImageText(blocks[index].text, requestNamespace);
       }
       throw new DOMException('Canceled', 'AbortError');
     });
@@ -1322,11 +1675,15 @@ export class ImageTranslator {
 
         return detections
           .map(item => {
-            const sourceRect = this.mapDetectedTextBoxToSource(item.boundingBox, mapping);
+            const sourcePolygon = this.mapDetectedPolygonToSource(item.cornerPoints, mapping);
+            const sourceRect = sourcePolygon
+              ? this.getPolygonBounds(sourcePolygon, mapping)
+              : this.mapDetectedTextBoxToSource(item.boundingBox, mapping);
             return {
               text: this.normalizeText(item.rawValue || ''),
-              viewportRect: this.mapDetectedTextBoxToViewport(item.boundingBox, mapping),
+              viewportRect: sourceRect ? this.mapSourceRectToViewport(sourceRect, mapping) : undefined,
               sourceRect,
+              sourcePolygon,
               confidence: 100,
               level: sourceRect ? this.getOcrTokenLevel(sourceRect, mapping) : 'page-fallback' as OcrTokenLevel
             };
@@ -1360,17 +1717,7 @@ export class ImageTranslator {
       const context = canvas.getContext('2d', { alpha: false });
       if (!context) return [];
 
-      context.drawImage(
-        element,
-        mapping.sourceX,
-        mapping.sourceY,
-        mapping.sourceWidth,
-        mapping.sourceHeight,
-        0,
-        0,
-        canvas.width,
-        canvas.height
-      );
+      if (!this.drawImageToOcrCanvas(context, element, mapping, region)) return [];
       const session = this.getBundledOcrSession();
       const lines = await session.recognize(canvas);
 
@@ -1404,9 +1751,20 @@ export class ImageTranslator {
 
   private async createRegionBitmap(
     element: HTMLImageElement | HTMLCanvasElement,
-    _region: ImageSelectionRegion,
+    region: ImageSelectionRegion,
     mapping: ImageBitmapMapping
   ): Promise<ImageBitmap> {
+    if (region.isFreeform) {
+      const canvas = document.createElement('canvas');
+      canvas.width = mapping.pixelWidth;
+      canvas.height = mapping.pixelHeight;
+      const context = canvas.getContext('2d', { alpha: false });
+      if (!context || !this.drawImageToOcrCanvas(context, element, mapping, region)) {
+        throw new Error('This browser cannot mask the selected image region.');
+      }
+      return window.createImageBitmap(canvas);
+    }
+
     return window.createImageBitmap(
       element,
       Math.round(mapping.sourceX),
@@ -1419,6 +1777,53 @@ export class ImageTranslator {
         resizeQuality: 'high'
       }
     );
+  }
+
+  private drawImageToOcrCanvas(
+    context: CanvasRenderingContext2D,
+    element: HTMLImageElement | HTMLCanvasElement,
+    mapping: ImageBitmapMapping,
+    region?: ImageSelectionRegion
+  ): boolean {
+    if (region?.isFreeform) {
+      if (
+        typeof context.fillRect !== 'function' ||
+        typeof context.save !== 'function' ||
+        typeof context.restore !== 'function' ||
+        typeof context.beginPath !== 'function' ||
+        typeof context.moveTo !== 'function' ||
+        typeof context.lineTo !== 'function' ||
+        typeof context.closePath !== 'function' ||
+        typeof context.clip !== 'function'
+      ) return false;
+
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, mapping.pixelWidth, mapping.pixelHeight);
+      context.save();
+      context.beginPath();
+      region.polygon.forEach((point, index) => {
+        const x = (point.x / Math.max(1, region.width)) * mapping.pixelWidth;
+        const y = (point.y / Math.max(1, region.height)) * mapping.pixelHeight;
+        if (index === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      });
+      context.closePath();
+      context.clip();
+    }
+
+    context.drawImage(
+      element,
+      mapping.sourceX,
+      mapping.sourceY,
+      mapping.sourceWidth,
+      mapping.sourceHeight,
+      0,
+      0,
+      mapping.pixelWidth,
+      mapping.pixelHeight
+    );
+    if (region?.isFreeform) context.restore();
+    return true;
   }
 
   private getBoundedOcrMapping(mapping: ImageBitmapMapping): ImageBitmapMapping {
@@ -1486,12 +1891,61 @@ export class ImageTranslator {
     const sourceRect = this.mapDetectedTextBoxToSource(boundingBox, mapping);
     if (!sourceRect) return undefined;
 
+    return this.mapSourceRectToViewport(sourceRect, mapping);
+  }
+
+  private mapSourceRectToViewport(
+    sourceRect: PixelRect,
+    mapping: ImageBitmapMapping
+  ): DOMRect {
+
     const left = mapping.viewportLeft + (sourceRect.x / mapping.pixelWidth) * mapping.viewportWidth;
     const top = mapping.viewportTop + (sourceRect.y / mapping.pixelHeight) * mapping.viewportHeight;
     const width = (sourceRect.width / mapping.pixelWidth) * mapping.viewportWidth;
     const height = (sourceRect.height / mapping.pixelHeight) * mapping.viewportHeight;
 
     return this.createDomRectLike(left, top, width, height);
+  }
+
+  private mapDetectedPolygonToSource(
+    cornerPoints: DetectedText['cornerPoints'],
+    mapping: ImageBitmapMapping
+  ): readonly PixelPoint[] | undefined {
+    if (!Array.isArray(cornerPoints) || cornerPoints.length < 3 || cornerPoints.length > 8) return undefined;
+    const points = cornerPoints.map(point => ({
+      x: Math.round(Number(point.x)),
+      y: Math.round(Number(point.y))
+    }));
+    if (points.some(point => !Number.isFinite(point.x) || !Number.isFinite(point.y))) return undefined;
+
+    const clamped = points.map(point => ({
+      x: Math.max(0, Math.min(mapping.pixelWidth, point.x)),
+      y: Math.max(0, Math.min(mapping.pixelHeight, point.y))
+    })).filter((point, index, values) => (
+      values.findIndex(candidate => candidate.x === point.x && candidate.y === point.y) === index
+    ));
+    if (clamped.length < 3) return undefined;
+
+    let twiceArea = 0;
+    for (let index = 0; index < clamped.length; index += 1) {
+      const current = clamped[index];
+      const next = clamped[(index + 1) % clamped.length];
+      twiceArea += current.x * next.y - next.x * current.y;
+    }
+    return Math.abs(twiceArea) >= 1 ? clamped : undefined;
+  }
+
+  private getPolygonBounds(
+    polygon: readonly PixelPoint[],
+    mapping: ImageBitmapMapping
+  ): PixelRect | undefined {
+    const left = Math.max(0, Math.min(mapping.pixelWidth - 1, Math.floor(Math.min(...polygon.map(point => point.x)))));
+    const top = Math.max(0, Math.min(mapping.pixelHeight - 1, Math.floor(Math.min(...polygon.map(point => point.y)))));
+    const right = Math.max(left + 1, Math.min(mapping.pixelWidth, Math.ceil(Math.max(...polygon.map(point => point.x)))));
+    const bottom = Math.max(top + 1, Math.min(mapping.pixelHeight, Math.ceil(Math.max(...polygon.map(point => point.y)))));
+    return right > left && bottom > top
+      ? { x: left, y: top, width: right - left, height: bottom - top }
+      : undefined;
   }
 
   private mapDetectedTextBoxToSource(
@@ -1572,8 +2026,9 @@ export class ImageTranslator {
         text: block.text,
         confidence: Math.max(0, Math.min(100, block.confidence ?? 100)),
         rect: block.sourceRect!,
+        sourcePolygon: block.sourcePolygon,
         level: block.level || 'line',
-        direction: 'unknown'
+        direction: inferOcrTextDirection(block.text, block.sourceRect!)
       }));
       const panels = detectPanels(snapshot.image, { signal });
       const bubbles = detectBubbles(snapshot.image, tokens, panels, { signal });
@@ -1618,10 +2073,14 @@ export class ImageTranslator {
           .trim();
         if (!translatedText) return false;
 
+        const writingMode = getTranslationWritingMode(group.direction, translatedText);
         const plan = layoutTranslation(translatedText, bubble.rect, measure, {
           minFontSize: 6,
-          maxFontSize: Math.max(8, Math.min(48, Math.floor(bubble.rect.height * 0.45))),
+          maxFontSize: Math.max(8, Math.min(48, Math.floor(
+            (writingMode === 'vertical-rl' ? bubble.rect.width : bubble.rect.height) * 0.45
+          ))),
           padding: Math.max(2, Math.floor(Math.min(bubble.rect.width, bubble.rect.height) * 0.08)),
+          writingMode,
           signal
         });
         if (plan.overflow || plan.lines.length === 0) return false;
@@ -1650,8 +2109,6 @@ export class ImageTranslator {
       const imageData = outputContext.createImageData(composite.width, composite.height);
       imageData.data.set(composite.data);
       outputContext.putImageData(imageData, 0, 0);
-      outputContext.textBaseline = 'alphabetic';
-
       preparedGroups.forEach(prepared => {
         outputContext.save();
         outputContext.beginPath();
@@ -1664,7 +2121,10 @@ export class ImageTranslator {
         outputContext.clip();
         outputContext.fillStyle = prepared.textColor;
         outputContext.direction = prepared.plan.direction;
-        outputContext.textAlign = prepared.plan.direction === 'rtl' ? 'right' : 'left';
+        outputContext.textBaseline = prepared.plan.writingMode === 'vertical-rl' ? 'middle' : 'alphabetic';
+        outputContext.textAlign = prepared.plan.writingMode === 'vertical-rl'
+          ? 'center'
+          : prepared.plan.direction === 'rtl' ? 'right' : 'left';
         outputContext.font = this.getComicFont(prepared.plan.fontSize);
         prepared.plan.lines.forEach(line => outputContext.fillText(line.text, line.x, line.y));
         outputContext.restore();
@@ -1779,7 +2239,13 @@ export class ImageTranslator {
     const rect = target.getBoundingClientRect();
     const geometry = [rect.left, rect.top, rect.width, rect.height].map(value => Math.round(value * 100) / 100);
     const selection = region
-      ? [region.x, region.y, region.width, region.height].map(value => Math.round(value * 100) / 100)
+      ? [
+        ...[region.x, region.y, region.width, region.height].map(value => Math.round(value * 100) / 100),
+        ...region.polygon.flatMap(point => [
+          Math.round(point.x * 100) / 100,
+          Math.round(point.y * 100) / 100
+        ])
+      ]
       : [];
 
     if (target instanceof HTMLImageElement) {
@@ -1849,7 +2315,8 @@ export class ImageTranslator {
       .replace(/\s+\n/g, '\n')
       .replace(/\n\s+/g, '\n')
       .replace(/[ \t]+/g, ' ')
-      .trim();
+      .trim()
+      .slice(0, MAX_IMAGE_TEXT_CHARACTERS);
   }
 
   private uniqueTextBlocks(textBlocks: string[]): string[] {
@@ -1895,7 +2362,10 @@ export class ImageTranslator {
       ].join(':')
       : 'no-rect';
 
-    return `${block.text.toLowerCase()}|${rectKey}`;
+    const polygonKey = block.sourcePolygon
+      ?.map(point => `${Math.round(point.x)},${Math.round(point.y)}`)
+      .join(';') || 'no-polygon';
+    return `${block.text.toLowerCase()}|${rectKey}|${polygonKey}`;
   }
 
   private createStyleElement(): void {
@@ -2110,17 +2580,48 @@ export class ImageTranslator {
       this.selectionElement = box;
     }
 
-    const left = Math.min(selectionState.startX, selectionState.currentX);
-    const top = Math.min(selectionState.startY, selectionState.currentY);
-    const width = Math.abs(selectionState.currentX - selectionState.startX);
-    const height = Math.abs(selectionState.currentY - selectionState.startY);
+    const points = this.getClampedSelectionPoints(selectionState);
+    const viewportRect = this.getPointBounds(points);
+    const polygon = this.getSelectionPolygon(points, viewportRect);
+    const clipPath = viewportRect.width > 0 && viewportRect.height > 0
+      ? `polygon(${polygon.map(point => (
+        `${(point.x / viewportRect.width) * 100}% ${(point.y / viewportRect.height) * 100}%`
+      )).join(', ')})`
+      : '';
 
     Object.assign(this.selectionElement.style, {
-      left: `${left}px`,
-      top: `${top}px`,
-      width: `${width}px`,
-      height: `${height}px`
+      left: `${viewportRect.left}px`,
+      top: `${viewportRect.top}px`,
+      width: `${viewportRect.width}px`,
+      height: `${viewportRect.height}px`,
+      clipPath
     });
+  }
+
+  private appendSelectionPoint(selectionState: ImageSelectionState, x: number, y: number): void {
+    const targetRect = selectionState.target.getBoundingClientRect();
+    const point = {
+      x: Math.max(targetRect.left, Math.min(targetRect.right, x)),
+      y: Math.max(targetRect.top, Math.min(targetRect.bottom, y))
+    };
+    const previous = selectionState.points[selectionState.points.length - 1];
+    if (!previous || Math.hypot(point.x - previous.x, point.y - previous.y) >= 2) {
+      if (selectionState.points.length >= MAX_RAW_SELECTION_POINTS) {
+        const compacted = this.limitSelectionPolygonPoints(
+          selectionState.points,
+          Math.floor(MAX_RAW_SELECTION_POINTS / 2)
+        );
+        selectionState.points.splice(0, selectionState.points.length, ...compacted);
+      }
+      selectionState.points.push(point);
+    }
+  }
+
+  private cancelSelectionGesture(): void {
+    if (!this.selectionState) return;
+    this.selectionState = null;
+    this.removeSelectionBox();
+    this.suppressNextClick = false;
   }
 
   private removeSelectionBox(): void {
@@ -2156,6 +2657,77 @@ export class ImageTranslator {
     return this.isActive && this.visibleImageRun === runId;
   }
 
+  private isComicChapterRunActive(runId: number): boolean {
+    return this.isActive && this.comicChapterRun === runId;
+  }
+
+  private refreshComicChapterStaleness(): void {
+    const snapshot = this.comicChapterSnapshot;
+    if (!snapshot || this.comicChapterState.phase === 'running') return;
+    if (!this.comicAdapters.isDiscoveryCurrent(snapshot.discovery, document, window.location)) {
+      const staleCount = snapshot.discovery.candidates.filter(candidate => (
+        !this.comicAdapters.isCandidateCurrent(candidate, window.location, snapshot.discovery.navigationKey)
+      )).length || 1;
+      snapshot.discovery.candidates.forEach(candidate => this.removeTargetOverlays(candidate.element));
+      this.comicChapterSnapshot = null;
+      this.comicChapterState = {
+        ...this.comicChapterState,
+        phase: 'stale',
+        discoveryId: null,
+        operationId: null,
+        staleCount,
+        message: 'Comic chapter changed. Scan it again.'
+      };
+    }
+  }
+
+  private markComicChapterStale(message: string): void {
+    if (!this.comicChapterSnapshot && this.comicChapterState.phase === 'idle') return;
+    this.comicChapterRun += 1;
+    this.activeComicChapterBatch = null;
+    this.comicChapterSnapshot = null;
+    this.comicChapterState = {
+      ...this.comicChapterState,
+      phase: 'stale',
+      discoveryId: null,
+      operationId: null,
+      message
+    };
+  }
+
+  private getComicChapterFailure(message: string): ComicChapterState {
+    this.comicChapterState = {
+      ...this.comicChapterState,
+      phase: 'failed',
+      isActive: this.isActive,
+      operationId: null,
+      message
+    };
+    return { ...this.comicChapterState };
+  }
+
+  private resetComicChapterState(message: string, isActive: boolean): void {
+    this.comicChapterState = {
+      phase: 'idle',
+      isActive,
+      discoveryId: null,
+      operationId: null,
+      adapterId: '',
+      adapterVersion: 1,
+      siteLabel: '',
+      navigationKey: '',
+      candidateCount: 0,
+      acceptedCount: 0,
+      processedCount: 0,
+      translatedCount: 0,
+      unreadableCount: 0,
+      failedCount: 0,
+      staleCount: 0,
+      limitReached: false,
+      message
+    };
+  }
+
   private getVisibleImageResultMessage(
     visibleImageCount: number,
     translatedImageCount: number,
@@ -2184,40 +2756,119 @@ export class ImageTranslator {
   }
 
   private getSelectionRegion(selectionState: ImageSelectionState): ImageSelectionRegion | null {
-    const viewportRect = this.getClampedViewportRect(selectionState);
+    const points = this.getClampedSelectionPoints(selectionState);
+    const viewportRect = this.getPointBounds(points);
     if (viewportRect.width < 8 || viewportRect.height < 8) return null;
 
     const targetRect = selectionState.target.getBoundingClientRect();
+    const simplified = this.limitSelectionPolygonPoints(
+      this.simplifySelectionPath(points, 1.5),
+      MAX_SELECTION_POLYGON_POINTS
+    );
+    const freeformArea = this.getPolygonArea(simplified);
+    const isFreeform = simplified.length >= 3 && freeformArea >= 64;
+    const polygon = isFreeform
+      ? simplified.map(point => ({ x: point.x - viewportRect.left, y: point.y - viewportRect.top }))
+      : this.getSelectionPolygon(points, viewportRect);
 
     return {
       x: viewportRect.left - targetRect.left,
       y: viewportRect.top - targetRect.top,
       width: viewportRect.width,
       height: viewportRect.height,
-      viewportRect
+      viewportRect,
+      polygon,
+      isFreeform
     };
   }
 
-  private getClampedViewportRect(selectionState: ImageSelectionState): DOMRect {
+  private getClampedSelectionPoints(selectionState: ImageSelectionState): PixelPoint[] {
     const targetRect = selectionState.target.getBoundingClientRect();
-    const left = Math.max(
-      targetRect.left,
-      Math.min(selectionState.startX, selectionState.currentX)
-    );
-    const top = Math.max(
-      targetRect.top,
-      Math.min(selectionState.startY, selectionState.currentY)
-    );
-    const right = Math.min(
-      targetRect.right,
-      Math.max(selectionState.startX, selectionState.currentX)
-    );
-    const bottom = Math.min(
-      targetRect.bottom,
-      Math.max(selectionState.startY, selectionState.currentY)
-    );
+    const sourcePoints = selectionState.points.length >= 2
+      ? selectionState.points
+      : [
+        { x: selectionState.startX, y: selectionState.startY },
+        { x: selectionState.currentX, y: selectionState.currentY }
+      ];
+    return sourcePoints.map(point => ({
+      x: Math.max(targetRect.left, Math.min(targetRect.right, point.x)),
+      y: Math.max(targetRect.top, Math.min(targetRect.bottom, point.y))
+    }));
+  }
 
+  private getPointBounds(points: readonly PixelPoint[]): DOMRect {
+    if (points.length === 0) return this.createDomRectLike(0, 0, 0, 0);
+    const left = Math.min(...points.map(point => point.x));
+    const top = Math.min(...points.map(point => point.y));
+    const right = Math.max(...points.map(point => point.x));
+    const bottom = Math.max(...points.map(point => point.y));
     return this.createDomRectLike(left, top, Math.max(0, right - left), Math.max(0, bottom - top));
+  }
+
+  private getSelectionPolygon(
+    points: readonly PixelPoint[],
+    viewportRect: DOMRect
+  ): readonly PixelPoint[] {
+    const simplified = this.limitSelectionPolygonPoints(
+      this.simplifySelectionPath(points, 1.5),
+      MAX_SELECTION_POLYGON_POINTS
+    );
+    if (simplified.length >= 3 && this.getPolygonArea(simplified) >= 64) {
+      return simplified.map(point => ({ x: point.x - viewportRect.left, y: point.y - viewportRect.top }));
+    }
+    return [
+      { x: 0, y: 0 },
+      { x: viewportRect.width, y: 0 },
+      { x: viewportRect.width, y: viewportRect.height },
+      { x: 0, y: viewportRect.height }
+    ];
+  }
+
+  private simplifySelectionPath(points: readonly PixelPoint[], tolerance: number): PixelPoint[] {
+    if (points.length <= 2) return [...points];
+    let furthestIndex = 0;
+    let furthestDistance = 0;
+    const start = points[0];
+    const end = points[points.length - 1];
+    for (let index = 1; index < points.length - 1; index += 1) {
+      const distance = this.getPointToSegmentDistance(points[index], start, end);
+      if (distance > furthestDistance) {
+        furthestDistance = distance;
+        furthestIndex = index;
+      }
+    }
+    if (furthestDistance <= tolerance) return [start, end];
+    const left = this.simplifySelectionPath(points.slice(0, furthestIndex + 1), tolerance);
+    const right = this.simplifySelectionPath(points.slice(furthestIndex), tolerance);
+    return [...left.slice(0, -1), ...right];
+  }
+
+  private limitSelectionPolygonPoints(points: readonly PixelPoint[], limit: number): PixelPoint[] {
+    if (points.length <= limit) return [...points];
+    return Array.from({ length: limit }, (_item, index) => (
+      points[Math.round((index * (points.length - 1)) / (limit - 1))]
+    ));
+  }
+
+  private getPointToSegmentDistance(point: PixelPoint, start: PixelPoint, end: PixelPoint): number {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    if (dx === 0 && dy === 0) return Math.hypot(point.x - start.x, point.y - start.y);
+    const ratio = Math.max(0, Math.min(1, (
+      (point.x - start.x) * dx + (point.y - start.y) * dy
+    ) / (dx * dx + dy * dy)));
+    return Math.hypot(point.x - (start.x + ratio * dx), point.y - (start.y + ratio * dy));
+  }
+
+  private getPolygonArea(points: readonly PixelPoint[]): number {
+    if (points.length < 3) return 0;
+    let twiceArea = 0;
+    for (let index = 0; index < points.length; index += 1) {
+      const current = points[index];
+      const next = points[(index + 1) % points.length];
+      twiceArea += current.x * next.y - next.x * current.y;
+    }
+    return Math.abs(twiceArea) / 2;
   }
 
   private createDomRectLike(left: number, top: number, width: number, height: number): DOMRect {

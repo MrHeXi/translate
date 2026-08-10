@@ -11,7 +11,9 @@ import {
   COMIC_IMAGE_LIMITS,
   detectBubbles,
   detectPanels,
+  getTranslationWritingMode,
   groupTextTokens,
+  inferOcrTextDirection,
   layoutTranslation,
   OcrToken,
   PixelImage,
@@ -173,11 +175,8 @@ export class LocalImageTranslationService implements LocalImageTranslationEngine
         .filter(line => line.text.trim())
         .slice(0, LOCAL_IMAGE_LIMITS.maxBlocks);
       const tokens: OcrToken[] = normalizedLines
-        .map((line, index) => ({
-          id: `ocr-${index}`,
-          text: line.text.trim(),
-          confidence: Math.max(0, Math.min(100, line.confidence || 0)),
-          rect: {
+        .map((line, index) => {
+          const rect = {
             x: Math.max(0, Math.floor(line.boundingBox.x)),
             y: Math.max(0, Math.floor(line.boundingBox.y)),
             width: Math.max(1, Math.min(
@@ -188,15 +187,22 @@ export class LocalImageTranslationService implements LocalImageTranslationEngine
               sourceCanvas.height - Math.max(0, Math.floor(line.boundingBox.y)),
               Math.ceil(line.boundingBox.height)
             ))
-          },
-          level: this.isPageFallbackLine(
-            line.boundingBox,
-            normalizedLines.length,
-            sourceCanvas.width,
-            sourceCanvas.height
-          ) ? 'page-fallback' as const : 'line' as const,
-          direction: 'unknown' as const
-        }))
+          };
+          const text = line.text.trim();
+          return {
+            id: `ocr-${index}`,
+            text,
+            confidence: Math.max(0, Math.min(100, line.confidence || 0)),
+            rect,
+            level: this.isPageFallbackLine(
+              line.boundingBox,
+              normalizedLines.length,
+              sourceCanvas.width,
+              sourceCanvas.height
+            ) ? 'page-fallback' as const : 'line' as const,
+            direction: inferOcrTextDirection(text, rect)
+          };
+        })
         .filter(token => token.rect.x < sourceCanvas.width && token.rect.y < sourceCanvas.height);
 
       if (tokens.length === 0) throw new Error('No readable text was found in this image.');
@@ -403,10 +409,14 @@ export class LocalImageTranslationService implements LocalImageTranslationEngine
         context.font = this.getFont(fontSize);
         return context.measureText(text).width;
       };
+      const writingMode = getTranslationWritingMode(group.direction, translatedTexts[index]);
       const plan = layoutTranslation(translatedTexts[index], bounds, measure, {
         minFontSize: 6,
-        maxFontSize: Math.max(8, Math.min(48, Math.floor(bounds.height * 0.45))),
+        maxFontSize: Math.max(8, Math.min(48, Math.floor(
+          (writingMode === 'vertical-rl' ? bounds.width : bounds.height) * 0.45
+        ))),
         padding: Math.max(2, Math.floor(Math.min(bounds.width, bounds.height) * 0.08)),
+        writingMode,
         signal
       });
       let canReconstruct = false;
@@ -438,8 +448,6 @@ export class LocalImageTranslationService implements LocalImageTranslationEngine
     const imageData = context.createImageData(composite.width, composite.height);
     imageData.data.set(composite.data);
     context.putImageData(imageData, 0, 0);
-    context.textBaseline = 'alphabetic';
-
     for (const item of renderPlans) {
       this.throwIfAborted(signal);
       context.save();
@@ -457,7 +465,10 @@ export class LocalImageTranslationService implements LocalImageTranslationEngine
       }
       context.fillStyle = item.textColor;
       context.direction = item.plan.direction;
-      context.textAlign = item.plan.direction === 'rtl' ? 'right' : 'left';
+      context.textBaseline = item.plan.writingMode === 'vertical-rl' ? 'middle' : 'alphabetic';
+      context.textAlign = item.plan.writingMode === 'vertical-rl'
+        ? 'center'
+        : item.plan.direction === 'rtl' ? 'right' : 'left';
       context.font = this.getFont(item.plan.fontSize);
       item.plan.lines.forEach(line => context.fillText(line.text, line.x, line.y));
       context.restore();

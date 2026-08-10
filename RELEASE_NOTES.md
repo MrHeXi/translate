@@ -42,14 +42,18 @@ Initial productized release candidate for local testing and Chrome Web Store pre
 - Live caption translation for caption text already visible in the page DOM, with Google Meet, Zoom, Microsoft Teams, and Webex-style speaker label handling.
 - Timestamped bilingual live-caption transcripts with incremental-caption coalescing, in-memory session retention after Stop, explicit Clear, and local TXT/SRT/VTT/JSON export.
 - Manual image text translation for selected images, canvases, SVGs, dragged image regions, and eligible graphics currently visible in the viewport, using browser OCR first and bundled offline OCR otherwise while retaining separate per-image or OCR-block overlays.
-- Explicit image entry points for a frame-aware right-click command, hover actions available only after Image text is started, and a one-shot `Z` region selector; opening a page, showing the hover controls, or pressing `Z` does not run OCR until the user chooses Translate or completes a valid drag selection.
+- Explicit image entry points for a frame-aware right-click command, hover actions available only after Image text is started, and a one-shot freeform `Z` lasso; opening a page, showing the hover controls, or pressing `Z` does not run OCR until the user chooses Translate or releases a valid selection. Blur, page hide, and pointer cancellation discard unfinished gestures.
 - Per-image Retranslate, Apply, Undo, and reconstructed-canvas Download PNG actions. Retranslate bypasses completed and pending translation caches, Apply commits only extension-owned overlays, Undo restores the untouched source, and object URLs are revoked after downloads.
 - Right-click image commands target the originating frame, inject the content bundle once into eligible pre-existing tabs when needed, wait for content initialization, reject ambiguous duplicate image URLs, and never enable persistent page-wide image click handlers.
 - Persisted offline OCR language selection for English, Simplified Chinese, Traditional Chinese, Japanese, and Korean, with PDF page progress and local worker cleanup on Stop.
 - Explicit Translate visible images command with hidden/offscreen/tiny/extension-owned filtering, duplicate-text request caching, and immediate batch cancellation when Image text stops.
 - Deterministic local comic reconstruction for safe regular bubbles: bounded panel/bubble detection, OCR line grouping, contrast text masks, flat/smooth-background repair, and measured CJK/word/RTL-aware text fitting in a temporary canvas overlay without changing the source image.
+- Browser OCR corner polygons constrain rotated source masks. Vertical CJK source columns use right-to-left column order and vertical presentation forms only when the translated text is predominantly CJK; Latin, mixed Latin-dominant, and RTL translations remain horizontal.
+- Explicit two-step current-page comic translation: Scan comic chapter reads a fixed bounded DOM snapshot without OCR or provider work, then Translate N images starts recognition and translation. Membership, order, source, geometry, settings, or navigation changes invalidate the snapshot; Stop aborts work and removes chapter results.
+- Chapter discovery is bounded to 2,048 DOM elements and 48 images, with 1,200 text blocks, 120,000 source characters, and 16 million retained reconstruction pixels per confirmed run. Safety-limit results are labeled partial instead of complete.
 - Image OCR surfaces are capped at 3 megapixels, distinct OCR blocks at 200, provider concurrency at four, and synchronous comic reconstruction at 1.5 megapixels/64 positioned blocks; final glyph painting is clipped to each bubble.
 - Non-destructive image fallback for cross-origin-tainted pixels, whole-image OCR boxes, CSS transforms or non-fill object fitting, oversized images, textured artwork, unsafe masks, and translations that cannot fit; Stop aborts provider/reconstruction work and rejects late canvas commits.
+- Freeform lasso results always use non-destructive overlays so reconstruction cannot alter pixels outside the selected polygon.
 - Content-owned visible-image batch progress survives popup closure and duplicate batch commands coalesce into one operation.
 - Image results follow source movement, invalidate when the source URL, dimensions, or DOM connection changes, and never replace or rewrite source image nodes.
 - Dedicated local Image Translator workspace for up to 12 bounded JPG/JPEG, PNG, or WEBP files loaded by picker, drop, or clipboard paste. Serialized loading enforces the 100 MB/32-million-decoded-pixel queue limits; previews and control changes stay idle until Translate image or Translate all.
@@ -79,9 +83,9 @@ Verified on 2026-08-08:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand`: passed, 68 test suites and 645 tests.
+- `jest --runInBand`: passed, 70 test suites and 671 tests.
 - `webpack --mode=production`: passed.
-- Runtime source fingerprint: `368B68FAA171850158095DC3D2C61C96BF6C845CC3E55EE0E35EF90203180FC8` in `dist/build-meta.json`.
+- Runtime source fingerprint: `DCF2603BB1B74418F868557387930676A9FA6505DCC81D1B9771EE1B6E70332B` in `dist/build-meta.json`.
 - `chrome-translation-extension.zip`: regenerated from `dist`.
 
 Expected build warnings:
@@ -95,7 +99,7 @@ Expected build warnings:
 
 - Unpacked extension folder: `dist`
 - Test package: `chrome-translation-extension.zip`
-- ZIP size: `17,885,626` bytes
-- SHA-256: `631B513B29091A3D7FD54F5D052AC9338A33648B85DB1DBBD6929F35D775BC70`
+- ZIP size: `17,896,345` bytes
+- SHA-256: `C9A91A71F679198DD3DC29987D81ED759DB296DFA36DC476519A5C2FAA821DDA`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

@@ -4,7 +4,7 @@ Goal: replicate the Immersive Translate feature family while preserving the curr
 
 ## Audited Parity Baseline
 
-- Baseline release: Immersive Translate `v1.31.5`, published on 2026-07-17.
+- Baseline release: Immersive Translate `v1.32.1`, audited from official product documentation and changelog on 2026-08-08.
 - The official Immersive Translate repository is used for release and issue evidence; the product implementation is closed source, so parity is measured from official documentation, published configuration, and observable behavior rather than copied source code.
 - Official feature references audited for this roadmap cover webpage, input, PDF, EPUB, subtitle, video, image, manga, prompt, sensitive-data, and installation workflows.
 - Intentional parity exception: LexiBridge never translates a page automatically on load, even though Immersive Translate supports automatic and per-site automatic translation. A popup, floating button, shortcut, or another explicit user command must start every translation, OCR, transcription, or capture workflow.
@@ -173,7 +173,7 @@ Current batch:
 - Done: extract text through browser TextDetector OCR when available, with SVG text and accessibility text fallbacks.
 - Done: fall back to a reusable bundled Tesseract OCR session with five selectable recognition languages.
 - Done: render translated overlays near the selected image target.
-- Done: support manual drag-to-select OCR regions for images and canvases.
+- Done: support manual freeform lasso OCR regions for images and canvases; begin OCR only on a valid pointer release and cancel unfinished gestures on blur, page hide, or pointer cancellation.
 - Done: render separate OCR text-block overlays when the browser returns bounding boxes.
 - Done: add an explicit Translate visible images command for eligible images, canvases, and SVGs intersecting the current viewport.
 - Done: retain per-image overlays, reuse duplicate-text translations, and cancel remaining visible-image work when image mode stops.
@@ -192,7 +192,11 @@ Current batch:
 - Done: add per-image cache-bypassing Retranslate, non-destructive Apply/Undo, reconstructed-canvas-only Download PNG with object-URL cleanup, overlay movement synchronization, and stale source invalidation.
 - Done: add a dedicated local image workspace for bounded JPG/JPEG, PNG, and WEBP choose/drop/paste queues; selection and settings changes stay idle until Translate image or Translate all, and the active command becomes an immediate Stop.
 - Done: scale only the local OCR working canvas to 3 megapixels, keep source pixels local and untouched, cancel OCR/provider/reconstruction work by run ID, support per-image Retranslate and Apply/Undo preview switching, download completed PNG results, and store optional per-image quality ratings locally without source text, pixels, or file names.
-- Remaining: source polygons beyond rectangles, vertical typesetting, and whole-chapter site adapters.
+- Done: preserve bounded browser OCR source polygons, keep rotated erase masks inside those polygons, and use non-destructive overlays for freeform selections so reconstruction never alters pixels outside the lasso.
+- Done: infer right-to-left vertical CJK source columns, use common vertical presentation forms for predominantly CJK targets, and keep Latin-dominant and RTL targets horizontal.
+- Done: add data-driven current-page comic reader adapters with an explicit two-step Scan then Translate workflow. Scanning is DOM-only and bounded; changed membership/order/source/geometry/navigation invalidates confirmation; Stop aborts work and removes chapter results.
+- Done: bound chapter discovery to 2,048 DOM elements and 48 images, and confirmed runs to 1,200 text blocks, 120,000 source characters, and 16 million retained reconstruction pixels with visible partial-result messaging.
+- Remaining: tiled OCR and reconstruction for very long high-resolution comic strips, broader reader-specific optimization, and evidence-backed adapters for newly documented sites.
 
 ### Batch G: Meeting Subtitle Translation
 
