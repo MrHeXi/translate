@@ -53,6 +53,11 @@ interface UserSettings {
   documentOcrLanguage?: BundledOcrLanguageCode;
 }
 
+interface ProviderConfigSummary {
+  providerId: string;
+  supportedTargetLanguages?: string[];
+}
+
 interface PdfPageView {
   summary: PdfPageSummary;
   row: HTMLElement;
@@ -130,6 +135,7 @@ class DocumentTranslatorController {
   private batchFileSequence = 1;
   private batchRunSequence = 1;
   private batchIsRunning = false;
+  private providerTargetLanguages = new Map<string, string[]>();
 
   constructor() {
     this.initialize();
@@ -171,6 +177,7 @@ class DocumentTranslatorController {
     this.batchQueue = document.getElementById('batchDocumentQueue');
 
     this.populateControls();
+    await this.loadProviderConfigurations();
     await this.loadSettings();
     this.applySourceUrl();
     this.bindEvents();
@@ -238,6 +245,22 @@ class DocumentTranslatorController {
       this.updateTargetLanguageAvailability();
     } catch (error) {
       this.showMessage('Could not load settings. Using defaults.', 'error');
+    }
+  }
+
+  private async loadProviderConfigurations(): Promise<void> {
+    try {
+      const response = await this.sendMessage({ action: 'getTranslationProviderConfigs' });
+      const summaries = response?.success && Array.isArray(response.data)
+        ? response.data as ProviderConfigSummary[]
+        : [];
+      this.providerTargetLanguages = new Map(
+        summaries
+          .filter(summary => Array.isArray(summary.supportedTargetLanguages))
+          .map(summary => [summary.providerId, summary.supportedTargetLanguages!])
+      );
+    } catch {
+      this.providerTargetLanguages.clear();
     }
   }
 
@@ -1268,8 +1291,12 @@ class DocumentTranslatorController {
 
   private updateTargetLanguageAvailability(): void {
     if (!this.targetLanguage) return;
+    const providerId = this.translationProvider?.value || 'google';
     const supportedCodes = new Set(
-      getProviderTargetLanguages(this.translationProvider?.value).map(language => language.code)
+      getProviderTargetLanguages(
+        providerId,
+        this.providerTargetLanguages.get(providerId)
+      ).map(language => language.code)
     );
     Array.from(this.targetLanguage.options).forEach(option => {
       option.disabled = !supportedCodes.has(option.value);

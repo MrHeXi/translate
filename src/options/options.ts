@@ -164,6 +164,9 @@ class OptionsController {
     const removeProviderConfig = document.getElementById('removeProviderConfig');
     removeProviderConfig?.addEventListener('click', () => this.removeTranslationProviderConfig());
 
+    const refreshProviderLanguages = document.getElementById('refreshProviderLanguages');
+    refreshProviderLanguages?.addEventListener('click', () => this.refreshTranslationProviderLanguages());
+
     const saveSiteRule = document.getElementById('saveSiteRule');
     saveSiteRule?.addEventListener('click', () => this.upsertSiteTranslationRule());
 
@@ -1039,6 +1042,7 @@ class OptionsController {
     const title = document.getElementById('providerConfigTitle');
     const status = document.getElementById('providerConfigStatus');
     const removeButton = document.getElementById('removeProviderConfig') as HTMLButtonElement | null;
+    const refreshButton = document.getElementById('refreshProviderLanguages') as HTMLButtonElement | null;
     const clientIdInput = document.getElementById('providerClientId') as HTMLInputElement | null;
     const apiKeyInput = document.getElementById('providerApiKey') as HTMLInputElement | null;
     const sessionTokenInput = document.getElementById('providerSessionToken') as HTMLInputElement | null;
@@ -1053,11 +1057,19 @@ class OptionsController {
         summary?.apiKeyHint ? `key ${summary.apiKeyHint}` : '',
         summary?.sessionTokenHint ? `token ${summary.sessionTokenHint}` : ''
       ].filter(Boolean);
-      status.textContent = summary?.configured
+      const configurationStatus = summary?.configured
         ? credentialHints.length > 0 ? `Configured (${credentialHints.join(', ')})` : 'Configured'
         : 'Not configured';
+      const languageStatus = summary?.supportedTargetLanguages
+        ? `; ${summary.supportedTargetLanguages.length} languages cached`
+        : '';
+      status.textContent = `${configurationStatus}${languageStatus}`;
     }
     if (removeButton) removeButton.disabled = !summary?.configured;
+    if (refreshButton) {
+      refreshButton.hidden = !provider.languageDiscovery;
+      refreshButton.disabled = !summary?.configured;
+    }
 
     this.setProviderFieldVisibility('providerClientIdField', configFields.includes('clientId'));
     this.setProviderFieldVisibility('providerApiKeyField', configFields.includes('apiKey'));
@@ -1110,7 +1122,10 @@ class OptionsController {
     const targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement | null;
     if (!targetLanguage) return;
 
-    const supportedCodes = new Set(getProviderTargetLanguages(providerId).map(language => language.code));
+    const discoveredLanguages = this.providerConfigSummaries.get(providerId)?.supportedTargetLanguages;
+    const supportedCodes = new Set(
+      getProviderTargetLanguages(providerId, discoveredLanguages).map(language => language.code)
+    );
     Array.from(targetLanguage.options).forEach(option => {
       option.disabled = !supportedCodes.has(option.value);
     });
@@ -1216,6 +1231,45 @@ class OptionsController {
         error instanceof Error ? error.message : 'Could not remove provider configuration',
         true
       );
+    }
+  }
+
+  private async refreshTranslationProviderLanguages(): Promise<void> {
+    const providerId = (document.getElementById('translationProvider') as HTMLSelectElement | null)?.value || '';
+    const provider = getTranslationProvider(providerId);
+    const summary = this.providerConfigSummaries.get(providerId);
+    if (!provider?.languageDiscovery || !summary?.configured) return;
+
+    const endpoint = summary.endpoint || provider.defaultEndpoint || '';
+    if (!endpoint || !await this.ensureProviderEndpointPermission(endpoint)) {
+      this.showProviderConfigMessage('Host access was not granted for this endpoint', true);
+      return;
+    }
+
+    const refreshButton = document.getElementById('refreshProviderLanguages') as HTMLButtonElement | null;
+    if (refreshButton) refreshButton.disabled = true;
+    this.showProviderConfigMessage(`Refreshing ${provider.label} languages...`);
+    try {
+      const response = await this.sendMessage({
+        action: 'refreshTranslationProviderLanguages',
+        data: { providerId }
+      });
+      if (!response?.success) {
+        this.showProviderConfigMessage(response?.error || 'Could not refresh provider languages', true);
+        return;
+      }
+      const updatedSummary = response.data as TranslationProviderConfigSummary;
+      this.providerConfigSummaries.set(providerId, updatedSummary);
+      this.updateProviderConfigurationUI();
+      const count = updatedSummary.supportedTargetLanguages?.length ?? 0;
+      this.showProviderConfigMessage(`${provider.label} language cache updated (${count} targets)`);
+    } catch (error) {
+      this.showProviderConfigMessage(
+        error instanceof Error ? error.message : 'Could not refresh provider languages',
+        true
+      );
+    } finally {
+      if (refreshButton && !refreshButton.hidden) refreshButton.disabled = false;
     }
   }
 

@@ -129,6 +129,11 @@ describe('BackgroundService provider configuration messages', () => {
       getTranslationProviderConfig: jest.fn().mockResolvedValue(providerConfig),
       getTranslationProviderConfigSummaries: jest.fn().mockResolvedValue([providerSummary]),
       saveTranslationProviderConfig: jest.fn().mockResolvedValue(providerSummary),
+      saveTranslationProviderLanguageCapabilities: jest.fn().mockResolvedValue({
+        ...providerSummary,
+        supportedTargetLanguages: ['fr'],
+        languagesDiscoveredAt: '2026-08-10T00:00:00.000Z'
+      }),
       removeTranslationProviderConfig: jest.fn().mockResolvedValue(undefined)
     };
     const mockReviewService = {};
@@ -207,6 +212,17 @@ describe('BackgroundService provider configuration messages', () => {
         syncWhenOnline: jest.fn(),
         showOfflineNotification: jest.fn()
       }
+    }));
+    const discoveredCapabilities = {
+      endpoint: providerConfig.endpoint,
+      discoveredAt: '2026-08-10T00:00:00.000Z',
+      sourceLanguages: ['en'],
+      targetLanguages: ['fr'],
+      languagePairs: [{ source: 'en', target: 'fr' }]
+    };
+    const discover = jest.fn().mockResolvedValue(discoveredCapabilities);
+    jest.doMock('../../services/ProviderLanguageDiscoveryService', () => ({
+      providerLanguageDiscoveryService: { discover }
     }));
 
     require('../background');
@@ -661,6 +677,19 @@ describe('BackgroundService provider configuration messages', () => {
     expect(mockStorageManager.removeTranslationProviderConfig).toHaveBeenCalledWith('openai');
     expect(removeResponse).toEqual({ success: true });
     expect(mockTranslationService.clearCache).toHaveBeenCalledTimes(2);
+    expect(discover).not.toHaveBeenCalled();
+
+    const refreshResponse = await send({
+      action: 'refreshTranslationProviderLanguages',
+      data: { providerId: 'libretranslate' }
+    });
+    expect(discover).toHaveBeenCalledWith('libretranslate', providerConfig);
+    expect(mockStorageManager.saveTranslationProviderLanguageCapabilities)
+      .toHaveBeenCalledWith('libretranslate', discoveredCapabilities, providerConfig);
+    expect(refreshResponse).toEqual({
+      success: true,
+      data: expect.objectContaining({ supportedTargetLanguages: ['fr'] })
+    });
 
     const settings = {
       translationStyle: 'highlight',
@@ -674,7 +703,7 @@ describe('BackgroundService provider configuration messages', () => {
       expect.any(Function)
     );
     expect(settingsResponse).toEqual({ success: true });
-    expect(mockTranslationService.clearCache).toHaveBeenCalledTimes(3);
+    expect(mockTranslationService.clearCache).toHaveBeenCalledTimes(4);
 
     const resetResponse = await send({ action: 'resetSettings' });
     expect(mockStorageManager.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({

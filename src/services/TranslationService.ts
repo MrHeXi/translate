@@ -4,6 +4,7 @@ import {
   getTranslationProvider,
   isAvailableTranslationProvider,
   isTranslationProviderRegionValid,
+  providerSupportsLanguagePair,
   providerSupportsTargetLanguage,
   resolveTranslationProviderEndpoint,
   TRANSLATION_LANGUAGES,
@@ -201,7 +202,8 @@ export class TranslationService {
     const providerVariant = [
       request.providerConfig?.endpoint || '',
       request.providerConfig?.model || '',
-      request.providerConfig?.region || ''
+      request.providerConfig?.region || '',
+      request.providerConfig?.languageCapabilities?.discoveredAt || ''
     ].join('|');
 
     const aiVariant = JSON.stringify({
@@ -261,7 +263,16 @@ export class TranslationService {
         if (request.aiWritingTask && !definition.supportsAiPreferences) {
           throw new TranslationProviderError(`${definition.label} does not support AI writing tasks`);
         }
-        if (!request.aiWritingTask && !providerSupportsTargetLanguage(provider, request.targetLang)) {
+        const languageCapabilities = request.providerConfig?.languageCapabilities;
+        const supportsLanguage = languageCapabilities
+          ? providerSupportsLanguagePair(
+            provider,
+            request.sourceLang,
+            request.targetLang,
+            languageCapabilities
+          )
+          : providerSupportsTargetLanguage(provider, request.targetLang);
+        if (!request.aiWritingTask && !supportsLanguage) {
           throw new TranslationProviderError(
             `${definition.label} does not support ${this.getLanguageLabel(request.targetLang)}`
           );
@@ -683,12 +694,15 @@ export class TranslationService {
   ): Promise<TranslationResult> {
     const provider = getTranslationProvider(providerId)!;
     const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
+    const languageCapabilities = request.providerConfig?.languageCapabilities;
     const body: Record<string, string> = {
       q: request.text,
       source: request.sourceLang && request.sourceLang !== 'auto'
-        ? this.mapPortableLanguage(request.sourceLang)
+        ? languageCapabilities?.sourceLanguageMap?.[request.sourceLang]
+          || this.mapPortableLanguage(request.sourceLang)
         : 'auto',
-      target: this.mapPortableLanguage(request.targetLang),
+      target: languageCapabilities?.targetLanguageMap?.[request.targetLang]
+        || this.mapPortableLanguage(request.targetLang),
       format: 'text'
     };
     if (config.apiKey) body['api_key'] = config.apiKey;
@@ -1383,21 +1397,22 @@ export class TranslationService {
   ): Promise<TranslationResult> {
     const provider = getTranslationProvider(providerId)!;
     const config = this.getProviderRuntimeConfig(providerId, request.providerConfig);
-    if (request.targetLang === 'zh-TW') {
-      throw new TranslationProviderError(
-        `${provider.label} cannot guarantee Traditional Chinese without a translation profile`
-      );
-    }
+    const languageCapabilities = request.providerConfig?.languageCapabilities;
 
     const endpoint = new URL(config.endpoint);
     endpoint.searchParams.set('input', request.text);
     endpoint.searchParams.set(
       'source',
       request.sourceLang && request.sourceLang !== 'auto'
-        ? this.mapSystranLanguage(request.sourceLang)
+        ? languageCapabilities?.sourceLanguageMap?.[request.sourceLang]
+          || this.mapSystranLanguage(request.sourceLang)
         : 'auto'
     );
-    endpoint.searchParams.set('target', this.mapSystranLanguage(request.targetLang));
+    endpoint.searchParams.set(
+      'target',
+      languageCapabilities?.targetLanguageMap?.[request.targetLang]
+        || this.mapSystranLanguage(request.targetLang)
+    );
     endpoint.searchParams.set('withInfo', 'true');
     const response = await fetch(endpoint.toString(), {
       signal: request.signal,

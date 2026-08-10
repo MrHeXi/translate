@@ -1272,7 +1272,38 @@ describe('TranslationService', () => {
       errorSpy.mockRestore();
     });
 
-    it('rejects SYSTRAN Traditional Chinese without a translation profile', async () => {
+    it('uses discovered SYSTRAN language profiles for Traditional Chinese', async () => {
+      const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+        ok: true,
+        json: async () => ({
+          outputs: [{ output: '繁體中文', info: { lid: { language: 'en', confidence: 1 } } }]
+        })
+      }));
+      (global as any).fetch = fetchMock;
+
+      await translationService.translate({
+        text: 'Traditional Chinese target',
+        sourceLang: 'en',
+        targetLang: 'zh-TW',
+        provider: 'systran',
+        providerConfig: {
+          apiKey: 'systran-secret',
+          languageCapabilities: {
+            endpoint: 'https://api-translate.systran.net/translation/text/translate',
+            discoveredAt: '2026-08-10T00:00:00.000Z',
+            sourceLanguages: ['en'],
+            targetLanguages: ['zh-TW'],
+            languagePairs: [{ source: 'en', target: 'zh-TW' }],
+            targetLanguageMap: { 'zh-TW': 'zt' }
+          }
+        }
+      });
+
+      const [urlValue] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(new URL(urlValue).searchParams.get('target')).toBe('zt');
+    });
+
+    it('rejects a dynamically unsupported SYSTRAN language pair before making a request', async () => {
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
       const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
       const fetchMock = jest.fn();
@@ -1280,10 +1311,20 @@ describe('TranslationService', () => {
 
       await expect(translationService.translate({
         text: 'Traditional Chinese target',
+        sourceLang: 'en',
         targetLang: 'zh-TW',
         provider: 'systran',
-        providerConfig: { apiKey: 'systran-secret' }
-      })).rejects.toThrow('SYSTRAN Translate cannot guarantee Traditional Chinese without a translation profile');
+        providerConfig: {
+          apiKey: 'systran-secret',
+          languageCapabilities: {
+            endpoint: 'https://api-translate.systran.net/translation/text/translate',
+            discoveredAt: '2026-08-10T00:00:00.000Z',
+            sourceLanguages: ['en'],
+            targetLanguages: ['fr'],
+            languagePairs: [{ source: 'en', target: 'fr' }]
+          }
+        }
+      })).rejects.toThrow('SYSTRAN Translate does not support Chinese (Traditional)');
       expect(fetchMock).not.toHaveBeenCalled();
       warnSpy.mockRestore();
       errorSpy.mockRestore();

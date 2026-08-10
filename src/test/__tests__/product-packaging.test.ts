@@ -432,13 +432,13 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('71 test suites and 708 tests');
-    expect(releaseNotes).toContain('17,819,903');
-    expect(releaseNotes).toContain('1BF106A2FA3AC52D92B375F4311E43F2AF03DEBE8969B4934D5B63957A66E8CC');
-    expect(releaseNotes).toContain('17,820,076');
-    expect(releaseNotes).toContain('F5639BEB3244B9102CC3ABE36BD08B550159182474A7E3A2552F49E3998C55CE');
-    expect(releaseNotes).toContain('A95411A8222F9F98081657C7F1287006ABCF9DD4D219FDE18B9B227D514EA885');
-    expect(releaseNotes).toContain('78798CD6041A6EEB0FE00B7D944E8D56CE042D9D47294B6D6BC880E2D132AD0F');
+    expect(releaseNotes).toContain('72 test suites and 719 tests');
+    expect(releaseNotes).toContain('17,822,821');
+    expect(releaseNotes).toContain('F7EF12411D29A3678EA58558E418B3E1B9C16359B5152BD8764D442B15E6BAA9');
+    expect(releaseNotes).toContain('17,822,996');
+    expect(releaseNotes).toContain('8707627781BA5B22C98A6913F4793A98426BE6B494EB55B86D99CC48CF4BFC5F');
+    expect(releaseNotes).toContain('12E8B278C0C429C716897735D72B768592947932DF8006E81701D3FC30132612');
+    expect(releaseNotes).toContain('AB373BA71CF1170554562E05E41DD5CF92063B6A64EE81C9F8713AAE9705C4D2');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('firefox-translation-extension.zip');
     expect(releaseNotes).toContain('`npm run package`: passed');

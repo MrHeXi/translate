@@ -175,6 +175,120 @@ describe('StorageManager', () => {
       expect(JSON.stringify(summary)).not.toContain('sk-secret-12345678');
     });
 
+    it('stores discovered language capabilities in the local provider config but exposes no credentials', async () => {
+      mockChromeStorage.local.get.mockResolvedValue({
+        translationProviderConfigs: {
+          libretranslate: {
+            apiKey: 'private-key',
+            endpoint: 'https://translate.example.com/translate',
+            model: '',
+            region: ''
+          }
+        }
+      });
+      mockChromeStorage.local.set.mockResolvedValue(undefined);
+
+      const summary = await storageManager.saveTranslationProviderLanguageCapabilities(
+        'libretranslate',
+        {
+          endpoint: 'https://translate.example.com/translate',
+          discoveredAt: '2026-08-10T00:00:00.000Z',
+          sourceLanguages: ['en'],
+          targetLanguages: [],
+          languagePairs: [],
+          targetLanguageMap: {}
+        }
+      );
+
+      expect(summary.supportedTargetLanguages).toEqual([]);
+      expect(summary.languagesDiscoveredAt).toBe('2026-08-10T00:00:00.000Z');
+      expect(JSON.stringify(summary)).not.toContain('private-key');
+      expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
+        translationProviderConfigs: {
+          libretranslate: expect.objectContaining({
+            languageCapabilities: expect.objectContaining({
+              endpoint: 'https://translate.example.com/translate',
+              targetLanguages: []
+            })
+          })
+        }
+      });
+    });
+
+    it('invalidates discovered capabilities when endpoint or credentials change', async () => {
+      const config = {
+        apiKey: 'old-key',
+        endpoint: 'https://translate.example.com/translate',
+        model: '',
+        region: '',
+        languageCapabilities: {
+          endpoint: 'https://translate.example.com/translate',
+          discoveredAt: '2026-08-10T00:00:00.000Z',
+          sourceLanguages: ['en'],
+          targetLanguages: ['fr'],
+          languagePairs: []
+        }
+      };
+      mockChromeStorage.local.get.mockResolvedValue({
+        translationProviderConfigs: { libretranslate: config }
+      });
+      mockChromeStorage.local.set.mockResolvedValue(undefined);
+
+      await storageManager.saveTranslationProviderConfig('libretranslate', {
+        endpoint: 'https://translate.example.com/other/translate'
+      });
+      expect(mockChromeStorage.local.set).toHaveBeenLastCalledWith({
+        translationProviderConfigs: {
+          libretranslate: expect.not.objectContaining({
+            languageCapabilities: expect.anything()
+          })
+        }
+      });
+
+      mockChromeStorage.local.get.mockResolvedValue({
+        translationProviderConfigs: { libretranslate: config }
+      });
+      await storageManager.saveTranslationProviderConfig('libretranslate', {
+        apiKey: 'new-key'
+      });
+      expect(mockChromeStorage.local.set).toHaveBeenLastCalledWith({
+        translationProviderConfigs: {
+          libretranslate: expect.not.objectContaining({
+            languageCapabilities: expect.anything()
+          })
+        }
+      });
+    });
+
+    it('does not persist discovery results after credentials change during the request', async () => {
+      mockChromeStorage.local.get.mockResolvedValue({
+        translationProviderConfigs: {
+          systran: {
+            apiKey: 'new-key',
+            endpoint: 'https://api.example.com/translation/text/translate',
+            model: '',
+            region: ''
+          }
+        }
+      });
+
+      await expect(storageManager.saveTranslationProviderLanguageCapabilities(
+        'systran',
+        {
+          endpoint: 'https://api.example.com/translation/text/translate',
+          discoveredAt: '2026-08-10T00:00:00.000Z',
+          sourceLanguages: ['en'],
+          targetLanguages: ['fr'],
+          languagePairs: [{ source: 'en', target: 'fr' }]
+        },
+        {
+          apiKey: 'old-key',
+          endpoint: 'https://api.example.com/translation/text/translate'
+        }
+      )).rejects.toThrow('credentials changed');
+      expect(mockChromeStorage.local.set).not.toHaveBeenCalled();
+    });
+
     it('never reveals a complete short API key in its summary', async () => {
       mockChromeStorage.local.get.mockResolvedValue({});
       mockChromeStorage.local.set.mockResolvedValue(undefined);

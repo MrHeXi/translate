@@ -22,6 +22,7 @@ interface SidePanelSettings {
 interface ProviderConfigSummary {
   providerId: string;
   configured: boolean;
+  supportedTargetLanguages?: string[];
 }
 
 class SidePanelController {
@@ -43,6 +44,7 @@ class SidePanelController {
   private status: HTMLElement | null = null;
   private characterCount: HTMLElement | null = null;
   private configuredProviderIds = new Set<string>();
+  private providerTargetLanguages = new Map<string, string[]>();
   private isTranslating = false;
   private activeRequestId: string | null = null;
   private requestSequence = 0;
@@ -168,8 +170,14 @@ class SidePanelController {
       this.configuredProviderIds = new Set(
         summaries.filter(summary => summary.configured).map(summary => summary.providerId)
       );
+      this.providerTargetLanguages = new Map(
+        summaries
+          .filter(summary => Array.isArray(summary.supportedTargetLanguages))
+          .map(summary => [summary.providerId, summary.supportedTargetLanguages!])
+      );
     } catch (error) {
       this.configuredProviderIds.clear();
+      this.providerTargetLanguages.clear();
       this.showStatus('Could not load provider configurations.', true);
     }
 
@@ -238,7 +246,10 @@ class SidePanelController {
     const isAiMode = this.mode !== 'translate';
     const supportedCodes = isAiMode
       ? new Set(['same', ...TRANSLATION_LANGUAGES.map(language => language.code)])
-      : new Set(getProviderTargetLanguages(this.providerSelect.value).map(language => language.code));
+      : new Set(getProviderTargetLanguages(
+        this.providerSelect.value,
+        this.providerTargetLanguages.get(this.providerSelect.value)
+      ).map(language => language.code));
     Array.from(this.targetLanguageSelect.options).forEach(option => {
       option.disabled = !supportedCodes.has(option.value);
     });

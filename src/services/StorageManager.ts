@@ -5,6 +5,7 @@ import {
   isAvailableTranslationProvider,
   isTranslationProviderRegionValid,
   resolveTranslationProviderEndpoint,
+  TranslationProviderLanguageCapabilities,
   TranslationProviderRuntimeConfig
 } from './TranslationProviderRegistry';
 import type {
@@ -79,6 +80,8 @@ export interface TranslationProviderConfigSummary {
   endpoint: string;
   model: string;
   region: string;
+  supportedTargetLanguages?: string[];
+  languagesDiscoveredAt?: string;
 }
 
 export interface UserData {
@@ -390,24 +393,19 @@ export class StorageManager {
   async getTranslationProviderConfig(providerId: string): Promise<TranslationProviderRuntimeConfig | undefined> {
     const configs = await this.loadTranslationProviderConfigs();
     const config = configs[providerId];
-    return config ? { ...config } : undefined;
+    if (!config) return undefined;
+    const safeConfig = { ...config };
+    if (safeConfig.languageCapabilities
+      && safeConfig.languageCapabilities.endpoint !== resolveTranslationProviderEndpoint(providerId, safeConfig)) {
+      delete safeConfig.languageCapabilities;
+    }
+    return safeConfig;
   }
 
   async getTranslationProviderConfigSummaries(): Promise<TranslationProviderConfigSummary[]> {
     const configs = await this.loadTranslationProviderConfigs();
 
-    return Object.entries(configs).map(([providerId, config]) => ({
-      providerId,
-      configured: this.isTranslationProviderConfigured(providerId, config),
-      clientIdHint: this.maskCredential(config.clientId || ''),
-      apiKeyHint: this.maskCredential(config.apiKey || ''),
-      ...(config.sessionToken
-        ? { sessionTokenHint: this.maskCredential(config.sessionToken) }
-        : {}),
-      endpoint: config.endpoint || '',
-      model: config.model || '',
-      region: config.region || ''
-    }));
+    return Object.entries(configs).map(([providerId, config]) => this.createTranslationProviderConfigSummary(providerId, config));
   }
 
   async saveTranslationProviderConfig(
@@ -430,7 +428,9 @@ export class StorageManager {
       throw new Error(`${provider.label} API key is required`);
     }
     const submittedSessionToken = config.sessionToken?.trim() || '';
-    const submittedNewCredentials = Boolean(config.clientId?.trim() || config.apiKey?.trim());
+    const submittedNewCredentials = Boolean(
+      config.clientId?.trim() || config.apiKey?.trim() || config.sessionToken?.trim()
+    );
     const sessionToken = submittedSessionToken
       || (submittedNewCredentials ? '' : currentConfig.sessionToken?.trim() || '');
 
@@ -450,6 +450,11 @@ export class StorageManager {
       model: config.model?.trim() || currentConfig.model || provider.defaultModel || '',
       region
     };
+    const currentEndpoint = currentConfig.endpoint?.trim()
+      || resolveTranslationProviderEndpoint(providerId, { region: currentConfig.region || provider.defaultRegion || '' });
+    if (savedConfig.languageCapabilities && (currentEndpoint !== endpoint || submittedNewCredentials)) {
+      delete savedConfig.languageCapabilities;
+    }
     if (provider.configFields?.includes('sessionToken')) {
       if (sessionToken) savedConfig.sessionToken = sessionToken;
       else delete savedConfig.sessionToken;
@@ -463,16 +468,53 @@ export class StorageManager {
     configs[providerId] = savedConfig;
     await chrome.storage.local.set({ [this.providerConfigStorageKey]: configs });
 
-    return {
-      providerId,
-      configured: this.isTranslationProviderConfigured(providerId, savedConfig),
-      clientIdHint: this.maskCredential(clientId),
-      apiKeyHint: this.maskCredential(apiKey),
-      ...(sessionToken ? { sessionTokenHint: this.maskCredential(sessionToken) } : {}),
-      endpoint: savedConfig.endpoint || '',
-      model: savedConfig.model || '',
-      region: savedConfig.region || ''
+    return this.createTranslationProviderConfigSummary(providerId, savedConfig);
+  }
+
+  async saveTranslationProviderLanguageCapabilities(
+    providerId: string,
+    capabilities: TranslationProviderLanguageCapabilities,
+    expectedConfig?: TranslationProviderRuntimeConfig
+  ): Promise<TranslationProviderConfigSummary> {
+    const provider = getTranslationProvider(providerId);
+    if (!provider?.languageDiscovery) throw new Error('Provider does not support language discovery');
+    const configs = await this.loadTranslationProviderConfigs();
+    const config = configs[providerId];
+    if (!config || !this.isTranslationProviderConfigured(providerId, config)) {
+      throw new Error(`${provider.label} configuration is required`);
+    }
+    const endpoint = resolveTranslationProviderEndpoint(providerId, config);
+    if (endpoint !== capabilities.endpoint) {
+      throw new Error(`${provider.label} endpoint changed; refresh languages again`);
+    }
+    if (expectedConfig) {
+      const credentialFields: Array<keyof TranslationProviderRuntimeConfig> = [
+        'clientId',
+        'apiKey',
+        'sessionToken'
+      ];
+      const credentialsChanged = credentialFields.some(field => (
+        String(config[field] || '') !== String(expectedConfig[field] || '')
+      ));
+      if (credentialsChanged) {
+        throw new Error(`${provider.label} credentials changed; refresh languages again`);
+      }
+    }
+    const targetLanguages = [...new Set(capabilities.targetLanguages)].slice(0, 512);
+    configs[providerId] = {
+      ...config,
+      languageCapabilities: {
+        endpoint,
+        discoveredAt: capabilities.discoveredAt,
+        sourceLanguages: [...new Set(capabilities.sourceLanguages)].slice(0, 512),
+        targetLanguages,
+        languagePairs: capabilities.languagePairs.slice(0, 4096),
+        sourceLanguageMap: this.sanitizeProviderLanguageMap(capabilities.sourceLanguageMap),
+        targetLanguageMap: this.sanitizeProviderLanguageMap(capabilities.targetLanguageMap)
+      }
     };
+    await chrome.storage.local.set({ [this.providerConfigStorageKey]: configs });
+    return this.createTranslationProviderConfigSummary(providerId, configs[providerId]);
   }
 
   private isTranslationProviderConfigured(
@@ -490,6 +532,42 @@ export class StorageManager {
       return false;
     }
     return true;
+  }
+
+  private createTranslationProviderConfigSummary(
+    providerId: string,
+    config: TranslationProviderRuntimeConfig
+  ): TranslationProviderConfigSummary {
+    const capabilities = config.languageCapabilities?.endpoint === resolveTranslationProviderEndpoint(providerId, config)
+      ? config.languageCapabilities
+      : undefined;
+    return {
+      providerId,
+      configured: this.isTranslationProviderConfigured(providerId, config),
+      clientIdHint: this.maskCredential(config.clientId || ''),
+      apiKeyHint: this.maskCredential(config.apiKey || ''),
+      ...(config.sessionToken
+        ? { sessionTokenHint: this.maskCredential(config.sessionToken) }
+        : {}),
+      endpoint: config.endpoint || '',
+      model: config.model || '',
+      region: config.region || '',
+      ...(capabilities
+        ? { supportedTargetLanguages: [...capabilities.targetLanguages] }
+        : {}),
+      ...(capabilities?.discoveredAt
+        ? { languagesDiscoveredAt: capabilities.discoveredAt }
+        : {})
+    };
+  }
+
+  private sanitizeProviderLanguageMap(map: Record<string, string> | undefined): Record<string, string> {
+    if (!map) return {};
+    return Object.fromEntries(
+      Object.entries(map)
+        .filter(([key, value]) => key.length <= 32 && typeof value === 'string' && value.length <= 32)
+        .slice(0, 512)
+    );
   }
 
   async removeTranslationProviderConfig(providerId: string): Promise<void> {

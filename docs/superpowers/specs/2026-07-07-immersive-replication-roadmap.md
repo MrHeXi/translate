@@ -124,7 +124,8 @@ Current batch:
 - Done: add normalized terminology mappings and bounded custom translation instructions.
 - Done: add opt-in neighboring page/document context, isolate source/context as untrusted request data, and include AI preferences in cache identity.
 - Done: integrate Amazon Translate with region-derived official endpoints, AWS Signature Version 4, optional STS credentials, its published target-language set, and the 10,000-byte synchronous text limit.
-- Remaining: reassess Tencent Cloud TMT text translation because the current official product SDK no longer exposes the legacy `TextTranslate` action; evaluate a supported Reverso integration; add dynamic language discovery for self-hosted LibreTranslate and SYSTRAN instances plus broader source-target pair guidance; complete real-account smoke tests for credentialed services.
+- Done: add explicit, bounded dynamic language discovery for configured LibreTranslate and SYSTRAN instances, cache the discovered capabilities locally, preserve source-target pairs and provider-native language codes, invalidate on endpoint or credential changes, and keep all discovery off page/view initialization.
+- Remaining: reassess Tencent Cloud TMT text translation because the current official product SDK no longer exposes the legacy `TextTranslate` action; evaluate a supported Reverso integration; complete real-account smoke tests for credentialed services.
 
 ### Batch D: PDF and Document Translation
 

@@ -167,6 +167,13 @@ body {
   font-size: 12px;
 }
 
+.provider-config-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .provider-config-field {
   display: grid;
   grid-template-columns: minmax(110px, 180px) minmax(220px, 1fr);
@@ -477,6 +484,10 @@ body {
   .provider-config-heading,
   .provider-config-footer {
     flex-direction: column;
+  }
+
+  .provider-config-actions {
+    justify-content: flex-start;
   }
 
   .site-rule-selectors,

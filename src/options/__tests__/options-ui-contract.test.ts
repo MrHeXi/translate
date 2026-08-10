@@ -42,6 +42,7 @@ describe('options UI settings contract', () => {
       <section id="providerConfigPanel" hidden>
         <h4 id="providerConfigTitle"></h4>
         <p id="providerConfigStatus"></p>
+        <button id="refreshProviderLanguages" type="button" hidden disabled></button>
         <button id="removeProviderConfig" type="button" disabled></button>
         <label id="providerClientIdField"><input id="providerClientId" type="password"></label>
         <label id="providerApiKeyField"><input id="providerApiKey" type="password"></label>
@@ -963,6 +964,89 @@ describe('options UI settings contract', () => {
     expect((document.getElementById('providerEndpointField') as HTMLElement).hidden).toBe(true);
     expect((document.getElementById('providerRegionField') as HTMLElement).hidden).toBe(false);
     expect((document.getElementById('providerRegion') as HTMLInputElement).value).toBe('us-east-1');
+  });
+
+  it('refreshes dynamic provider languages only after the user clicks the refresh button', async () => {
+    const initialSummary = {
+      providerId: 'libretranslate',
+      configured: true,
+      clientIdHint: '',
+      apiKeyHint: '',
+      endpoint: 'https://translate.example.com/translate',
+      model: '',
+      region: '',
+      supportedTargetLanguages: ['fr'],
+      languagesDiscoveredAt: '2026-08-09T00:00:00.000Z'
+    };
+    const refreshedSummary = {
+      ...initialSummary,
+      supportedTargetLanguages: ['de', 'fr'],
+      languagesDiscoveredAt: '2026-08-10T00:00:00.000Z'
+    };
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getSettings') {
+        callback({
+          success: true,
+          data: createSettings({
+            translationProvider: 'libretranslate',
+            defaultTargetLanguage: 'fr'
+          })
+        });
+        return;
+      }
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({ success: true, data: [initialSummary] });
+        return;
+      }
+      if (message.action === 'refreshTranslationProviderLanguages') {
+        callback({ success: true, data: refreshedSummary });
+        return;
+      }
+      if (message.action === 'getLearningStats') {
+        callback({ success: true, data: createStats() });
+        return;
+      }
+      if (message.action === 'getDictionaryProgress') {
+        callback({ success: true, data: {} });
+        return;
+      }
+      callback({ success: true });
+    });
+    const requestPermission = jest.fn((_permissions, callback) => callback(true));
+    (global as any).chrome = {
+      runtime: { sendMessage, lastError: null },
+      permissions: { request: requestPermission }
+    };
+
+    require('../options');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    const refreshButton = document.getElementById('refreshProviderLanguages') as HTMLButtonElement;
+    expect(refreshButton.hidden).toBe(false);
+    expect(refreshButton.disabled).toBe(false);
+    expect(sendMessage.mock.calls.some(([message]) => (
+      message.action === 'refreshTranslationProviderLanguages'
+    ))).toBe(false);
+    expect(Array.from((document.getElementById('targetLanguage') as HTMLSelectElement).options)
+      .find(option => option.value === 'de')?.disabled).toBe(true);
+
+    refreshButton.click();
+    await flushPromises();
+
+    expect(requestPermission).toHaveBeenCalledWith(
+      { origins: ['https://translate.example.com/*'] },
+      expect.any(Function)
+    );
+    expect(sendMessage.mock.calls.filter(([message]) => (
+      message.action === 'refreshTranslationProviderLanguages'
+    ))).toContainEqual([{
+      action: 'refreshTranslationProviderLanguages',
+      data: { providerId: 'libretranslate' }
+    }, expect.any(Function)]);
+    expect(Array.from((document.getElementById('targetLanguage') as HTMLSelectElement).options)
+      .find(option => option.value === 'de')?.disabled).toBe(false);
+    expect(document.getElementById('providerConfigMessage')?.textContent).toContain('2 targets');
   });
 
   it('requires a saved provider configuration before activating a keyless endpoint', async () => {

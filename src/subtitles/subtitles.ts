@@ -29,6 +29,7 @@ interface SubtitleGeneratorSettings {
 interface ProviderConfigSummary {
   providerId: string;
   configured: boolean;
+  supportedTargetLanguages?: string[];
 }
 
 type TabCapturePhase = 'idle' | 'starting' | 'recording' | 'stopping';
@@ -53,6 +54,7 @@ class SubtitleGeneratorController {
   private resultSummary: HTMLElement | null = null;
   private cueList: HTMLElement | null = null;
   private configuredProviderIds = new Set<string>();
+  private providerTargetLanguages = new Map<string, string[]>();
   private port: chrome.runtime.Port | null = null;
   private selectedFile: File | null = null;
   private selectedFileIsTabCapture = false;
@@ -189,8 +191,14 @@ class SubtitleGeneratorController {
       this.configuredProviderIds = new Set(
         summaries.filter(summary => summary.configured).map(summary => summary.providerId)
       );
+      this.providerTargetLanguages = new Map(
+        summaries
+          .filter(summary => Array.isArray(summary.supportedTargetLanguages))
+          .map(summary => [summary.providerId, summary.supportedTargetLanguages!])
+      );
     } catch {
       this.configuredProviderIds.clear();
+      this.providerTargetLanguages.clear();
       this.showStatus('Could not load provider configurations.', true);
     }
 
@@ -288,7 +296,10 @@ class SubtitleGeneratorController {
   private updateTargetLanguageAvailability(): void {
     if (!this.translationProvider || !this.targetLanguage) return;
     const supported = new Set(
-      getProviderTargetLanguages(this.translationProvider.value).map(language => language.code)
+      getProviderTargetLanguages(
+        this.translationProvider.value,
+        this.providerTargetLanguages.get(this.translationProvider.value)
+      ).map(language => language.code)
     );
     Array.from(this.targetLanguage.options).forEach(option => {
       option.disabled = !supported.has(option.value);

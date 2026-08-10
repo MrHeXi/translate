@@ -72,6 +72,7 @@ Initial productized release candidate for local Chrome/Firefox testing and brows
 - Sync-failure user-data fallback that takes precedence over stale synchronized settings, retries pending fields on recovery, remains equivalent when fallback cleanup fails, preserves learning preferences, and filters imports to settings and learning data so provider credentials and local AI libraries never enter Chrome Sync.
 - Local-only API credential storage with masked settings summaries for API keys, client/application IDs, and temporary session tokens; explicit configured-host approval; keyless Ollama configuration; and no credentialed-provider fallback to unrelated services.
 - Provider-specific target-language filtering for published narrow capability sets, including DeepL and Caiyun, with Simplified/Traditional Chinese mappings preserved.
+- Explicit LibreTranslate and SYSTRAN language discovery from the saved instance, with bounded response parsing, source-target pair enforcement, locally cached capabilities, endpoint/credential invalidation, original provider language-code preservation, and no discovery request until the user clicks Refresh languages.
 - Automated request-contract coverage for every implemented provider adapter. Credentialed services still require valid user accounts and provider-side live availability.
 - Built-in CET4, CET6, GRE, IELTS, and TOEFL vocabulary dictionaries.
 - Vocabulary notebook, review page, learning progress, import/export, and settings.
@@ -86,11 +87,11 @@ Verified on 2026-08-10:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand`: passed, 71 test suites and 708 tests.
+- `jest --runInBand`: passed, 72 test suites and 719 tests.
 - `npm run package`: passed for Chrome and Firefox Desktop.
 - `web-ext lint --source-dir dist-firefox`: passed with 0 errors, 0 notices, and 31 warnings retained for AMO review.
-- Chrome build metadata: source `A95411A8222F9F98081657C7F1287006ABCF9DD4D219FDE18B9B227D514EA885`, manifest `E105181215EF2F2030818523211C187353EEC836130ADC7FCA04DF312168887C`, payload `51BD30B08B87851F252714C08072A3F98079B7D41501ED27FB8795E7411CBD4C`.
-- Firefox build metadata: source `78798CD6041A6EEB0FE00B7D944E8D56CE042D9D47294B6D6BC880E2D132AD0F`, manifest `F280485846217ACDC7E58E0719AE800943FD2C3A07262789D8FE975D8A2D1C55`, payload `4A6E4315B10B49BCE264118B6F48E53DB17E81F1567C4D58A9C2B68F06AE76DE`.
+- Chrome build metadata: source `12E8B278C0C429C716897735D72B768592947932DF8006E81701D3FC30132612`, manifest `E105181215EF2F2030818523211C187353EEC836130ADC7FCA04DF312168887C`, payload `ADD103FF55C816D542BD89A5B6D32C0B39A774ACF50B8BE551CA3AA0D50BE066`.
+- Firefox build metadata: source `AB373BA71CF1170554562E05E41DD5CF92063B6A64EE81C9F8713AAE9705C4D2`, manifest `F280485846217ACDC7E58E0719AE800943FD2C3A07262789D8FE975D8A2D1C55`, payload `4AFDE567B0D5962BC7CC608D9C2452473C5EE25338A8718AE77B0B73A54EEB8C`.
 - Both production directories contain exactly 243 files; forbidden tests, TypeScript declarations/sources, and source maps are absent, and every non-manifest/non-metadata file is byte-identical across targets.
 - Both ZIPs were generated twice from sorted forward-slash paths with fixed timestamps, compared byte-for-byte, CRC-checked, and reloaded to match every production file.
 
@@ -106,11 +107,11 @@ Expected build warnings:
 
 - Chrome unpacked folder: `dist`
 - Chrome test package: `chrome-translation-extension.zip`
-- Chrome ZIP size: `17,819,903` bytes
-- Chrome SHA-256: `1BF106A2FA3AC52D92B375F4311E43F2AF03DEBE8969B4934D5B63957A66E8CC`
+- Chrome ZIP size: `17,822,821` bytes
+- Chrome SHA-256: `F7EF12411D29A3678EA58558E418B3E1B9C16359B5152BD8764D442B15E6BAA9`
 - Firefox unpacked folder: `dist-firefox`
 - Firefox test package: `firefox-translation-extension.zip`
-- Firefox ZIP size: `17,820,076` bytes
-- Firefox SHA-256: `F5639BEB3244B9102CC3ABE36BD08B550159182474A7E3A2552F49E3998C55CE`
+- Firefox ZIP size: `17,822,996` bytes
+- Firefox SHA-256: `8707627781BA5B22C98A6913F4793A98426BE6B494EB55B86D99CC48CF4BFC5F`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

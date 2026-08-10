@@ -26,6 +26,11 @@ interface ImageWorkspaceSettings {
   documentOcrLanguage?: BundledOcrLanguageCode;
 }
 
+interface ProviderConfigSummary {
+  providerId: string;
+  supportedTargetLanguages?: string[];
+}
+
 interface WorkspaceImageAsset {
   id: string;
   file: File;
@@ -79,6 +84,7 @@ export class ImageWorkspaceController {
   private fileLoadGeneration = 0;
   private feedbackWriteQueue: Promise<void> = Promise.resolve();
   private isDisposed = false;
+  private providerTargetLanguages = new Map<string, string[]>();
 
   private fileInput: HTMLInputElement | null = null;
   private dropZone: HTMLElement | null = null;
@@ -115,6 +121,7 @@ export class ImageWorkspaceController {
     this.populateControls();
     this.bindEvents();
     this.render();
+    await this.loadProviderConfigurations();
     await this.loadSettings();
   }
 
@@ -205,9 +212,29 @@ export class ImageWorkspaceController {
     }
   }
 
+  private async loadProviderConfigurations(): Promise<void> {
+    try {
+      const response = await this.sendMessage({ action: 'getTranslationProviderConfigs' });
+      const summaries = response?.success && Array.isArray(response.data)
+        ? response.data as ProviderConfigSummary[]
+        : [];
+      this.providerTargetLanguages = new Map(
+        summaries
+          .filter(summary => Array.isArray(summary.supportedTargetLanguages))
+          .map(summary => [summary.providerId, summary.supportedTargetLanguages!])
+      );
+    } catch {
+      this.providerTargetLanguages.clear();
+    }
+  }
+
   private updateTargetLanguages(preferredLanguage = 'zh-CN'): void {
     if (!this.targetLanguage) return;
-    const languages = getProviderTargetLanguages(this.provider?.value || 'google');
+    const providerId = this.provider?.value || 'google';
+    const languages = getProviderTargetLanguages(
+      providerId,
+      this.providerTargetLanguages.get(providerId)
+    );
     const previous = preferredLanguage || this.targetLanguage.value;
     this.targetLanguage.replaceChildren(...languages.map(definition => {
       const option = document.createElement('option');

@@ -1,4 +1,5 @@
 export type TranslationProviderStatus = 'available' | 'planned';
+export type TranslationProviderLanguageDiscovery = 'libretranslate' | 'systran';
 export type TranslationProviderConfigField =
   | 'clientId'
   | 'apiKey'
@@ -37,6 +38,22 @@ export interface TranslationProviderRuntimeConfig {
   endpoint?: string;
   model?: string;
   region?: string;
+  languageCapabilities?: TranslationProviderLanguageCapabilities;
+}
+
+export interface TranslationProviderLanguagePair {
+  source: string;
+  target: string;
+}
+
+export interface TranslationProviderLanguageCapabilities {
+  endpoint: string;
+  discoveredAt: string;
+  sourceLanguages: string[];
+  targetLanguages: string[];
+  languagePairs: TranslationProviderLanguagePair[];
+  sourceLanguageMap?: Record<string, string>;
+  targetLanguageMap?: Record<string, string>;
 }
 
 export interface TranslationProviderDefinition {
@@ -47,6 +64,7 @@ export interface TranslationProviderDefinition {
   supportsAutoDetect: boolean;
   adapter?: TranslationProviderAdapter;
   supportsAiPreferences?: boolean;
+  languageDiscovery?: TranslationProviderLanguageDiscovery;
   supportedTargetLanguages?: string[];
   configFields?: TranslationProviderConfigField[];
   defaultEndpoint?: string;
@@ -175,6 +193,7 @@ export const TRANSLATION_PROVIDERS: TranslationProviderDefinition[] = [
   {
     id: 'libretranslate', label: 'LibreTranslate', status: 'available', adapter: 'libretranslate',
     requiresApiKey: false, supportsAutoDetect: true, configFields: ['apiKey', 'endpoint'],
+    languageDiscovery: 'libretranslate',
     defaultEndpoint: 'https://libretranslate.com/translate'
   },
   {
@@ -308,6 +327,7 @@ export const TRANSLATION_PROVIDERS: TranslationProviderDefinition[] = [
   {
     id: 'systran', label: 'SYSTRAN Translate', status: 'available', adapter: 'systran',
     requiresApiKey: true, supportsAutoDetect: true,
+    languageDiscovery: 'systran',
     configFields: ['apiKey', 'endpoint'],
     defaultEndpoint: 'https://api-translate.systran.net/translation/text/translate'
   },
@@ -486,12 +506,38 @@ export const isTranslationProviderRegionValid = (
 
 export const providerSupportsTargetLanguage = (
   providerId: string | undefined,
-  languageCode: string
+  languageCode: string,
+  discoveredTargetLanguages?: readonly string[]
 ): boolean => {
+  if (discoveredTargetLanguages !== undefined) {
+    return discoveredTargetLanguages.includes(languageCode);
+  }
   const provider = getTranslationProvider(providerId);
   return !provider?.supportedTargetLanguages || provider.supportedTargetLanguages.includes(languageCode);
 };
 
-export const getProviderTargetLanguages = (providerId: string | undefined): TranslationLanguageDefinition[] => (
-  TRANSLATION_LANGUAGES.filter(language => providerSupportsTargetLanguage(providerId, language.code))
+export const getProviderTargetLanguages = (
+  providerId: string | undefined,
+  discoveredTargetLanguages?: readonly string[]
+): TranslationLanguageDefinition[] => (
+  TRANSLATION_LANGUAGES.filter(language => providerSupportsTargetLanguage(
+    providerId,
+    language.code,
+    discoveredTargetLanguages
+  ))
 );
+
+export const providerSupportsLanguagePair = (
+  providerId: string | undefined,
+  sourceLanguage: string | undefined,
+  targetLanguage: string,
+  capabilities?: TranslationProviderLanguageCapabilities
+): boolean => {
+  if (!capabilities) return providerSupportsTargetLanguage(providerId, targetLanguage);
+  if (!sourceLanguage || sourceLanguage === 'auto') {
+    return capabilities.targetLanguages.includes(targetLanguage);
+  }
+  return capabilities.languagePairs.some(pair => (
+    pair.source === sourceLanguage && pair.target === targetLanguage
+  ));
+};

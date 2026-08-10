@@ -40,6 +40,7 @@ import {
   createSensitiveDataMaskingSession,
   SensitiveDataMaskingSession
 } from '../services/SensitiveDataMasker';
+import { providerLanguageDiscoveryService } from '../services/ProviderLanguageDiscoveryService';
 
 // 消息类型定义（保留兼容性）
 interface MessageRequest {
@@ -435,6 +436,10 @@ class BackgroundService {
 
         case 'updateTranslationProviderConfig':
           response = await this.handleUpdateTranslationProviderConfigRequest(request);
+          break;
+
+        case 'refreshTranslationProviderLanguages':
+          response = await this.handleRefreshTranslationProviderLanguagesRequest(request);
           break;
 
         case 'removeTranslationProviderConfig':
@@ -1393,6 +1398,20 @@ class BackgroundService {
     await this.storageManager.removeTranslationProviderConfig(providerId);
     this.translationService.clearCache();
     return { success: true };
+  }
+
+  private async handleRefreshTranslationProviderLanguagesRequest(request: MessageRequest): Promise<MessageResponse> {
+    const providerId = String(request.data?.providerId || '');
+    const config = await this.storageManager.getTranslationProviderConfig(providerId);
+    if (!config) throw new Error('Translation provider configuration is required');
+    const capabilities = await providerLanguageDiscoveryService.discover(providerId, config);
+    const summary = await this.storageManager.saveTranslationProviderLanguageCapabilities(
+      providerId,
+      capabilities,
+      config
+    );
+    this.translationService.clearCache();
+    return { success: true, data: summary };
   }
 
   private async handleGetLearningStatsRequest(request: MessageRequest): Promise<MessageResponse> {
