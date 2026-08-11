@@ -1,4 +1,5 @@
 import { DocumentBlock, DocumentTextExtractor } from '../services/DocumentTextExtractor';
+import { createAcademicDocumentHandoff } from '../services/AcademicDocumentHandoff';
 import {
   BUNDLED_OCR_LANGUAGES,
   BundledOcrLanguageCode
@@ -90,6 +91,7 @@ class DocumentTranslatorController {
   private exportEpubButton: HTMLButtonElement | null = null;
   private exportPdfButton: HTMLButtonElement | null = null;
   private exportTextButton: HTMLButtonElement | null = null;
+  private exportResearchNoteButton: HTMLButtonElement | null = null;
   private saveHistoryButton: HTMLButtonElement | null = null;
   private clearButton: HTMLButtonElement | null = null;
   private historyRetention: HTMLSelectElement | null = null;
@@ -151,6 +153,7 @@ class DocumentTranslatorController {
     this.exportEpubButton = document.getElementById('exportEpubFile') as HTMLButtonElement | null;
     this.exportPdfButton = document.getElementById('exportPdfFile') as HTMLButtonElement | null;
     this.exportTextButton = document.getElementById('exportTextFile') as HTMLButtonElement | null;
+    this.exportResearchNoteButton = document.getElementById('exportResearchNote') as HTMLButtonElement | null;
     this.saveHistoryButton = document.getElementById('saveDocumentHistory') as HTMLButtonElement | null;
     this.clearButton = document.getElementById('clearDocument') as HTMLButtonElement | null;
     this.historyRetention = document.getElementById('historyRetention') as HTMLSelectElement | null;
@@ -287,6 +290,7 @@ class DocumentTranslatorController {
     this.exportEpubButton?.addEventListener('click', () => void this.exportTranslatedEpub());
     this.exportPdfButton?.addEventListener('click', () => void this.exportTranslatedPdf());
     this.exportTextButton?.addEventListener('click', () => this.exportTranslatedText());
+    this.exportResearchNoteButton?.addEventListener('click', () => this.exportResearchNote());
     this.saveHistoryButton?.addEventListener('click', () => void this.saveDocumentHistory());
     this.clearButton?.addEventListener('click', () => this.clearDocument());
     this.historyRetention?.addEventListener('change', () => void this.changeHistoryRetention());
@@ -1069,6 +1073,36 @@ class DocumentTranslatorController {
       'text/plain;charset=utf-8'
     );
     this.showMessage(`Exported ${results.length} translated text blocks`);
+  }
+
+  private exportResearchNote(): void {
+    const results = this.currentResults.filter(result => (
+      result.block.originalText.trim() || result.translatedText.trim()
+    ));
+    if (results.length === 0) {
+      this.showMessage('Translate document text before exporting a research note.', 'error');
+      return;
+    }
+
+    try {
+      const handoff = createAcademicDocumentHandoff({
+        title: this.loadedFileName || 'Bilingual research note',
+        sourceName: this.loadedFileName || 'Pasted document',
+        sourceUrl: this.loadedSourceUrl,
+        provider: this.translationProvider?.value || 'google',
+        targetLanguage: this.targetLanguage?.value || 'zh-CN',
+        exportedAt: new Date().toISOString(),
+        blocks: results.map(result => ({
+          label: this.getBlockLabel(result.block),
+          originalText: result.block.originalText,
+          translatedText: result.translatedText
+        }))
+      });
+      this.downloadTextFile(handoff.content, handoff.filename, 'text/markdown;charset=utf-8');
+      this.showMessage(`Exported a bilingual research note with ${handoff.blockCount} blocks`);
+    } catch (error) {
+      this.showMessage(error instanceof Error ? error.message : 'Could not export the research note.', 'error');
+    }
   }
 
   private renderTranslatedSubtitleFile(results: TranslationResult[], format: 'srt' | 'vtt'): string {
@@ -1995,6 +2029,7 @@ class DocumentTranslatorController {
     this.updateEpubExportButton(isBusy);
     this.updatePdfExportButton(isBusy);
     this.updateTextExportButton(isBusy);
+    this.updateResearchNoteExportButton(isBusy);
     if (this.saveHistoryButton) {
       this.saveHistoryButton.disabled = isBusy || this.currentResults.length === 0;
     }
@@ -2054,6 +2089,12 @@ class DocumentTranslatorController {
     if (!this.exportTextButton) return;
     const hasTranslatedText = this.currentResults.some(result => result.translatedText.trim());
     this.exportTextButton.disabled = isBusy || !hasTranslatedText;
+  }
+
+  private updateResearchNoteExportButton(isBusy: boolean = false): void {
+    if (!this.exportResearchNoteButton) return;
+    const hasTranslatedText = this.currentResults.some(result => result.translatedText.trim());
+    this.exportResearchNoteButton.disabled = isBusy || !hasTranslatedText;
   }
 
   private isJsonDocumentFile(file: File): boolean {

@@ -142,22 +142,25 @@ const MEETING_CAPTION_ADAPTERS: MeetingCaptionAdapter[] = [
       '.caption-content',
       '[class*="captionText"]'
     ]
+  },
+  {
+    source: 'YouTube Live',
+    priority: 80,
+    rootSelectors: [
+      '.ytp-caption-window-container'
+    ],
+    speakerSelectors: [],
+    textSelectors: [
+      '.ytp-caption-segment'
+    ]
   }
 ];
 
-const LIVE_CAPTION_SELECTORS = [
+const EXPLICIT_LIVE_CAPTION_SELECTORS = [
   '[data-lexibridge-live-caption-source]',
-  '[aria-live="polite"]',
-  '[aria-live="assertive"]',
+  '[aria-live]',
   '[role="log"]',
   '[role="status"]',
-  '.iTTPOb',
-  '.a4cQT',
-  '.TBMuR',
-  '.closed-caption',
-  '.captions-text',
-  '.caption-window',
-  '.caption-text',
   '.live-caption',
   '.subtitle',
   '[class*="caption"]',
@@ -353,8 +356,9 @@ export class LiveCaptionTranslator {
 
     const caption = this.findCaptionCandidate();
     if (!caption) {
+      const hadCaption = this.lastCaptionText !== '';
       this.finalizeActiveTranscriptCue(Date.now());
-      this.showStatus('Waiting for live captions...');
+      if (hadCaption) this.showStatus('Waiting for live captions...');
       this.lastCaptionText = '';
       return;
     }
@@ -453,15 +457,32 @@ export class LiveCaptionTranslator {
   }
 
   private findGenericCaptionCandidates(): LiveCaptionCandidate[] {
-    return LIVE_CAPTION_SELECTORS
+    return EXPLICIT_LIVE_CAPTION_SELECTORS
       .flatMap(selector => Array.from(document.querySelectorAll(selector)) as HTMLElement[])
       .filter((element, index, elements) => elements.indexOf(element) === index)
       .filter(element => this.isUsableCaptionElement(element))
+      .filter(element => this.isExplicitLiveCaptionElement(element))
       .map(element => ({
         text: this.normalizeCaptionText(element.textContent || ''),
         source: 'Generic live caption',
         priority: 10
       }));
+  }
+
+  private isExplicitLiveCaptionElement(element: HTMLElement): boolean {
+    if (element.hasAttribute('data-lexibridge-live-caption-source')) return true;
+
+    const accessibleName = [
+      element.getAttribute('aria-label'),
+      element.getAttribute('aria-roledescription'),
+      element.getAttribute('data-testid'),
+      element.className
+    ]
+      .filter((value): value is string => typeof value === 'string' && Boolean(value))
+      .join(' ')
+      .toLowerCase();
+
+    return /\b(?:live\s+)?captions?\b|\bsubtitles?\b/.test(accessibleName);
   }
 
   private findFirstText(root: HTMLElement, selectors: string[]): string {

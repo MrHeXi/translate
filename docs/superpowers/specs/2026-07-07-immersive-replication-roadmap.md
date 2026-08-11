@@ -232,16 +232,18 @@ Current batch:
 - Done: add explicit local translation history with source metadata, provider/language identity, reopen/export/delete/clear controls, configurable 10/25/50 retention, bounded storage, and no cloud synchronization or binary source persistence.
 - Done: add bounded MOBI and KF8-based AZW3 import with a 64 MiB file limit, 4,096-chapter limit, 8 MiB per-chapter limit, 64 MiB extracted-HTML limit, deterministic spine/text ordering, duplicate paragraph preservation, cancellation, and translated-text export without claiming eBook container rewriting.
 - Done: add explicit multi-file batch translation with 100-file, 64 MiB per-file, and 128 MiB total limits that stays idle after file selection, starts only after Start batch, limits concurrency to 1/2/3, reports per-file status, supports cancellation and explicit failed-file retry, and creates a deterministic ZIP only after all files succeed.
-- Remaining: add BabelDOC-compatible PDF workflow guidance and a Zotero-oriented handoff without claiming unsupported third-party integration.
+- Done: add an explicit bounded bilingual Markdown research-note handoff with source/provider/language metadata and safe text fences for local attachment to academic reference workflows, without claiming or attempting a Zotero API integration.
+- Remaining: add BabelDOC-compatible PDF workflow guidance without claiming unsupported third-party integration.
 
 ### Batch J: Video and Site Adapter Parity
 
 - Done: add a side-effect-free versioned adapter registry and YouTube Adapter v1 for standard videos, Live pages, Shorts, and `youtu.be`, with page classification, active-player-scoped selectors, route checks before cue requests/results, DOM caption normalization, same-text timed-cue preservation, bounded cue retention, and immediate Stop when SPA navigation changes videos.
 - Done: expose YouTube-specific manual generator entry points while retaining the explicit second Capture click; declare OpenAI/Groq timed-segment and cancellation capabilities, show indeterminate transcription progress, offset captured cues by the source playback position, allow cue text/start/end editing, abort active translation requests, and export edited bilingual SRT/VTT.
 - Done: load validated edited bilingual cues into the originating source video only after the user clicks Apply, synchronize them without starting playback, keep generated playback mutually exclusive with live translation, and remove event bindings immediately on Clear, video replacement, source change, or route navigation.
-- Done: add contract-tested dedicated adapters for Netflix, Vimeo, Bilibili, Udemy, Coursera, and Khan Academy, with exact-domain/subdomain matching, malicious-lookalike rejection, stable content navigation keys, site-first selectors, generic fallbacks, and side-effect-free resolution.
+- Done: add contract-tested dedicated adapters for Netflix, Vimeo, Bilibili, Udemy, Coursera, Khan Academy, Nebula, and Bloomberg, with exact-domain/subdomain matching, malicious-lookalike rejection, stable content navigation keys, site-first selectors, generic fallbacks, and side-effect-free resolution.
 - Done: settle incremental YouTube Live DOM cues before translation, abort an in-flight partial request when a cue grows, and coalesce translated cue growth into one final exported cue without changing the explicit Start/Stop contract.
-- Remaining: complete real-account/site smoke tests for dedicated adapters, add adapters for further documented sites such as Nebula and Bloomberg, add additional speech providers, support files above provider limits, and add live partial transcription.
+- Done: add YouTube Live caption-container support to Live captions, reject unrelated ARIA status regions while retaining semantic generic caption containers, and make Video subtitles and Live captions mutually exclusive in both directions.
+- Remaining: complete real-account/site smoke tests for dedicated adapters, add adapters for further evidence-backed documented sites, add additional speech providers, support files above provider limits, and add live partial transcription.
 - Keep every subtitle-generation and media-capture path user-triggered; visiting or playing a video never starts capture, OCR, transcription, or translation.
 
 ### Batch K: AI Experts, Prompt Templates, and Privacy
@@ -249,8 +251,9 @@ Current batch:
 - Done: add installable Schema v1 AI expert definitions with strict validation, HTTPS source attribution, semantic version upgrade protection, immutable trusted built-ins, enable/disable controls, local-only persistence, and safe selected-expert fallback on disable/removal.
 - Done: add structured `js-yaml` prompt-template import/export with aliases and unsafe tags disabled, deterministic output, schema/complexity/variable/render limits, local preview, selected-template removal fallback, and rollback to the built-in default.
 - Done: add opt-in request-scoped masking for supported emails, phone numbers, Luhn-valid cards, IPv4 addresses, valid IBANs, and sensitive URL query values across source/context/prompt fields; restore required source placeholders locally and discard ambiguous provider output visibly.
+- Done: extend masking with structurally validated IPv6 addresses and strict JWTs while preserving duplicate, transformed, unknown, unexpected, and cross-field fail-closed restoration behavior.
 - Done: keep webpage, document, subtitle, OCR, neighboring context, installed experts, YAML templates, glossary entries, and custom preferences in the untrusted user-message channel; reject page-content template variables; and keep the extension-owned source-isolation and exact-placeholder requirements fixed in a separate system message.
-- Remaining: broaden sensitive-pattern coverage with carefully measured false-positive/false-negative tests, add a curated expert/template discovery channel without executing remote content, and complete real-provider prompt-adherence smoke tests.
+- Remaining: continue measured sensitive-pattern coverage beyond IPv6/JWT, add a curated expert/template discovery channel without executing remote content, and complete real-provider prompt-adherence smoke tests.
 
 ### Batch L: Cross-Platform Distribution
 

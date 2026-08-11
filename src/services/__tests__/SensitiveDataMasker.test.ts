@@ -57,6 +57,90 @@ describe('SensitiveDataMasker', () => {
     expect(restored).toEqual({ status: 'ok', fields: [{ id: 'source', text: original }] });
   });
 
+  it('masks strictly valid IPv6 addresses and JWTs while leaving lookalikes intact', () => {
+    const ipv6 = '2001:db8:85a3::8a2e:370:7334';
+    const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwicm9sZSI6ImFkbWluIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+    const original = [
+      `IPv6 ${ipv6}`,
+      `JWT ${jwt}`,
+      'invalid IPv6 2001:db8:::1 and 1:2:3',
+      'not-a-JWT eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghijklmnopqrstuvwxyz'
+    ].join('\n');
+    const { session, masked } = maskSingle(original);
+
+    expect(placeholders(masked)).toHaveLength(2);
+    expect(masked).not.toContain(ipv6);
+    expect(masked).not.toContain(jwt);
+    expect(masked).toContain('2001:db8:::1');
+    expect(masked).toContain('1:2:3');
+    expect(masked).toContain('eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghijklmnopqrstuvwxyz');
+    expect(session.restoreFields([{ id: 'source', text: masked }])).toEqual({
+      status: 'ok', fields: [{ id: 'source', text: original }]
+    });
+  });
+
+  it('fails closed for duplicated, transformed, unknown, and cross-field IPv6/JWT placeholders', () => {
+    const ipv6 = '2001:db8::42';
+    const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MiIsInNjb3BlIjoid3JpdGUifQ.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk';
+    const session = createSensitiveDataMaskingSession();
+    const masked = session.maskFields([
+      { id: 'source', text: `Endpoint ${ipv6}`, requireRestoration: true },
+      { id: 'other', text: `Credential ${jwt}`, requireRestoration: true },
+      { id: 'context', text: `Repeated endpoint ${ipv6}`, requireRestoration: false }
+    ]);
+    expect(masked.status).toBe('ok');
+    if (masked.status !== 'ok') return;
+
+    const ipv6Token = placeholders(masked.fields[0].text)[0];
+    const jwtToken = placeholders(masked.fields[1].text)[0];
+    expect(placeholders(masked.fields[2].text)).toEqual([ipv6Token]);
+    expect(session.restoreFields([
+      { id: 'source', text: `Translated ${ipv6Token}` },
+      { id: 'other', text: `Translated ${jwtToken}` }
+    ])).toEqual({
+      status: 'ok',
+      fields: [
+        { id: 'source', text: `Translated ${ipv6}` },
+        { id: 'other', text: `Translated ${jwt}` }
+      ]
+    });
+
+    const duplicate = session.restoreFields([
+      { id: 'source', text: `${ipv6Token} ${ipv6Token}` },
+      { id: 'other', text: jwtToken }
+    ]);
+    expect(duplicate).toEqual(expect.objectContaining({
+      status: 'ambiguous', reason: 'duplicate-placeholder'
+    }));
+
+    const transformed = session.restoreFields([
+      { id: 'source', text: ipv6Token.toLowerCase() },
+      { id: 'other', text: jwtToken }
+    ]);
+    expect(transformed).toEqual(expect.objectContaining({
+      status: 'ambiguous', reason: 'transformed-placeholder'
+    }));
+
+    const unknown = session.restoreFields([
+      { id: 'source', text: '[[LEXIBRIDGE_MASK_UNKNOWN_1]]' },
+      { id: 'other', text: jwtToken }
+    ]);
+    expect(unknown).toEqual(expect.objectContaining({
+      status: 'ambiguous', reason: 'unknown-placeholder'
+    }));
+
+    const crossField = session.restoreFields([
+      { id: 'source', text: `${ipv6Token} ${jwtToken}` },
+      { id: 'other', text: jwtToken }
+    ]);
+    expect(crossField).toEqual(expect.objectContaining({
+      status: 'ambiguous', reason: 'unexpected-placeholder'
+    }));
+    for (const result of [duplicate, transformed, unknown, crossField]) {
+      expect(result).not.toHaveProperty('fields');
+    }
+  });
+
   it('uses a shared primary placeholder for the same secret across fields', () => {
     const session = createSensitiveDataMaskingSession();
     const result = session.maskFields([

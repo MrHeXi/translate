@@ -175,6 +175,18 @@ function resolveKhanAcademyIdentity(url: URL): string {
     : pathIdentity('khan-academy', url);
 }
 
+function resolveNebulaIdentity(url: URL): string {
+  const segments = pathSegments(url);
+  if (segments[0]?.toLowerCase() === 'videos' && segments[1]) {
+    return `nebula:video:${segments[1]}`;
+  }
+  return pathIdentity('nebula', url);
+}
+
+function resolveBloombergIdentity(url: URL): string {
+  return pathIdentity('bloomberg', url);
+}
+
 const DEDICATED_VIDEO_SITE_ADAPTERS: DedicatedVideoSiteAdapter[] = [
   {
     adapterId: 'netflix',
@@ -326,6 +338,52 @@ const DEDICATED_VIDEO_SITE_ADAPTERS: DedicatedVideoSiteAdapter[] = [
       '[data-testid="captions"] span',
       '[data-test-id="captions"] span',
       '.vjs-text-track-cue',
+    ], GENERIC_CAPTION_SEGMENT_SELECTORS),
+  },
+  {
+    adapterId: 'nebula',
+    siteLabel: 'Nebula',
+    domains: ['nebula.tv'],
+    resolveIdentity: resolveNebulaIdentity,
+    videoSelectors: withGenericFallback([
+      'main video',
+    ], GENERIC_VIDEO_SELECTORS),
+    playerSelectors: withGenericFallback([
+      'main [data-video-player]',
+      'main [class*="video-player"]',
+    ], GENERIC_PLAYER_SELECTORS),
+    captionRootSelectors: withGenericFallback([
+      'main [data-testid*="caption"]',
+      'main [class*="caption"][aria-live]',
+      'main [class*="subtitle"][aria-live]',
+    ], GENERIC_CAPTION_ROOT_SELECTORS),
+    captionSegmentSelectors: withGenericFallback([
+      'main [data-testid*="caption"] span',
+      'main [class*="caption"][aria-live] span',
+      'main [class*="subtitle"][aria-live] span',
+    ], GENERIC_CAPTION_SEGMENT_SELECTORS),
+  },
+  {
+    adapterId: 'bloomberg',
+    siteLabel: 'Bloomberg',
+    domains: ['bloomberg.com'],
+    resolveIdentity: resolveBloombergIdentity,
+    videoSelectors: withGenericFallback([
+      'main video',
+    ], GENERIC_VIDEO_SELECTORS),
+    playerSelectors: withGenericFallback([
+      'main [data-video-player]',
+      'main [class*="video-player"]',
+    ], GENERIC_PLAYER_SELECTORS),
+    captionRootSelectors: withGenericFallback([
+      'main [data-testid*="caption"]',
+      'main [class*="caption"][aria-live]',
+      'main [class*="subtitle"][aria-live]',
+    ], GENERIC_CAPTION_ROOT_SELECTORS),
+    captionSegmentSelectors: withGenericFallback([
+      'main [data-testid*="caption"] span',
+      'main [class*="caption"][aria-live] span',
+      'main [class*="subtitle"][aria-live] span',
     ], GENERIC_CAPTION_SEGMENT_SELECTORS),
   },
 ];

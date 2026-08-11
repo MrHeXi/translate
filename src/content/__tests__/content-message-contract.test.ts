@@ -1080,6 +1080,45 @@ describe('Content script MessageManager contract', () => {
       }
     });
 
+    await expect(sendDirectMessage({ action: 'toggleVideoSubtitleTranslation' })).resolves.toEqual({
+      success: true,
+      data: expect.objectContaining({ isActive: true })
+    });
+    await expect(sendDirectMessage({ action: 'toggleLiveCaptionTranslation' })).resolves.toEqual({
+      success: true,
+      data: expect.objectContaining({ isActive: true })
+    });
+    await expect(sendDirectMessage({ action: 'getTranslationStatus' })).resolves.toEqual({
+      success: true,
+      data: expect.objectContaining({
+        isVideoSubtitleMode: false,
+        isLiveCaptionMode: true
+      })
+    });
+    await expect(sendDirectMessage({ action: 'toggleLiveCaptionTranslation' })).resolves.toEqual({
+      success: true,
+      data: expect.objectContaining({ isActive: false })
+    });
+    await expect(sendDirectMessage({ action: 'toggleLiveCaptionTranslation' })).resolves.toEqual({
+      success: true,
+      data: expect.objectContaining({ isActive: true })
+    });
+    await expect(sendDirectMessage({ action: 'toggleVideoSubtitleTranslation' })).resolves.toEqual({
+      success: true,
+      data: expect.objectContaining({ isActive: true })
+    });
+    await expect(sendDirectMessage({ action: 'getTranslationStatus' })).resolves.toEqual({
+      success: true,
+      data: expect.objectContaining({
+        isVideoSubtitleMode: true,
+        isLiveCaptionMode: false
+      })
+    });
+    await expect(sendDirectMessage({ action: 'toggleVideoSubtitleTranslation' })).resolves.toEqual({
+      success: true,
+      data: expect.objectContaining({ isActive: false })
+    });
+
     const imageStartResponse = await sendDirectMessage({ action: 'toggleImageTranslation' });
     expect(imageStartResponse).toEqual({
       success: true,

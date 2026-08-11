@@ -26,13 +26,14 @@ Initial productized release candidate for local Chrome/Firefox testing and brows
 - Structure-preserving ASS/SSA subtitle import and export with timing, styles, comments, inline tags, and comma-bearing dialogue text retained; vector-drawing dialogue remains original.
 - Editable translated document blocks whose final text is used by subtitle, JSON, DOCX, EPUB, PDF, and history exports.
 - Explicit versioned document history in local Chrome storage with reopen-without-translation, JSON export, delete/clear controls, 10/25/50 retention, 512 KiB per-entry and 4 MiB total limits, and no binary PDF/DOCX/EPUB/MOBI/AZW3 source persistence.
+- Explicit local bilingual Markdown research-note export with bounded blocks, source/provider/language metadata, safe variable-length code fences, and no direct Zotero connection or automatic export.
 - Mixed PDF pages with sparse text layers are supplemented by local OCR when PDF.js identifies raster content; text-layer and OCR blocks are merged and duplicate detections are removed.
 - Editing a loaded PDF preserves block IDs, page geometry, column metadata, and formula metadata when safe; newly inserted text without safe source geometry remains translatable but disables PDF export rather than being silently omitted.
 - Conservative two-column PDF detection with left-column-then-right-column reading order and translated overlays constrained to inferred column regions.
 - Local standalone-formula detection that preserves likely mathematical expressions, excludes them from direct translation and neighboring AI context, and does not paint over them in translated previews or PDF exports.
 - Video subtitle translation for pages that expose caption/subtitle text tracks or common DOM-rendered caption containers.
 - Versioned YouTube Adapter v1 for standard videos, Live pages, Shorts, and `youtu.be`, with active-player-scoped captions, route checks before every cue request/result, same-text timed-cue preservation, bounded export retention, and immediate Stop instead of automatic translation after SPA video navigation.
-- Dedicated contract-tested video adapters for Netflix, Vimeo, Bilibili, Udemy, Coursera, and Khan Academy, with exact-domain matching, stable content identities, site-first selectors, generic fallbacks, and no resolver-side DOM writes.
+- Dedicated contract-tested video adapters for Netflix, Vimeo, Bilibili, Udemy, Coursera, Khan Academy, Nebula, and Bloomberg, with exact-domain matching, stable content identities, site-first selectors, generic fallbacks, and no resolver-side DOM writes.
 - YouTube Live DOM captions now settle before a provider request, cancel an in-flight partial request when the cue grows, and merge translated incremental growth into one final exported cue.
 - Video subtitles and Live captions remain text-only modes and never start tab recording.
 - SRT export for translated video subtitle cues from the current session.
@@ -43,6 +44,7 @@ Initial productized release candidate for local Chrome/Firefox testing and brows
 - Contextual YouTube subtitle-generation entry points that only open the generator; capture still requires its own click, records the source playback offset at recorder start when available, exposes bounded editable cue text/start/end controls, uses indeterminate provider progress, and cancels globally namespaced per-cue translation requests.
 - Explicit Apply to source video and Clear source video subtitles controls for generated bilingual cues. Applying is user-triggered, never starts playback, replaces prior generated-caption bindings, stays mutually exclusive with live subtitle translation, and clears on video or route changes.
 - Live caption translation for caption text already visible in the page DOM, with Google Meet, Zoom, Microsoft Teams, and Webex-style speaker label handling.
+- YouTube Live caption-container support in Live captions mode, semantic filtering that rejects unrelated ARIA status regions, and immediate two-way mutual exclusion between Video subtitles and Live captions.
 - Timestamped bilingual live-caption transcripts with incremental-caption coalescing, in-memory session retention after Stop, explicit Clear, and local TXT/SRT/VTT/JSON export.
 - Explicit live-caption transcript Save with bounded `chrome.storage.local` history, sanitized source origins, private-tab rejection, newest-first preview, local TXT/SRT/VTT/JSON export, per-session Delete, Clear all, and 10/25/50 retention controls; loading a page or stopping captions never saves automatically.
 - Manual image text translation for selected images, canvases, SVGs, dragged image regions, and eligible graphics currently visible in the viewport, using browser OCR first and bundled offline OCR otherwise while retaining separate per-image or OCR-block overlays.
@@ -71,7 +73,7 @@ Initial productized release candidate for local Chrome/Firefox testing and brows
 - Strict duplicate-key-safe JSON installation for versioned AI experts, full instruction and attribution review, enable/disable state, protected built-ins, upgrade-only replacement, and safe fallback when a selected custom expert is disabled or removed.
 - Structured YAML prompt-template import/export with bounded declared variables, required-variable validation, multiline JSON override values, deterministic local preview, rollback to the trusted default, and no provider request from management or preview actions.
 - Fixed extension-owned AI system requirements with source, context, glossary, custom instructions, installed experts, and imported prompt templates isolated as untrusted user-message data.
-- Opt-in request-scoped masking for supported email, phone, Luhn-valid payment-card, IPv4, IBAN, and sensitive URL-query values across translation and AI-writing payloads, with local restoration and fail-closed result rejection on missing, duplicated, transformed, unknown, or unexpected placeholders.
+- Opt-in request-scoped masking for supported email, phone, Luhn-valid payment-card, IPv4, strictly validated IPv6, IBAN, strict JWT, and sensitive URL-query values across translation and AI-writing payloads, with local restoration and fail-closed result rejection on missing, duplicated, transformed, unknown, or unexpected placeholders.
 - Abortable side-panel translation and AI-writing requests with unique IDs and a real Run/Stop toggle that immediately cancels the provider request and ignores late responses, including Clear and panel-close cancellation.
 - Sync-failure user-data fallback that takes precedence over stale synchronized settings, retries pending fields on recovery, remains equivalent when fallback cleanup fails, preserves learning preferences, and filters imports to settings and learning data so provider credentials and local AI libraries never enter Chrome Sync.
 - Local-only API credential storage with masked settings summaries for API keys, client/application IDs, and temporary session tokens; explicit configured-host approval; keyless Ollama configuration; and no credentialed-provider fallback to unrelated services.
@@ -91,11 +93,11 @@ Verified on 2026-08-11:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand`: passed, 74 test suites and 780 tests.
+- `jest --runInBand`: passed, 75 test suites and 800 tests.
 - `npm run package`: passed for Chrome and Firefox Desktop.
 - `web-ext lint --source-dir dist-firefox`: passed with 0 errors, 0 notices, and 31 warnings retained for AMO review.
-- Chrome build metadata: source `D66B230547DC3BB0201504D170DB07BC25C614F1FC9067C0384214C764787CEB`, manifest `E105181215EF2F2030818523211C187353EEC836130ADC7FCA04DF312168887C`, payload `21D032E3C7B596EC838D63347DF9A025CC05E734457590A3BF7601C91FCD590B`.
-- Firefox build metadata: source `1E9CAB0BB1C641CCA6E2EE8CD863CE8DF22C520F30AD0D7D61C768EFA6684319`, manifest `F280485846217ACDC7E58E0719AE800943FD2C3A07262789D8FE975D8A2D1C55`, payload `237631F1058134562C37D43554B5DB9A39531E1373D4843E9FBACFCFBBB5FE2C`.
+- Chrome build metadata: source `E213669CFAD977D97CDEF91DB92168B0066F949CB8E39E129EAA9E3800F0269D`, manifest `E105181215EF2F2030818523211C187353EEC836130ADC7FCA04DF312168887C`, payload `2EBDC2908B3535A63B0BDA30D0F31ADF3C794A9539071B497F3CA0B736C5E075`.
+- Firefox build metadata: source `B92787CA5D056A907B8962C3BEDF8F461C5ACCEDA5FEE18B3C32DCC47FF17B7E`, manifest `F280485846217ACDC7E58E0719AE800943FD2C3A07262789D8FE975D8A2D1C55`, payload `A540DD356309AA9DE3EE6E45502A7258FBCA70D4C18403B084D20F0FB72C9EC4`.
 - Both production directories contain exactly 246 files; forbidden tests, TypeScript declarations/sources, and source maps are absent, and every non-manifest/non-metadata file is byte-identical across targets.
 - Both ZIPs were generated twice from sorted forward-slash paths with fixed timestamps, compared byte-for-byte, CRC-checked, and reloaded to match every production file.
 
@@ -111,11 +113,11 @@ Expected build warnings:
 
 - Chrome unpacked folder: `dist`
 - Chrome test package: `chrome-translation-extension.zip`
-- Chrome ZIP size: `17,837,186` bytes
-- Chrome SHA-256: `6FF577AE10EB875A0F072FD17A60F892C4665E638B9DA2BEF13F3A2E51B94349`
+- Chrome ZIP size: `17,838,898` bytes
+- Chrome SHA-256: `1BA1A04364C0681224D970CD840868D41AC0D67AEEC1ED59AEE4998946F26ADC`
 - Firefox unpacked folder: `dist-firefox`
 - Firefox test package: `firefox-translation-extension.zip`
-- Firefox ZIP size: `17,837,359` bytes
-- Firefox SHA-256: `974548DD8AE1C973A67B410D6F9E9B112FE0AF161E4B8E93DECB01B4628AE089`
+- Firefox ZIP size: `17,839,072` bytes
+- Firefox SHA-256: `A21E221753445A2B9D914B7D19F30368E5F202D88F33BAC91A7B9DFD0690A803`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

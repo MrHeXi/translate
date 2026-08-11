@@ -103,6 +103,32 @@ const DEDICATED_ADAPTER_CASES = [
       'https://notkhanacademy.org/math/algebra/x/v/linear-equations',
     ],
   },
+  {
+    adapterId: 'nebula',
+    siteLabel: 'Nebula',
+    primaryUrl: 'https://nebula.tv/videos/creator-video-slug?autoplay=1#player',
+    subdomainUrl: 'https://www.nebula.tv/videos/creator-video-slug?quality=auto',
+    stableUrl: 'https://nebula.tv/videos/creator-video-slug?share=copy#comments',
+    changedIdentityUrl: 'https://nebula.tv/videos/another-creator-video',
+    expectedKey: 'nebula:video:creator-video-slug',
+    maliciousUrls: [
+      'https://nebula.tv.evil.example/videos/creator-video-slug',
+      'https://notnebula.tv/videos/creator-video-slug',
+    ],
+  },
+  {
+    adapterId: 'bloomberg',
+    siteLabel: 'Bloomberg',
+    primaryUrl: 'https://www.bloomberg.com/news/videos/2026-05-06/example-market-video?srnd=markets#player',
+    subdomainUrl: 'https://www.bloomberg.com/news/videos/2026-05-06/example-market-video?utm_source=feed',
+    stableUrl: 'https://www.bloomberg.com/news/videos/2026-05-06/example-market-video?cmpid=social#comments',
+    changedIdentityUrl: 'https://www.bloomberg.com/news/videos/2026-05-07/another-market-video',
+    expectedKey: 'bloomberg:path:news/videos/2026-05-06/example-market-video',
+    maliciousUrls: [
+      'https://bloomberg.com.evil.example/news/videos/2026-05-06/example-market-video',
+      'https://notbloomberg.com/news/videos/2026-05-06/example-market-video',
+    ],
+  },
 ] as const;
 
 const SELECTOR_CONTRACT_CASES: Array<[string, string]> = [
@@ -281,6 +307,7 @@ describe('VideoSiteAdapterRegistry', () => {
 
           expect(selectors.length).toBeGreaterThan(expectedSuffix.length);
           expect(selectors.slice(-expectedSuffix.length)).toEqual(expectedSuffix);
+          expect(selectors[0]).not.toBe(expectedSuffix[0]);
           selectors.forEach((selector) => {
             expect(() => document.querySelectorAll(selector)).not.toThrow();
           });

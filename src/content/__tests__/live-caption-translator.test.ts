@@ -32,7 +32,7 @@ describe('LiveCaptionTranslator', () => {
   });
 
   it('translates existing live caption text after manual enablement', async () => {
-    document.body.innerHTML = '<div aria-live="polite">Speaker says hello to everyone.</div>';
+    document.body.innerHTML = '<div aria-live="polite" aria-label="Live captions">Speaker says hello to everyone.</div>';
     const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
 
     const state = translator.enable(translateText);
@@ -51,7 +51,7 @@ describe('LiveCaptionTranslator', () => {
   });
 
   it('does not reuse a live-caption translation after the cache identity changes', async () => {
-    document.body.innerHTML = '<div aria-live="polite">The same caption text.</div>';
+    document.body.innerHTML = '<div aria-live="polite" aria-label="Live captions">The same caption text.</div>';
     let provider = 'google';
     const translateText = jest.fn(async (text: string) => `${provider}: ${text}`);
     const createCacheKey = (text: string): string => `${provider}:${text}`;
@@ -99,6 +99,55 @@ describe('LiveCaptionTranslator', () => {
     expect(translateText).toHaveBeenCalledWith(expect.not.stringMatching(/Mina|Jon|Ava|Noah/));
     expect(overlay?.textContent).toMatch(/Mina:|Jon:|Ava:|Noah:/);
     expect(overlay?.textContent).toContain('Translated:');
+  });
+
+  it('translates YouTube Live caption segments from their dedicated caption container', async () => {
+    document.body.innerHTML = `
+      <div class="ytp-caption-window-container">
+        <span class="ytp-caption-segment">The stream starts in five minutes.</span>
+      </div>
+    `;
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    translator.enable(translateText);
+    await flushPromises();
+
+    const exported = JSON.parse(translator.exportTranscript('json').content);
+    expect(translateText).toHaveBeenCalledWith('The stream starts in five minutes.');
+    expect(exported.cues[0]).toEqual(expect.objectContaining({
+      source: 'YouTube Live',
+      originalText: 'The stream starts in five minutes.'
+    }));
+  });
+
+  it('does not treat an unrelated ARIA live region as a caption source', async () => {
+    document.body.innerHTML = '<div aria-live="polite" role="status">Settings saved.</div>';
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    const state = translator.enable(translateText);
+    await flushPromises();
+
+    expect(state).toEqual({
+      isActive: true,
+      hasCaption: false,
+      cueCount: 0,
+      message: 'Waiting for live captions'
+    });
+    expect(translateText).not.toHaveBeenCalled();
+    expect(translator.getTranscriptStatus().cueCount).toBe(0);
+  });
+
+  it('keeps semantic generic caption containers available without ARIA labels', async () => {
+    document.body.innerHTML = '<div class="live-caption">A generic caption remains supported.</div>';
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    const state = translator.enable(translateText);
+    await flushPromises();
+
+    expect(state.hasCaption).toBe(true);
+    expect(translateText).toHaveBeenCalledWith('A generic caption remains supported.');
+    expect(JSON.parse(translator.exportTranscript('json').content).cues[0])
+      .toEqual(expect.objectContaining({ source: 'Generic live caption' }));
   });
 
   it('captures timed bilingual cues and exports SRT without recording audio', async () => {
@@ -176,7 +225,7 @@ describe('LiveCaptionTranslator', () => {
   });
 
   it('clears a captured transcript explicitly without restarting translation', async () => {
-    document.body.innerHTML = '<div aria-live="polite">Caption to clear.</div>';
+    document.body.innerHTML = '<div aria-live="polite" aria-label="Live captions">Caption to clear.</div>';
     const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
 
     translator.enable(translateText);
@@ -194,7 +243,7 @@ describe('LiveCaptionTranslator', () => {
   });
 
   it('captures the unchanged visible caption again after an explicit clear', async () => {
-    document.body.innerHTML = '<div aria-live="polite">Caption remains visible.</div>';
+    document.body.innerHTML = '<div aria-live="polite" aria-label="Live captions">Caption remains visible.</div>';
     const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
 
     translator.enable(translateText);
@@ -208,7 +257,7 @@ describe('LiveCaptionTranslator', () => {
   });
 
   it('does not commit a pending translation after Stop', async () => {
-    document.body.innerHTML = '<div aria-live="polite">Pending caption.</div>';
+    document.body.innerHTML = '<div aria-live="polite" aria-label="Live captions">Pending caption.</div>';
     let resolveTranslation!: (value: string) => void;
     const pendingTranslation = new Promise<string>(resolve => {
       resolveTranslation = resolve;
@@ -266,7 +315,7 @@ describe('LiveCaptionTranslator', () => {
   });
 
   it('updates the overlay when live caption text changes', async () => {
-    document.body.innerHTML = '<div id="caption" aria-live="polite">First caption line.</div>';
+    document.body.innerHTML = '<div id="caption" aria-live="polite" aria-label="Live captions">First caption line.</div>';
     const caption = document.getElementById('caption') as HTMLElement;
     const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
 
@@ -317,7 +366,7 @@ describe('LiveCaptionTranslator', () => {
   });
 
   it('removes the overlay and stops watching when disabled', async () => {
-    document.body.innerHTML = '<div id="caption" aria-live="polite">Caption before stop.</div>';
+    document.body.innerHTML = '<div id="caption" aria-live="polite" aria-label="Live captions">Caption before stop.</div>';
     const caption = document.getElementById('caption') as HTMLElement;
     const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
 

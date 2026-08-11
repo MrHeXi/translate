@@ -387,6 +387,10 @@ class ContentScript {
   }
 
   private async toggleVideoSubtitleTranslation(): Promise<VideoSubtitleTranslatorState> {
+    if (!this.videoSubtitleTranslator.getStatus().isActive
+      && this.liveCaptionTranslator.getStatus().isActive) {
+      this.liveCaptionTranslator.disable();
+    }
     return this.videoSubtitleTranslator.toggle(
       (text, request) => this.translateInteractiveText(text, undefined, request),
       (text) => this.createTranslationCacheKey(text)
@@ -403,6 +407,10 @@ class ContentScript {
     cueCount: number;
     message: string;
   }> {
+    if (!this.liveCaptionTranslator.getStatus().isActive
+      && this.videoSubtitleTranslator.getStatus().isActive) {
+      this.videoSubtitleTranslator.disable();
+    }
     return this.liveCaptionTranslator.toggle(
       (text) => this.translateInteractiveText(text),
       (text) => this.createTranslationCacheKey(text)

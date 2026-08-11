@@ -97,6 +97,8 @@ const URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
 const EMAIL_PATTERN = /(^|[^A-Z0-9.!#$%&'*+/=?^_`{|}~-])([A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+)/gi;
 const CARD_PATTERN = /(^|\D)((?:\d[ -]?){12,18}\d)(?!\d)/g;
 const IPV4_PATTERN = /(^|[^\d.])((?:\d{1,3}\.){3}\d{1,3})(?![\d.])/g;
+const IPV6_PATTERN = /(^|[^A-F0-9:])((?:[A-F0-9]{0,4}:){2,7}[A-F0-9:]{0,4})(?![A-F0-9:])/gi;
+const JWT_PATTERN = /(^|[^A-Z0-9_-])([A-Z0-9_-]+(?:\.[A-Z0-9_-]+){2})(?![A-Z0-9_-])/gi;
 const PHONE_PATTERN = /(^|[^\d+])((?:\+\d{1,3}[ \t.-]?)?(?:\(\d{2,4}\)|\d{2,4})(?:[ \t.-]?\d{2,4}){2,4})(?!\d)/g;
 const IBAN_START_PATTERN = /\b[A-Z]{2}\d{2}/gi;
 const SENSITIVE_QUERY_KEYS = new Set([
@@ -308,6 +310,53 @@ function isValidIpv4(value: string): boolean {
   });
 }
 
+function isValidIpv6(value: string): boolean {
+  if (value.length === 0 || value.includes(':::')) return false;
+  const compressedIndex = value.indexOf('::');
+  if (compressedIndex !== value.lastIndexOf('::')) return false;
+
+  const segments = value.split('::');
+  if (segments.length > 2) return false;
+  const hextets = value.replace('::', ':').split(':').filter(Boolean);
+  if (!hextets.every(hextet => /^[A-F0-9]{1,4}$/i.test(hextet))) return false;
+
+  return compressedIndex >= 0
+    ? hextets.length < 8
+    : hextets.length === 8;
+}
+
+function decodeBase64UrlJson(value: string): unknown | null {
+  if (value.length % 4 === 1) return null;
+  try {
+    const padding = '='.repeat((4 - value.length % 4) % 4);
+    const binary = atob(value.replace(/-/g, '+').replace(/_/g, '/') + padding);
+    const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+    const decoded = typeof TextDecoder === 'function'
+      ? new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+      : decodeURIComponent(Array.from(bytes, byte => `%${byte.toString(16).padStart(2, '0')}`).join(''));
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+}
+
+function isValidJwt(value: string): boolean {
+  const [headerSegment, payloadSegment, signatureSegment] = value.split('.');
+  if (!headerSegment || !payloadSegment || !signatureSegment || signatureSegment.length < 16) return false;
+
+  const header = decodeBase64UrlJson(headerSegment);
+  const payload = decodeBase64UrlJson(payloadSegment);
+  if (!header || typeof header !== 'object' || Array.isArray(header)
+    || !payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return false;
+  }
+
+  const headerRecord = header as Record<string, unknown>;
+  return headerRecord.typ === 'JWT'
+    && typeof headerRecord.alg === 'string'
+    && headerRecord.alg.length > 0;
+}
+
 function isValidPhone(value: string): boolean {
   const digits = value.replace(/\D/g, '');
   const minimumDigits = value.trim().startsWith('+') ? 8 : 10;
@@ -445,6 +494,8 @@ function findSensitiveMatches(text: string): SensitiveMatch[] {
   addRegexMatches(text, EMAIL_PATTERN, 2, 70, candidates);
   addRegexMatches(text, CARD_PATTERN, 2, 90, candidates, isLuhnValid);
   addRegexMatches(text, IPV4_PATTERN, 2, 75, candidates, isValidIpv4);
+  addRegexMatches(text, IPV6_PATTERN, 2, 75, candidates, isValidIpv6);
+  addRegexMatches(text, JWT_PATTERN, 2, 95, candidates, isValidJwt);
   addRegexMatches(text, PHONE_PATTERN, 2, 60, candidates, isValidPhone);
   addIbanMatches(text, candidates);
 

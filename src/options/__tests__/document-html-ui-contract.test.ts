@@ -80,6 +80,7 @@ describe('document translator HTML files', () => {
     expect(html).toContain('id="retryDocumentBatch"');
     expect(html).toContain('id="downloadDocumentBatch"');
     expect(html).toContain('id="exportTextFile"');
+    expect(html).toContain('id="exportResearchNote"');
     expect(html).toContain('.mobi,.azw3');
   });
 

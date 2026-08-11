@@ -127,6 +127,8 @@ const setupDocumentDom = (): void => {
     <button id="exportDocxFile" disabled></button>
     <button id="exportEpubFile" disabled></button>
     <button id="exportPdfFile" disabled></button>
+    <button id="exportTextFile" disabled></button>
+    <button id="exportResearchNote" disabled></button>
     <button id="clearDocument"></button>
     <textarea id="sourceText"></textarea>
     <p id="documentMessage"></p>
@@ -246,6 +248,50 @@ describe('document translator page', () => {
       expect(message.data.context).toContain('First paragraph.');
       expect(message.data.context).toContain('Second paragraph.');
     });
+  });
+
+  it('exports a bilingual research note only after an explicit click', async () => {
+    let exportedBlob: Blob | null = null;
+    const createObjectURL = jest.fn((blob: Blob) => {
+      exportedBlob = blob;
+      return 'blob:research-note';
+    });
+    const revokeObjectURL = jest.fn();
+    const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    Object.defineProperty(URL, 'createObjectURL', { value: createObjectURL, configurable: true });
+    Object.defineProperty(URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true });
+
+    try {
+      require('../document');
+      document.dispatchEvent(new Event('DOMContentLoaded'));
+      await flushPromises();
+
+      const exportButton = document.getElementById('exportResearchNote') as HTMLButtonElement;
+      expect(exportButton.disabled).toBe(true);
+      expect(createObjectURL).not.toHaveBeenCalled();
+
+      const sourceText = document.getElementById('sourceText') as HTMLTextAreaElement;
+      sourceText.value = 'A research paragraph.';
+      document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      expect(exportButton.disabled).toBe(false);
+      expect(createObjectURL).not.toHaveBeenCalled();
+      exportButton.dispatchEvent(new Event('click'));
+
+      expect(exportedBlob).not.toBeNull();
+      const content = await readBlobText(exportedBlob!);
+      expect(content).toContain('# Bilingual research note');
+      expect(content).toContain('- Source URL: [https://example.com/paper.pdf]');
+      expect(content).toContain('A research paragraph.');
+      expect(content).toContain('translated: A research paragraph.');
+      expect((clickSpy.mock.contexts[0] as HTMLAnchorElement).download)
+        .toBe('Pasted-document.bilingual-research-note.md');
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:research-note');
+    } finally {
+      clickSpy.mockRestore();
+    }
   });
 
   it('saves, reopens, exports, and clears local history only through explicit controls', async () => {

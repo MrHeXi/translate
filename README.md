@@ -43,7 +43,7 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Keep neighboring-context sharing off by default. Context is collected only after a manual page or document translation starts and is bounded before it is sent to the selected AI provider.
 - Install versioned AI expert definitions from strict duplicate-key-safe JSON, review their source attribution and full instruction text, enable or disable them, and safely remove custom definitions without replacing trusted built-ins.
 - Import and export validated YAML prompt templates, set bounded declared variables as a JSON object, preview the separated system and user messages locally, and return to the built-in template without a provider request.
-- Optionally mask supported emails, phone numbers, Luhn-valid payment card numbers, IPv4 addresses, IBANs, and sensitive URL query values before provider requests. Restoration happens locally; ambiguous placeholder output is discarded with an error.
+- Optionally mask supported emails, phone numbers, Luhn-valid payment card numbers, IPv4/IPv6 addresses, valid IBANs, strict JWTs, and sensitive URL query values before provider requests. Restoration happens locally; ambiguous placeholder output is discarded with an error.
 - Keep provider API keys, client/application IDs, and temporary session tokens in local Chrome storage only; credentials are excluded from Chrome sync and learning-data exports.
 
 ### Selection Translation
@@ -83,6 +83,7 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Import MOBI and KF8-based AZW3 files up to 64 MiB, with at most 4,096 chapters, 8 MiB per chapter, and 64 MiB of extracted HTML; preserve deterministic spine order and duplicate paragraphs. Translated MOBI/AZW3 content is exported as text rather than rewritten as an eBook.
 - Export translated DOCX files by writing translated paragraph text back into the original document archive.
 - Export translated EPUB files by writing translated readable blocks back into the original book archive.
+- Export a bounded bilingual Markdown research note with source metadata, provider/language identity, and fenced original/translated blocks for explicit attachment to an academic reference workflow. This local download does not connect to or modify Zotero.
 - Export translated `.srt` and `.vtt` subtitle files by replacing cue text only, preserving original timing, cue identifiers/settings, WEBVTT metadata and NOTE/STYLE/REGION sections, line endings, and other non-cue content.
 - Import and export `.ass` and `.ssa` subtitles while preserving script sections, timing, styles, comments, commas inside dialogue text, and inline override tags; vector-drawing dialogue remains untouched.
 - Queue up to 100 supported documents, limited to 64 MiB per file and 128 MiB total, choose concurrency 1, 2, or 3, and click Start batch explicitly. Cancel an active batch, queue failed files for an explicit retry, and download a deterministic ZIP only after every file succeeds.
@@ -102,7 +103,7 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 
 - Start or stop video subtitle translation manually from the popup.
 - Use the versioned YouTube adapter on standard videos, Live pages, and Shorts; it prioritizes the active player and stops when YouTube SPA navigation changes to another video, requiring another explicit Start.
-- Use dedicated, contract-tested adapters for Netflix, Vimeo, Bilibili, Udemy, Coursera, and Khan Academy, with exact-domain matching, stable content navigation keys, site-first player/caption selectors, and generic fallbacks.
+- Use dedicated, contract-tested adapters for Netflix, Vimeo, Bilibili, Udemy, Coursera, Khan Academy, Nebula, and Bloomberg, with exact-domain matching, stable content navigation keys, site-first player/caption selectors, and generic fallbacks.
 - Settle incremental YouTube Live DOM captions before translation, abort an in-flight partial request when the cue grows, and coalesce translated growth into one final exported cue.
 - Translate active caption or subtitle cues when the current video exposes browser text tracks or common DOM-rendered captions.
 - Render a bilingual subtitle overlay without recording audio or blocking playback.
@@ -123,6 +124,8 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Start or stop live caption translation manually from the popup.
 - Translate caption text that is already present in the page DOM, such as browser or meeting-page live captions.
 - Preserve common meeting speaker labels while translating Google Meet, Zoom, Microsoft Teams, and Webex-style caption containers.
+- Recognize YouTube Live caption segments in Live captions mode, reject unrelated ARIA status regions, and retain semantic generic caption/subtitle containers.
+- Keep Video subtitles and Live captions mutually exclusive: explicitly starting one stops the other immediately.
 - Capture timestamped bilingual cues only while Live captions is enabled, coalescing incremental word-by-word caption updates.
 - Export the current tab's in-memory transcript as TXT, SRT, VTT, or structured JSON, save it explicitly to bounded local history, or clear it from the popup.
 - Browse saved sessions newest-first, preview bilingual cues, export TXT/SRT/VTT/JSON, delete individual sessions, clear all, and retain 10, 25, or 50 sessions without provider requests.
@@ -248,7 +251,7 @@ For cloud providers that use account-level access keys, create dedicated least-p
 
 For AI-capable providers, the AI translation controls in settings can select a subject domain, define terminology as `source term => required translation`, and add custom instructions. The AI tools section manages installable JSON experts and YAML prompt templates; import, export, enable/disable, removal, and prompt preview are local actions and never start translation. Imported expert/template content is sent only as untrusted user-level translation preferences and cannot replace the extension-owned system requirements. Neighboring context is opt-in and applies to manually translated page batches and document blocks only. Configured AI-capable providers also power the side-panel writing actions; ordinary machine-translation providers remain translation-only.
 
-Sensitive-data masking is an opt-in provider privacy setting. When enabled, supported values are replaced with request-scoped ASCII placeholders before text, context, glossary, expert, template, or AI-writing instruction content reaches a provider. The extension restores required placeholders only when every expected token is present exactly once. A missing, duplicated, unknown, or transformed token causes the provider result to be discarded. Pattern matching can have false negatives, so masking is not a substitute for reviewing content before translation.
+Sensitive-data masking is an opt-in provider privacy setting. When enabled, supported values, including strictly validated IPv6 addresses and JWTs, are replaced with request-scoped ASCII placeholders before text, context, glossary, expert, template, or AI-writing instruction content reaches a provider. The extension restores required placeholders only when every expected token is present exactly once. A missing, duplicated, unknown, or transformed token causes the provider result to be discarded. Pattern matching can have false negatives, so masking is not a substitute for reviewing content before translation.
 
 ### Configure Site Rules
 

@@ -432,13 +432,13 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('74 test suites and 780 tests');
-    expect(releaseNotes).toContain('17,837,186');
-    expect(releaseNotes).toContain('6FF577AE10EB875A0F072FD17A60F892C4665E638B9DA2BEF13F3A2E51B94349');
-    expect(releaseNotes).toContain('17,837,359');
-    expect(releaseNotes).toContain('974548DD8AE1C973A67B410D6F9E9B112FE0AF161E4B8E93DECB01B4628AE089');
-    expect(releaseNotes).toContain('D66B230547DC3BB0201504D170DB07BC25C614F1FC9067C0384214C764787CEB');
-    expect(releaseNotes).toContain('1E9CAB0BB1C641CCA6E2EE8CD863CE8DF22C520F30AD0D7D61C768EFA6684319');
+    expect(releaseNotes).toContain('75 test suites and 800 tests');
+    expect(releaseNotes).toContain('17,838,898');
+    expect(releaseNotes).toContain('1BA1A04364C0681224D970CD840868D41AC0D67AEEC1ED59AEE4998946F26ADC');
+    expect(releaseNotes).toContain('17,839,072');
+    expect(releaseNotes).toContain('A21E221753445A2B9D914B7D19F30368E5F202D88F33BAC91A7B9DFD0690A803');
+    expect(releaseNotes).toContain('E213669CFAD977D97CDEF91DB92168B0066F949CB8E39E129EAA9E3800F0269D');
+    expect(releaseNotes).toContain('B92787CA5D056A907B8962C3BEDF8F461C5ACCEDA5FEE18B3C32DCC47FF17B7E');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('firefox-translation-extension.zip');
     expect(releaseNotes).toContain('`npm run package`: passed');
@@ -453,6 +453,9 @@ describe('product packaging contract', () => {
     expect(releaseNotes).toContain('selecting files never starts translation');
     expect(releaseNotes).toContain('Structure-preserving SRT/VTT batch translation');
     expect(releaseNotes).toContain('Explicit versioned document history in local Chrome storage');
+    expect(releaseNotes).toContain('bilingual Markdown research-note export');
+    expect(releaseNotes).toContain('Nebula, and Bloomberg');
+    expect(releaseNotes).toContain('strictly validated IPv6');
     expect(releaseNotes).toContain('Explicit live-caption transcript Save');
     expect(releaseNotes).toContain('language prefixes such as `/en`, `/zh`, and `/zh-CN`');
     expect(releaseNotes).toContain('YouTube Adapter v1');
@@ -613,11 +616,14 @@ describe('product packaging contract', () => {
     );
     expect(roadmap).not.toContain('Remaining: add MOBI import');
     expect(roadmap).toContain('explicit local translation history');
+    expect(roadmap).toContain('bounded bilingual Markdown research-note handoff');
     expect(roadmap).toContain('Versioned YouTube standard/Live/Shorts video adapters');
     expect(roadmap).toContain('Done: add a side-effect-free versioned adapter registry and YouTube Adapter v1');
-    expect(roadmap).toContain('Done: add contract-tested dedicated adapters for Netflix, Vimeo, Bilibili, Udemy, Coursera, and Khan Academy');
+    expect(roadmap).toContain('Done: add contract-tested dedicated adapters for Netflix, Vimeo, Bilibili, Udemy, Coursera, Khan Academy, Nebula, and Bloomberg');
     expect(roadmap).toContain('Done: settle incremental YouTube Live DOM cues before translation');
+    expect(roadmap).toContain('Done: add YouTube Live caption-container support to Live captions');
     expect(roadmap).toContain('Remaining: complete real-account/site smoke tests for dedicated adapters');
+    expect(roadmap).toContain('structurally validated IPv6 addresses and strict JWTs');
     expect(roadmap).toContain('installable Schema v1 AI expert definitions');
     expect(roadmap).toContain('request-scoped masking for supported emails');
     expect(roadmap).toContain('separate Chrome and Firefox Desktop manifests');
@@ -667,6 +673,11 @@ describe('product packaging contract', () => {
     expect(documentHtml).toContain('id="saveDocumentHistory"');
     expect(documentHtml).toContain('id="historyRetention"');
     expect(documentHtml).toContain('id="documentHistoryList"');
+    expect(documentHtml).toContain('id="exportResearchNote"');
+    const academicDocumentHandoff = readProjectFile('src/services/AcademicDocumentHandoff.ts');
+    expect(academicDocumentHandoff).toContain('ACADEMIC_HANDOFF_MAX_BLOCKS = 10_000');
+    expect(academicDocumentHandoff).toContain('bilingual-research-note.md');
+    expect(academicDocumentHandoff).toContain("url.protocol === 'http:' || url.protocol === 'https:'");
     const optionsHtml = readProjectFile('src/options/options.html');
     expect(optionsHtml).toContain('id="documentOcrLanguage"');
     expect(optionsHtml).toContain('id="aiContextEnabled"');
@@ -706,11 +717,13 @@ describe('product packaging contract', () => {
     const subtitlesStyles = readProjectFile('src/subtitles/subtitles.css');
     const contentScript = readProjectFile('src/content/content.ts');
     const videoSubtitleTranslator = readProjectFile('src/content/components/VideoSubtitleTranslator.ts');
+    const liveCaptionTranslator = readProjectFile('src/content/components/LiveCaptionTranslator.ts');
     const messageManager = readProjectFile('src/services/MessageManager.ts');
     const transcriptionService = readProjectFile('src/services/MediaTranscriptionService.ts');
     const videoSiteRegistry = readProjectFile('src/services/VideoSiteAdapterRegistry.ts');
     const generatedSubtitleDocument = readProjectFile('src/services/GeneratedSubtitleDocument.ts');
     const translationRequestId = readProjectFile('src/services/TranslationRequestId.ts');
+    const sensitiveDataMasker = readProjectFile('src/services/SensitiveDataMasker.ts');
     expect(subtitlesHtml).toContain('id="mediaFile"');
     expect(subtitlesHtml).toMatch(
       /<button[^>]*id="toggleTabCapture"[^>]*>Capture current tab<\/button>/
@@ -749,6 +762,15 @@ describe('product packaging contract', () => {
     expect(videoSiteRegistry).toContain("adapterId: 'udemy'");
     expect(videoSiteRegistry).toContain("adapterId: 'coursera'");
     expect(videoSiteRegistry).toContain("adapterId: 'khan-academy'");
+    expect(videoSiteRegistry).toContain("adapterId: 'nebula'");
+    expect(videoSiteRegistry).toContain("adapterId: 'bloomberg'");
+    expect(liveCaptionTranslator).toContain("source: 'YouTube Live'");
+    expect(liveCaptionTranslator).toContain('isExplicitLiveCaptionElement');
+    expect(contentScript).toMatch(/videoSubtitleTranslator\.getStatus\(\)\.isActive[\s\S]*?liveCaptionTranslator\.disable\(\)/);
+    expect(contentScript).toMatch(/liveCaptionTranslator\.getStatus\(\)\.isActive[\s\S]*?videoSubtitleTranslator\.disable\(\)/);
+    expect(sensitiveDataMasker).toContain('IPV6_PATTERN');
+    expect(sensitiveDataMasker).toContain('JWT_PATTERN');
+    expect(sensitiveDataMasker).toContain('isValidJwt');
     expect(videoSubtitleTranslator).toContain('LIVE_DOM_CUE_SETTLE_MS = 700');
     expect(videoSubtitleTranslator).toContain('scheduleLiveDomCueTranslation');
     expect(videoSubtitleTranslator).toContain('mergeIncrementalLiveCue');
