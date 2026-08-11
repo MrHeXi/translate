@@ -54,6 +54,19 @@ const mockVideoTracks = (tracks: TextTrack[]): jest.SpyInstance => {
     .mockReturnValue([video] as unknown as NodeListOf<HTMLVideoElement>);
 };
 
+const createYouTubeLiveContext = () => ({
+  adapterId: 'youtube',
+  adapterVersion: 1,
+  siteLabel: 'YouTube',
+  pageType: 'live' as const,
+  navigationKey: 'youtube:live:stream-1',
+  videoSelectors: ['#movie_player video', 'video'],
+  playerSelectors: ['#movie_player'],
+  captionRootSelectors: ['.ytp-caption-window-container'],
+  captionSegmentSelectors: ['.ytp-caption-segment'],
+  canGenerateFromTab: true
+});
+
 describe('VideoSubtitleTranslator', () => {
   let translator: VideoSubtitleTranslator;
 
@@ -441,6 +454,154 @@ describe('VideoSubtitleTranslator', () => {
     }
   });
 
+  it('waits for a YouTube Live DOM cue to settle before translating its final text', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(videoSiteRegistry, 'resolveVideoSiteContext').mockReturnValue(createYouTubeLiveContext());
+    document.body.innerHTML = [
+      '<div id="movie_player">',
+      '<video></video>',
+      '<div class="ytp-caption-window-container">',
+      '<span class="ytp-caption-segment">Hello</span>',
+      '</div>',
+      '</div>'
+    ].join('');
+    const video = document.querySelector('video') as HTMLVideoElement;
+    Object.defineProperty(video, 'currentTime', { value: 10, configurable: true });
+    const segment = document.querySelector('.ytp-caption-segment') as HTMLElement;
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    try {
+      translator.enable(translateText);
+      expect(translateText).not.toHaveBeenCalled();
+
+      segment.textContent = 'Hello world';
+      (translator as any).scanForSubtitleSource();
+      jest.advanceTimersByTime(699);
+      expect(translateText).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(1);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(translateText).toHaveBeenCalledTimes(1);
+      expect(translateText).toHaveBeenCalledWith('Hello world', expect.any(Object));
+      expect(translator.exportSubtitles().content).toContain('Translated: Hello world');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('cancels a pending YouTube Live cue immediately when subtitle translation stops', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(videoSiteRegistry, 'resolveVideoSiteContext').mockReturnValue(createYouTubeLiveContext());
+    document.body.innerHTML = [
+      '<div id="movie_player"><video></video>',
+      '<div class="ytp-caption-window-container">',
+      '<span class="ytp-caption-segment">This cue must not be sent.</span>',
+      '</div></div>'
+    ].join('');
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    try {
+      translator.enable(translateText);
+      translator.disable();
+      jest.advanceTimersByTime(1000);
+      await Promise.resolve();
+
+      expect(translateText).not.toHaveBeenCalled();
+      expect(document.getElementById('lexibridge-video-subtitle-overlay')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('aborts an in-flight YouTube Live translation when the cue grows', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(videoSiteRegistry, 'resolveVideoSiteContext').mockReturnValue(createYouTubeLiveContext());
+    document.body.innerHTML = [
+      '<div id="movie_player"><video></video>',
+      '<div class="ytp-caption-window-container">',
+      '<span class="ytp-caption-segment">Breaking</span>',
+      '</div></div>'
+    ].join('');
+    const segment = document.querySelector('.ytp-caption-segment') as HTMLElement;
+    let resolveFirst!: (value: string) => void;
+    const firstResult = new Promise<string>(resolve => { resolveFirst = resolve; });
+    const translateText = jest.fn()
+      .mockImplementationOnce(() => firstResult)
+      .mockResolvedValueOnce('Translated final live cue');
+
+    try {
+      translator.enable(translateText);
+      jest.advanceTimersByTime(700);
+      await Promise.resolve();
+      expect(translateText).toHaveBeenCalledTimes(1);
+
+      const firstSignal = translateText.mock.calls[0]![1].signal as AbortSignal;
+      segment.textContent = 'Breaking news';
+      (translator as any).scanForSubtitleSource();
+      expect(firstSignal.aborted).toBe(true);
+
+      jest.advanceTimersByTime(700);
+      await Promise.resolve();
+      await Promise.resolve();
+      resolveFirst('Stale partial translation');
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const exported = translator.exportSubtitles();
+      expect(translateText).toHaveBeenCalledTimes(2);
+      expect(exported.cueCount).toBe(1);
+      expect(exported.content).toContain('Translated final live cue');
+      expect(exported.content).not.toContain('Stale partial translation');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('coalesces translated YouTube Live cue growth into one exported cue', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(videoSiteRegistry, 'resolveVideoSiteContext').mockReturnValue(createYouTubeLiveContext());
+    document.body.innerHTML = [
+      '<div id="movie_player"><video></video>',
+      '<div class="ytp-caption-window-container">',
+      '<span class="ytp-caption-segment">Live</span>',
+      '</div></div>'
+    ].join('');
+    const video = document.querySelector('video') as HTMLVideoElement;
+    let currentTime = 20;
+    Object.defineProperty(video, 'currentTime', {
+      configurable: true,
+      get: () => currentTime
+    });
+    const segment = document.querySelector('.ytp-caption-segment') as HTMLElement;
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    try {
+      translator.enable(translateText);
+      jest.advanceTimersByTime(700);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      currentTime = 20.5;
+      segment.textContent = 'Live update';
+      (translator as any).scanForSubtitleSource();
+      jest.advanceTimersByTime(700);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const exported = translator.exportSubtitles();
+      expect(translateText).toHaveBeenCalledTimes(2);
+      expect(exported.cueCount).toBe(1);
+      expect(exported.content).toContain('00:00:20,000 --> 00:00:22,500');
+      expect(exported.content).toContain('Live update');
+      expect(exported.content).toContain('Translated: Live update');
+      expect(exported.content).not.toContain('\nLive\nTranslated: Live\n');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('ignores a stale translation after Stop and a new Start', async () => {
     const track = createTextTrack('showing');
     mockVideoTracks([track]);
@@ -538,6 +699,30 @@ describe('VideoSubtitleTranslator', () => {
 
     expect(translateText).toHaveBeenCalledTimes(1);
     expect(translateText).toHaveBeenCalledWith('Active short', expect.any(Object));
+  });
+
+  it('does not read dedicated-site caption-like text outside the active player', async () => {
+    jest.spyOn(videoSiteRegistry, 'resolveVideoSiteContext').mockReturnValue({
+      adapterId: 'netflix', adapterVersion: 1, siteLabel: 'Netflix', pageType: 'standard' as const,
+      navigationKey: 'netflix:watch:80100172', videoSelectors: ['.watch-video video', 'video'],
+      playerSelectors: ['.watch-video'], captionRootSelectors: ['.player-timedtext'],
+      captionSegmentSelectors: ['.player-timedtext-text-container'], canGenerateFromTab: true
+    });
+    document.body.innerHTML = [
+      '<div class="player-timedtext">',
+      '<span class="player-timedtext-text-container">Unrelated page text</span>',
+      '</div>',
+      '<div class="watch-video"><video></video></div>'
+    ].join('');
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    const state = translator.enable(translateText);
+    await flushPromises();
+
+    expect(state.hasTrack).toBe(false);
+    expect(translateText).not.toHaveBeenCalled();
+    expect(document.getElementById('lexibridge-video-subtitle-overlay')?.textContent)
+      .toBe('No caption track found');
   });
 
   it('aborts an old track request before attaching a newly active track', async () => {

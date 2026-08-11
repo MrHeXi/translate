@@ -32,6 +32,8 @@ Initial productized release candidate for local Chrome/Firefox testing and brows
 - Local standalone-formula detection that preserves likely mathematical expressions, excludes them from direct translation and neighboring AI context, and does not paint over them in translated previews or PDF exports.
 - Video subtitle translation for pages that expose caption/subtitle text tracks or common DOM-rendered caption containers.
 - Versioned YouTube Adapter v1 for standard videos, Live pages, Shorts, and `youtu.be`, with active-player-scoped captions, route checks before every cue request/result, same-text timed-cue preservation, bounded export retention, and immediate Stop instead of automatic translation after SPA video navigation.
+- Dedicated contract-tested video adapters for Netflix, Vimeo, Bilibili, Udemy, Coursera, and Khan Academy, with exact-domain matching, stable content identities, site-first selectors, generic fallbacks, and no resolver-side DOM writes.
+- YouTube Live DOM captions now settle before a provider request, cancel an in-flight partial request when the cue grows, and merge translated incremental growth into one final exported cue.
 - Video subtitles and Live captions remain text-only modes and never start tab recording.
 - SRT export for translated video subtitle cues from the current session.
 - User-invoked AI subtitle generation for selected local audio/video files up to 25 MB through configured OpenAI or Groq transcription endpoints.
@@ -85,15 +87,15 @@ Initial productized release candidate for local Chrome/Firefox testing and brows
 
 ### Verification
 
-Verified on 2026-08-10:
+Verified on 2026-08-11:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand`: passed, 74 test suites and 744 tests.
+- `jest --runInBand`: passed, 74 test suites and 780 tests.
 - `npm run package`: passed for Chrome and Firefox Desktop.
 - `web-ext lint --source-dir dist-firefox`: passed with 0 errors, 0 notices, and 31 warnings retained for AMO review.
-- Chrome build metadata: source `35F197D41B807820D162786E222FD349CE52CDEE9B35EFFF0AC75BDA89E77C05`, manifest `E105181215EF2F2030818523211C187353EEC836130ADC7FCA04DF312168887C`, payload `5972F7959C2DFC208973377DA81AB50F1E30224E5872555C2E135B0EDADA734B`.
-- Firefox build metadata: source `B12203388A1A3B82C083A3AD003C14C5FCB83F91C8AC053C43C872AF0B1D63A5`, manifest `F280485846217ACDC7E58E0719AE800943FD2C3A07262789D8FE975D8A2D1C55`, payload `ACD602849FEB8C70227DCC5F7F995A8B533FE1E371A5D166321624FDBCE27A91`.
+- Chrome build metadata: source `D66B230547DC3BB0201504D170DB07BC25C614F1FC9067C0384214C764787CEB`, manifest `E105181215EF2F2030818523211C187353EEC836130ADC7FCA04DF312168887C`, payload `21D032E3C7B596EC838D63347DF9A025CC05E734457590A3BF7601C91FCD590B`.
+- Firefox build metadata: source `1E9CAB0BB1C641CCA6E2EE8CD863CE8DF22C520F30AD0D7D61C768EFA6684319`, manifest `F280485846217ACDC7E58E0719AE800943FD2C3A07262789D8FE975D8A2D1C55`, payload `237631F1058134562C37D43554B5DB9A39531E1373D4843E9FBACFCFBBB5FE2C`.
 - Both production directories contain exactly 246 files; forbidden tests, TypeScript declarations/sources, and source maps are absent, and every non-manifest/non-metadata file is byte-identical across targets.
 - Both ZIPs were generated twice from sorted forward-slash paths with fixed timestamps, compared byte-for-byte, CRC-checked, and reloaded to match every production file.
 
@@ -109,11 +111,11 @@ Expected build warnings:
 
 - Chrome unpacked folder: `dist`
 - Chrome test package: `chrome-translation-extension.zip`
-- Chrome ZIP size: `17,834,691` bytes
-- Chrome SHA-256: `EE8365A1F05E5356BAF98ED99C723CB4A018E9CDA04B3D3C31976E6A992F727E`
+- Chrome ZIP size: `17,837,186` bytes
+- Chrome SHA-256: `6FF577AE10EB875A0F072FD17A60F892C4665E638B9DA2BEF13F3A2E51B94349`
 - Firefox unpacked folder: `dist-firefox`
 - Firefox test package: `firefox-translation-extension.zip`
-- Firefox ZIP size: `17,834,864` bytes
-- Firefox SHA-256: `1872E42497FE10C754693204B5055F1B417BD2134F9E34901278C98DDD5CE2BD`
+- Firefox ZIP size: `17,837,359` bytes
+- Firefox SHA-256: `974548DD8AE1C973A67B410D6F9E9B112FE0AF161E4B8E93DECB01B4628AE089`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

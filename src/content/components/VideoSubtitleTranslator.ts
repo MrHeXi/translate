@@ -70,6 +70,7 @@ interface TranslatedSubtitleCue {
 
 export class VideoSubtitleTranslator {
   private static readonly MAX_EXPORTED_CUES = 5000;
+  private static readonly LIVE_DOM_CUE_SETTLE_MS = 700;
   private static readonly MAX_GENERATED_CUES = 5000;
   private static readonly MAX_GENERATED_CUE_TEXT_CODE_POINTS = 4000;
   private static readonly MAX_GENERATED_TOTAL_TEXT_CODE_POINTS = 200000;
@@ -91,6 +92,7 @@ export class VideoSubtitleTranslator {
   private generatedVideoEventHandler: ((event: Event) => void) | null = null;
   private previousTrackMode: TextTrackMode | null = null;
   private scanTimer: number | null = null;
+  private liveDomCueTimer: number | null = null;
   private lastCueText = '';
   private lastCueIdentity = '';
   private hasDomSubtitleSource = false;
@@ -124,6 +126,7 @@ export class VideoSubtitleTranslator {
     createTranslationCacheKey: CreateTranslationCacheKey = text => text
   ): VideoSubtitleTranslatorState {
     this.clearGeneratedVideoSubtitles();
+    this.cancelPendingLiveDomCue();
     this.abortActiveRequests();
     this.runId++;
     this.translationCache.clear();
@@ -155,6 +158,7 @@ export class VideoSubtitleTranslator {
     this.runId++;
     this.isActive = false;
     this.statusMessage = message;
+    this.cancelPendingLiveDomCue();
     this.abortActiveRequests();
     this.detachTrack();
 
@@ -381,6 +385,7 @@ export class VideoSubtitleTranslator {
 
     const hasTrack = this.attachToBestTrack();
     if (hasTrack) {
+      this.cancelPendingLiveDomCue();
       this.hasDomSubtitleSource = false;
       return true;
     }
@@ -393,6 +398,7 @@ export class VideoSubtitleTranslator {
 
     this.lastCueText = '';
     this.lastCueIdentity = '';
+    this.cancelPendingLiveDomCue();
     this.showStatus('No caption track found');
     return false;
   }
@@ -587,6 +593,7 @@ export class VideoSubtitleTranslator {
 
   private invalidateCurrentSource(): void {
     this.runId++;
+    this.cancelPendingLiveDomCue();
     this.abortActiveRequests();
     this.lastCueText = '';
     this.lastCueIdentity = '';
@@ -705,6 +712,7 @@ export class VideoSubtitleTranslator {
 
     const activeCue = this.getActiveDomCue();
     if (!activeCue) {
+      this.cancelPendingLiveDomCue();
       this.showStatus('Waiting for subtitles...');
       this.lastCueText = '';
       this.lastCueIdentity = '';
@@ -717,7 +725,57 @@ export class VideoSubtitleTranslator {
 
     this.lastCueText = cueText;
     this.lastCueIdentity = cueIdentity;
+    if (this.shouldSettleLiveDomCue()) {
+      this.abortActiveRequests();
+      this.scheduleLiveDomCueTranslation(activeCue, cueIdentity, runId);
+      return;
+    }
+
     this.renderSubtitle(cueText, 'Translating...');
+    await this.translateDomCue(activeCue, cueIdentity, runId);
+  }
+
+  private shouldSettleLiveDomCue(): boolean {
+    return this.siteContext.adapterId === 'youtube' && this.siteContext.pageType === 'live';
+  }
+
+  private scheduleLiveDomCueTranslation(
+    activeCue: ActiveSubtitleCue,
+    cueIdentity: string,
+    runId: number
+  ): void {
+    if (this.liveDomCueTimer !== null) {
+      window.clearTimeout(this.liveDomCueTimer);
+    }
+    this.renderSubtitle(activeCue.text, 'Preparing live subtitle...');
+    this.liveDomCueTimer = window.setTimeout(() => {
+      this.liveDomCueTimer = null;
+      if (
+        !this.isCurrentRun(runId)
+        || this.currentTrack
+        || this.lastCueIdentity !== cueIdentity
+        || !this.refreshSiteContext()
+      ) {
+        return;
+      }
+      this.renderSubtitle(activeCue.text, 'Translating...');
+      void this.translateDomCue(activeCue, cueIdentity, runId);
+    }, VideoSubtitleTranslator.LIVE_DOM_CUE_SETTLE_MS);
+  }
+
+  private cancelPendingLiveDomCue(): void {
+    if (this.liveDomCueTimer !== null) {
+      window.clearTimeout(this.liveDomCueTimer);
+      this.liveDomCueTimer = null;
+    }
+  }
+
+  private async translateDomCue(
+    activeCue: ActiveSubtitleCue,
+    cueIdentity: string,
+    runId: number
+  ): Promise<void> {
+    const cueText = activeCue.text;
 
     try {
       const translatedText = await this.translateCueText(cueText, runId);
@@ -856,7 +914,7 @@ export class VideoSubtitleTranslator {
     const activePlayer = activeVideo ? this.getPlayerContainer(activeVideo) : null;
     if (activePlayer) {
       const scopedRoots = roots.filter(root => activePlayer.contains(root));
-      if (scopedRoots.length > 0 || this.siteContext.adapterId === 'youtube') {
+      if (scopedRoots.length > 0 || this.siteContext.adapterId !== 'generic') {
         return scopedRoots;
       }
     }
@@ -1014,6 +1072,14 @@ export class VideoSubtitleTranslator {
     const startTime = Number.isFinite(activeCue.startTime) ? activeCue.startTime! : fallbackStartTime;
     const rawEndTime = Number.isFinite(activeCue.endTime) ? activeCue.endTime! : startTime + 2;
     const endTime = rawEndTime > startTime ? rawEndTime : startTime + 2;
+    const nextCue: TranslatedSubtitleCue = {
+      originalText: activeCue.text,
+      translatedText,
+      startTime,
+      endTime
+    };
+    if (this.mergeIncrementalLiveCue(nextCue)) return;
+
     const key = this.createTranslatedCueKey(activeCue.text, translatedText, startTime, endTime);
 
     if (this.translatedCueKeys.has(key)) return;
@@ -1030,12 +1096,42 @@ export class VideoSubtitleTranslator {
       }
     }
     this.translatedCueKeys.add(key);
-    this.translatedCues.push({
-      originalText: activeCue.text,
-      translatedText,
-      startTime,
-      endTime
-    });
+    this.translatedCues.push(nextCue);
+  }
+
+  private mergeIncrementalLiveCue(nextCue: TranslatedSubtitleCue): boolean {
+    if (this.siteContext.adapterId !== 'youtube' || this.siteContext.pageType !== 'live') {
+      return false;
+    }
+
+    const previousCue = this.translatedCues[this.translatedCues.length - 1];
+    if (!previousCue) return false;
+
+    const previousText = previousCue.originalText.replace(/\s+/g, ' ').trim();
+    const nextText = nextCue.originalText.replace(/\s+/g, ' ').trim();
+    const textIsIncremental = previousText === nextText
+      || nextText.startsWith(previousText);
+    const timingOverlaps = nextCue.startTime <= previousCue.endTime + 0.5
+      && nextCue.endTime >= previousCue.startTime;
+    if (!textIsIncremental || !timingOverlaps) return false;
+
+    this.translatedCueKeys.delete(this.createTranslatedCueKey(
+      previousCue.originalText,
+      previousCue.translatedText,
+      previousCue.startTime,
+      previousCue.endTime
+    ));
+    previousCue.originalText = nextCue.originalText;
+    previousCue.translatedText = nextCue.translatedText;
+    previousCue.startTime = Math.min(previousCue.startTime, nextCue.startTime);
+    previousCue.endTime = Math.max(previousCue.endTime, nextCue.endTime);
+    this.translatedCueKeys.add(this.createTranslatedCueKey(
+      previousCue.originalText,
+      previousCue.translatedText,
+      previousCue.startTime,
+      previousCue.endTime
+    ));
+    return true;
   }
 
   private createTranslatedCueKey(

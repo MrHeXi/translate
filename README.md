@@ -102,6 +102,8 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 
 - Start or stop video subtitle translation manually from the popup.
 - Use the versioned YouTube adapter on standard videos, Live pages, and Shorts; it prioritizes the active player and stops when YouTube SPA navigation changes to another video, requiring another explicit Start.
+- Use dedicated, contract-tested adapters for Netflix, Vimeo, Bilibili, Udemy, Coursera, and Khan Academy, with exact-domain matching, stable content navigation keys, site-first player/caption selectors, and generic fallbacks.
+- Settle incremental YouTube Live DOM captions before translation, abort an in-flight partial request when the cue grows, and coalesce translated growth into one final exported cue.
 - Translate active caption or subtitle cues when the current video exposes browser text tracks or common DOM-rendered captions.
 - Render a bilingual subtitle overlay without recording audio or blocking playback.
 - Export translated subtitle cues from the current session as an `.srt` file.
@@ -114,7 +116,7 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Click Apply to source video to load the edited bilingual cues into the originating page and synchronize them with its active video. Apply never starts playback, and Clear source video subtitles removes the overlay and listeners immediately.
 - Keep selected local media idle until Generate subtitles is clicked; current-tab audio remains local until Stop and generate. Stream submitted media to the background in bounded chunks and clear buffers after completion, cancellation, provider errors, or disconnection.
 - Use the declared `tabCapture` permission only after the explicit capture button; cancel also aborts active per-cue translation, while page close, stream failure, or the 25 MB limit stops and discards the temporary recording. This workflow requires Chrome 116 or newer.
-- YouTube Live translation still requires captions exposed by YouTube. Other site-specific adapters, richer Live cue handling, more speech providers, files above provider limits, and live partial transcription remain later work.
+- Video translation still requires captions exposed by the current site. Real-account smoke testing for the dedicated adapters, adapters for additional documented sites, more speech providers, files above provider limits, and live partial transcription remain later work.
 
 ### Live Caption Translation
 

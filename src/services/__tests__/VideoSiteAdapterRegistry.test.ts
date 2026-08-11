@@ -4,6 +4,114 @@ import {
   resolveVideoSiteContext,
 } from '../VideoSiteAdapterRegistry';
 
+const GENERIC_SELECTOR_SUFFIXES = {
+  videoSelectors: ['video'],
+  playerSelectors: [
+    '[data-video-player]',
+    '.video-player',
+    '[class*="video-player"]',
+  ],
+  captionRootSelectors: [
+    '[data-testid="captions-container"]',
+    '[aria-live="polite"][class*="caption"]',
+    '[class*="subtitle"]',
+    '[class*="caption"]',
+  ],
+  captionSegmentSelectors: [
+    '[data-testid="caption-segment"]',
+    '[class*="subtitle"] span',
+    '[class*="caption"] span',
+  ],
+} as const;
+
+const DEDICATED_ADAPTER_CASES = [
+  {
+    adapterId: 'netflix',
+    siteLabel: 'Netflix',
+    primaryUrl: 'https://netflix.com/watch/80100172?trackId=one#player',
+    subdomainUrl: 'https://www.netflix.com/watch/80100172?trackId=two',
+    stableUrl: 'https://www.netflix.com/watch/80100172?audio=zh#controls',
+    changedIdentityUrl: 'https://www.netflix.com/watch/80200273',
+    expectedKey: 'netflix:watch:80100172',
+    maliciousUrls: [
+      'https://netflix.com.evil.example/watch/80100172',
+      'https://notnetflix.com/watch/80100172',
+    ],
+  },
+  {
+    adapterId: 'vimeo',
+    siteLabel: 'Vimeo',
+    primaryUrl: 'https://vimeo.com/123456789?autoplay=1#clip',
+    subdomainUrl: 'https://player.vimeo.com/video/123456789?quality=auto',
+    stableUrl: 'https://vimeo.com/123456789?share=copy#comments',
+    changedIdentityUrl: 'https://player.vimeo.com/video/987654321',
+    expectedKey: 'vimeo:video:123456789',
+    maliciousUrls: [
+      'https://vimeo.com.evil.example/123456789',
+      'https://fakevimeo.com/123456789',
+    ],
+  },
+  {
+    adapterId: 'bilibili',
+    siteLabel: 'Bilibili',
+    primaryUrl: 'https://bilibili.com/video/BV1Ab411c7De?p=1#reply',
+    subdomainUrl: 'https://www.bilibili.com/video/BV1Ab411c7De?p=2',
+    stableUrl: 'https://www.bilibili.com/video/BV1Ab411c7De?spm_id_from=333',
+    changedIdentityUrl: 'https://www.bilibili.com/video/BV9Xy411c7Fg',
+    expectedKey: 'bilibili:video:BV1Ab411c7De',
+    maliciousUrls: [
+      'https://bilibili.com.evil.example/video/BV1Ab411c7De',
+      'https://notbilibili.com/video/BV1Ab411c7De',
+    ],
+  },
+  {
+    adapterId: 'udemy',
+    siteLabel: 'Udemy',
+    primaryUrl: 'https://udemy.com/course/typescript/learn/lecture/101010?start=15#overview',
+    subdomainUrl: 'https://www.udemy.com/course/typescript/learn/lecture/101010?start=60',
+    stableUrl: 'https://www.udemy.com/course/typescript/learn/lecture/101010?coupon=none#notes',
+    changedIdentityUrl: 'https://www.udemy.com/course/typescript/learn/lecture/202020',
+    expectedKey: 'udemy:course:typescript:lecture:101010',
+    maliciousUrls: [
+      'https://udemy.com.evil.example/course/typescript/learn/lecture/101010',
+      'https://myudemy.com/course/typescript/learn/lecture/101010',
+    ],
+  },
+  {
+    adapterId: 'coursera',
+    siteLabel: 'Coursera',
+    primaryUrl: 'https://coursera.org/learn/machine-learning/lecture/abc123/topic?utm=one#transcript',
+    subdomainUrl: 'https://www.coursera.org/learn/machine-learning/lecture/abc123/topic?utm=two',
+    stableUrl: 'https://www.coursera.org/learn/machine-learning/lecture/abc123/topic?subtitle=en#notes',
+    changedIdentityUrl: 'https://www.coursera.org/learn/machine-learning/lecture/xyz987/topic',
+    expectedKey: 'coursera:course:machine-learning:lecture:abc123',
+    maliciousUrls: [
+      'https://coursera.org.evil.example/learn/machine-learning/lecture/abc123/topic',
+      'https://fakecoursera.org/learn/machine-learning/lecture/abc123/topic',
+    ],
+  },
+  {
+    adapterId: 'khan-academy',
+    siteLabel: 'Khan Academy',
+    primaryUrl: 'https://khanacademy.org/math/algebra/x/v/linear-equations?lang=en#practice',
+    subdomainUrl: 'https://www.khanacademy.org/math/algebra/x/v/linear-equations?lang=zh',
+    stableUrl: 'https://www.khanacademy.org/math/algebra/x/v/linear-equations?modal=1#transcript',
+    changedIdentityUrl: 'https://www.khanacademy.org/math/algebra/x/v/quadratic-equations',
+    expectedKey: 'khan-academy:video:linear-equations',
+    maliciousUrls: [
+      'https://khanacademy.org.evil.example/math/algebra/x/v/linear-equations',
+      'https://notkhanacademy.org/math/algebra/x/v/linear-equations',
+    ],
+  },
+] as const;
+
+const SELECTOR_CONTRACT_CASES: Array<[string, string]> = [
+  ['YouTube', 'https://www.youtube.com/watch?v=selector-contract'],
+  ...DEDICATED_ADAPTER_CASES.map(({ siteLabel, primaryUrl }): [string, string] => (
+    [siteLabel, primaryUrl]
+  )),
+];
+
 describe('VideoSiteAdapterRegistry', () => {
   beforeEach(() => {
     document.documentElement.innerHTML = '<head></head><body></body>';
@@ -90,6 +198,95 @@ describe('VideoSiteAdapterRegistry', () => {
       .not.toBe(createVideoNavigationToken(liveFirst.navigationKey));
     expect(createVideoNavigationToken(first.navigationKey)).toMatch(/^v1:[0-9a-f]{8}:\d+$/);
   });
+
+  it.each(DEDICATED_ADAPTER_CASES)(
+    'resolves $siteLabel on the main domain and a true subdomain',
+    ({ adapterId, siteLabel, primaryUrl, subdomainUrl, expectedKey }) => {
+      const primary = resolveVideoSiteContext(primaryUrl);
+      const subdomain = resolveVideoSiteContext(subdomainUrl);
+
+      expect(primary).toMatchObject({
+        adapterId,
+        adapterVersion: 1,
+        siteLabel,
+        pageType: 'standard',
+        navigationKey: expectedKey,
+        canGenerateFromTab: true,
+      });
+      expect(subdomain).toMatchObject({
+        adapterId,
+        siteLabel,
+        navigationKey: expectedKey,
+      });
+    },
+  );
+
+  it.each(DEDICATED_ADAPTER_CASES)(
+    'keeps $siteLabel keys stable for ordinary URL state and changes them for content identity',
+    ({ primaryUrl, stableUrl, changedIdentityUrl }) => {
+      const initial = resolveVideoSiteContext(primaryUrl);
+      const stable = resolveVideoSiteContext(stableUrl);
+      const changed = resolveVideoSiteContext(changedIdentityUrl);
+
+      expect(stable.navigationKey).toBe(initial.navigationKey);
+      expect(changed.navigationKey).not.toBe(initial.navigationKey);
+      expect(createVideoNavigationToken(stable.navigationKey))
+        .toBe(createVideoNavigationToken(initial.navigationKey));
+      expect(createVideoNavigationToken(changed.navigationKey))
+        .not.toBe(createVideoNavigationToken(initial.navigationKey));
+    },
+  );
+
+  it.each(DEDICATED_ADAPTER_CASES)(
+    'rejects malicious lookalike domains for $siteLabel',
+    ({ maliciousUrls }) => {
+      maliciousUrls.forEach((url) => {
+        expect(resolveVideoSiteContext(url).adapterId).toBe('generic');
+      });
+    },
+  );
+
+  it.each(DEDICATED_ADAPTER_CASES)(
+    'resolves $siteLabel without writing to the supplied document',
+    ({ adapterId, primaryUrl }) => {
+      document.body.innerHTML = '<main data-existing="true"><video></video></main>';
+      const before = document.documentElement.outerHTML;
+      const appendSpy = jest.spyOn(Node.prototype, 'appendChild');
+      const setAttributeSpy = jest.spyOn(Element.prototype, 'setAttribute');
+      const removeAttributeSpy = jest.spyOn(Element.prototype, 'removeAttribute');
+
+      try {
+        expect(resolveVideoSiteContext(primaryUrl, document).adapterId).toBe(adapterId);
+        expect(document.documentElement.outerHTML).toBe(before);
+        expect(appendSpy).not.toHaveBeenCalled();
+        expect(setAttributeSpy).not.toHaveBeenCalled();
+        expect(removeAttributeSpy).not.toHaveBeenCalled();
+      } finally {
+        appendSpy.mockRestore();
+        setAttributeSpy.mockRestore();
+        removeAttributeSpy.mockRestore();
+      }
+    },
+  );
+
+  it.each(SELECTOR_CONTRACT_CASES)(
+    'keeps valid site-first selectors and generic fallbacks for %s',
+    (_siteLabel, url) => {
+      const context = resolveVideoSiteContext(url);
+
+      (Object.keys(GENERIC_SELECTOR_SUFFIXES) as Array<keyof typeof GENERIC_SELECTOR_SUFFIXES>)
+        .forEach((selectorGroup) => {
+          const selectors = context[selectorGroup];
+          const expectedSuffix = GENERIC_SELECTOR_SUFFIXES[selectorGroup];
+
+          expect(selectors.length).toBeGreaterThan(expectedSuffix.length);
+          expect(selectors.slice(-expectedSuffix.length)).toEqual(expectedSuffix);
+          selectors.forEach((selector) => {
+            expect(() => document.querySelectorAll(selector)).not.toThrow();
+          });
+        });
+    },
+  );
 
   it('returns Generic Adapter@1 for non-YouTube URLs', () => {
     const context = resolveVideoSiteContext(new URL('https://media.example/video/episode-1?autoplay=1#player'));

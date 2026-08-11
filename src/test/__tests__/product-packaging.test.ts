@@ -432,13 +432,13 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('74 test suites and 744 tests');
-    expect(releaseNotes).toContain('17,834,691');
-    expect(releaseNotes).toContain('EE8365A1F05E5356BAF98ED99C723CB4A018E9CDA04B3D3C31976E6A992F727E');
-    expect(releaseNotes).toContain('17,834,864');
-    expect(releaseNotes).toContain('1872E42497FE10C754693204B5055F1B417BD2134F9E34901278C98DDD5CE2BD');
-    expect(releaseNotes).toContain('35F197D41B807820D162786E222FD349CE52CDEE9B35EFFF0AC75BDA89E77C05');
-    expect(releaseNotes).toContain('B12203388A1A3B82C083A3AD003C14C5FCB83F91C8AC053C43C872AF0B1D63A5');
+    expect(releaseNotes).toContain('74 test suites and 780 tests');
+    expect(releaseNotes).toContain('17,837,186');
+    expect(releaseNotes).toContain('6FF577AE10EB875A0F072FD17A60F892C4665E638B9DA2BEF13F3A2E51B94349');
+    expect(releaseNotes).toContain('17,837,359');
+    expect(releaseNotes).toContain('974548DD8AE1C973A67B410D6F9E9B112FE0AF161E4B8E93DECB01B4628AE089');
+    expect(releaseNotes).toContain('D66B230547DC3BB0201504D170DB07BC25C614F1FC9067C0384214C764787CEB');
+    expect(releaseNotes).toContain('1E9CAB0BB1C641CCA6E2EE8CD863CE8DF22C520F30AD0D7D61C768EFA6684319');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('firefox-translation-extension.zip');
     expect(releaseNotes).toContain('`npm run package`: passed');
@@ -615,7 +615,9 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('explicit local translation history');
     expect(roadmap).toContain('Versioned YouTube standard/Live/Shorts video adapters');
     expect(roadmap).toContain('Done: add a side-effect-free versioned adapter registry and YouTube Adapter v1');
-    expect(roadmap).toContain('Remaining: add verified adapters for the other officially documented video sites');
+    expect(roadmap).toContain('Done: add contract-tested dedicated adapters for Netflix, Vimeo, Bilibili, Udemy, Coursera, and Khan Academy');
+    expect(roadmap).toContain('Done: settle incremental YouTube Live DOM cues before translation');
+    expect(roadmap).toContain('Remaining: complete real-account/site smoke tests for dedicated adapters');
     expect(roadmap).toContain('installable Schema v1 AI expert definitions');
     expect(roadmap).toContain('request-scoped masking for supported emails');
     expect(roadmap).toContain('separate Chrome and Firefox Desktop manifests');
@@ -741,6 +743,15 @@ describe('product packaging contract', () => {
     expect(videoSiteRegistry).toContain('VIDEO_SITE_ADAPTER_SCHEMA_VERSION = 1');
     expect(videoSiteRegistry).toContain('createVideoNavigationToken');
     expect(videoSiteRegistry).toContain("pageType: 'shorts'");
+    expect(videoSiteRegistry).toContain("adapterId: 'netflix'");
+    expect(videoSiteRegistry).toContain("adapterId: 'vimeo'");
+    expect(videoSiteRegistry).toContain("adapterId: 'bilibili'");
+    expect(videoSiteRegistry).toContain("adapterId: 'udemy'");
+    expect(videoSiteRegistry).toContain("adapterId: 'coursera'");
+    expect(videoSiteRegistry).toContain("adapterId: 'khan-academy'");
+    expect(videoSubtitleTranslator).toContain('LIVE_DOM_CUE_SETTLE_MS = 700');
+    expect(videoSubtitleTranslator).toContain('scheduleLiveDomCueTranslation');
+    expect(videoSubtitleTranslator).toContain('mergeIncrementalLiveCue');
     expect(generatedSubtitleDocument).toContain('GENERATED_SUBTITLE_MIN_DURATION_SECONDS');
     expect(generatedSubtitleDocument).toContain('GENERATED_SUBTITLE_MAX_TIME_SECONDS');
     expect(generatedSubtitleDocument).toContain("format: 'srt' | 'vtt'");
