@@ -22,6 +22,8 @@ AI-capable provider translation can use an optional bounded window of neighborin
 
 The extension includes built-in CET4, CET6, GRE, IELTS, and TOEFL vocabulary sets. Enable the dictionaries you care about, collect useful words from the pages you read, and review saved or due words from the review page.
 
+Waveform generation is a separate local action: selecting media remains idle until Generate waveform is clicked, the same control becomes Stop waveform while decoding, and frame-rate snapping edits caption times locally without a transcription or translation request. PDF scan cleanup and optional mixed-language OCR likewise run only after the user clicks Translate document; loading a PDF or changing those settings does not start OCR or translation.
+
 Core features:
 
 - Manual page translation from the popup or floating button.

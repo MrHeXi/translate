@@ -52,6 +52,8 @@ The extension sends the text needed for the requested translation and the select
 
 Export BabelDOC guide is a local text download available only after the user explicitly loads a PDF. It sanitizes the displayed file name, uses absolute-path placeholders, and does not upload the PDF, call BabelDOC, discover the real local path, execute a command, or include a provider credential.
 
+PDF scan cleanup and mixed-language OCR run locally only after the user clicks Translate document. Loading a PDF or changing OCR settings does not start OCR or translation. Subtitle waveform decoding starts only after Generate waveform is clicked, can be stopped with the same control, and frame-rate snapping is a local timeline edit that does not contact a provider.
+
 Generated subtitle cues stay in extension memory and are sent to the originating content script only after the user clicks Apply to source video. This local message does not contact a provider or start video playback. Clear source video subtitles removes the generated overlay and its video event listeners immediately.
 
 Live caption history saving is unavailable for private-browsing tabs so private sessions cannot be written into the normal local history store.

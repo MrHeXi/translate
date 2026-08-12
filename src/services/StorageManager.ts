@@ -15,6 +15,7 @@ import type {
   TranslationStylePreset
 } from './TranslationPreferences';
 import type { BundledOcrLanguageCode } from './BundledOcrService';
+import type { DocumentScanPreprocessing } from './PdfDocumentService';
 import type {
   TranslationDomain,
   TranslationGlossaryEntry
@@ -56,6 +57,8 @@ export interface UserSettings {
   pageTranslationScope?: PageTranslationScope;
   siteTranslationRules?: SiteTranslationRule[];
   documentOcrLanguage?: BundledOcrLanguageCode;
+  documentScanPreprocessing?: DocumentScanPreprocessing;
+  documentMixedLanguageOcr?: boolean;
   aiContextEnabled?: boolean;
   aiTranslationDomain?: TranslationDomain;
   translationGlossary?: TranslationGlossaryEntry[];
@@ -109,6 +112,8 @@ const USER_SETTINGS_FIELDS: ReadonlyArray<keyof UserSettings> = [
   'pageTranslationScope',
   'siteTranslationRules',
   'documentOcrLanguage',
+  'documentScanPreprocessing',
+  'documentMixedLanguageOcr',
   'aiContextEnabled',
   'aiTranslationDomain',
   'translationGlossary',
@@ -150,6 +155,8 @@ export class StorageManager {
     pageTranslationScope: 'main-content',
     siteTranslationRules: [],
     documentOcrLanguage: 'eng',
+    documentScanPreprocessing: 'none',
+    documentMixedLanguageOcr: false,
     aiContextEnabled: false,
     aiTranslationDomain: 'general',
     translationGlossary: [],

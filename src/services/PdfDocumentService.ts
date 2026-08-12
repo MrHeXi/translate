@@ -6,6 +6,8 @@ import {
   BundledOcrSession,
   bundledOcrService
 } from './BundledOcrService';
+import { preprocessDocumentScan } from './DocumentScanPreprocessor';
+import { routeOcrLanguageCandidates } from './OcrLanguageRouter';
 
 interface PdfViewportLike {
   width: number;
@@ -59,8 +61,16 @@ export interface PdfOcrResult {
 }
 
 export interface PdfOcrDetector {
-  detect(source: CanvasImageSource, onProgress?: (progress: PdfOcrProgress) => void): Promise<PdfOcrResult[]>;
+  detect(
+    source: CanvasImageSource,
+    onProgress?: (progress: PdfOcrProgress) => void,
+    context?: PdfOcrDetectionContext
+  ): Promise<PdfOcrResult[]>;
   dispose?(): Promise<void>;
+}
+
+export interface PdfOcrDetectionContext {
+  referenceText?: string;
 }
 
 export interface PdfOcrProgress {
@@ -70,9 +80,14 @@ export interface PdfOcrProgress {
   engine: 'browser' | 'tesseract';
 }
 
+export type DocumentScanPreprocessing = 'none' | 'grayscale' | 'binarize';
+
 export interface PdfOpenOptions {
   ocrLanguage?: BundledOcrLanguageCode;
   onOcrProgress?: (progress: PdfOcrProgress) => void;
+  enableOcr?: boolean;
+  scanPreprocessing?: DocumentScanPreprocessing;
+  mixedLanguageOcr?: boolean;
 }
 
 export type PdfOcrDetectorFactory = (options?: PdfOpenOptions) => PdfOcrDetector | null;
@@ -182,23 +197,28 @@ const hasExtensionResourceUrls = (): boolean => (
 
 class DefaultPdfOcrDetector implements PdfOcrDetector {
   private readonly browserDetector: { detect(source: CanvasImageSource): Promise<PdfOcrResult[]> } | null;
-  private readonly bundledSession: BundledOcrSession;
+  private readonly bundledSessions = new Map<BundledOcrLanguageCode, BundledOcrSession>();
 
-  constructor(language: BundledOcrLanguageCode = 'eng') {
+  constructor(
+    private readonly language: BundledOcrLanguageCode = 'eng',
+    private readonly scanPreprocessing: DocumentScanPreprocessing = 'none',
+    private readonly mixedLanguageOcr = false
+  ) {
     const Detector = (globalThis as typeof globalThis & {
       TextDetector?: new () => { detect(source: CanvasImageSource): Promise<PdfOcrResult[]> };
     }).TextDetector;
     this.browserDetector = Detector ? new Detector() : null;
-    this.bundledSession = bundledOcrService.createSession(language);
   }
 
   async detect(
     source: CanvasImageSource,
-    onProgress?: (progress: PdfOcrProgress) => void
+    onProgress?: (progress: PdfOcrProgress) => void,
+    context?: PdfOcrDetectionContext
   ): Promise<PdfOcrResult[]> {
+    const processedSource = this.prepareSource(source);
     if (this.browserDetector) {
       try {
-        const browserResults = (await this.browserDetector.detect(source)).filter(isUsableOcrResult);
+        const browserResults = (await this.browserDetector.detect(processedSource)).filter(isUsableOcrResult);
         if (browserResults.length > 0) {
           return browserResults.map(result => ({ ...result, engine: 'browser' }));
         }
@@ -207,7 +227,42 @@ class DefaultPdfOcrDetector implements PdfOcrDetector {
       }
     }
 
-    const lines = await this.bundledSession.recognize(source as HTMLCanvasElement, progress => {
+    const primaryLines = await this.recognizeWithBundledLanguage(
+      this.language,
+      processedSource,
+      onProgress
+    );
+    if (!this.mixedLanguageOcr) return primaryLines;
+
+    const route = routeOcrLanguageCandidates({
+      userSelectedLanguage: this.language,
+      explicitText: context?.referenceText,
+      ocrProbeResults: primaryLines.slice(0, 5).map(line => ({
+        text: Array.from(line.rawValue).slice(0, 4_000).join(''),
+        language: this.language,
+        confidence: Number.isFinite(line.confidence)
+          ? Math.max(0, Math.min(100, line.confidence!))
+          : undefined
+      }))
+    });
+    const additionalLanguage = route.candidates.find(candidate => candidate !== this.language);
+    if (!additionalLanguage) return primaryLines;
+
+    const additionalLines = await this.recognizeWithBundledLanguage(
+      additionalLanguage,
+      processedSource,
+      onProgress
+    );
+    return [...primaryLines, ...additionalLines];
+  }
+
+  private async recognizeWithBundledLanguage(
+    language: BundledOcrLanguageCode,
+    source: HTMLCanvasElement,
+    onProgress?: (progress: PdfOcrProgress) => void
+  ): Promise<PdfOcrResult[]> {
+    const session = this.getBundledSession(language);
+    const lines = await session.recognize(source, progress => {
       onProgress?.({ ...progress, pageNumber: 0, engine: 'tesseract' });
     });
     return lines.map(line => ({
@@ -219,12 +274,50 @@ class DefaultPdfOcrDetector implements PdfOcrDetector {
   }
 
   async dispose(): Promise<void> {
-    await this.bundledSession.terminate();
+    const sessions = Array.from(this.bundledSessions.values());
+    this.bundledSessions.clear();
+    await Promise.all(sessions.map(session => session.terminate()));
+  }
+
+  private getBundledSession(language: BundledOcrLanguageCode): BundledOcrSession {
+    const existing = this.bundledSessions.get(language);
+    if (existing) return existing;
+    const session = bundledOcrService.createSession(language);
+    this.bundledSessions.set(language, session);
+    return session;
+  }
+
+  private prepareSource(source: CanvasImageSource): HTMLCanvasElement {
+    if (this.scanPreprocessing === 'none') return source as HTMLCanvasElement;
+    if (typeof document === 'undefined' || !(source instanceof HTMLCanvasElement)) {
+      throw new Error('PDF scan preprocessing requires a browser canvas.');
+    }
+
+    const context = source.getContext('2d', { willReadFrequently: true });
+    if (!context) throw new Error('PDF scan preprocessing is unavailable in this browser.');
+    const image = context.getImageData(0, 0, source.width, source.height);
+    const result = preprocessDocumentScan(image, {
+      contrast: this.scanPreprocessing === 'binarize' ? 1.15 : 1.35,
+      binarize: this.scanPreprocessing === 'binarize'
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = result.width;
+    canvas.height = result.height;
+    const outputContext = canvas.getContext('2d', { willReadFrequently: true });
+    if (!outputContext) throw new Error('PDF scan preprocessing is unavailable in this browser.');
+    const outputImage = outputContext.createImageData(result.width, result.height);
+    outputImage.data.set(result.data);
+    outputContext.putImageData(outputImage, 0, 0);
+    return canvas;
   }
 }
 
 const createDefaultOcrDetector = (options?: PdfOpenOptions): PdfOcrDetector => {
-  return new DefaultPdfOcrDetector(options?.ocrLanguage || 'eng');
+  return new DefaultPdfOcrDetector(
+    options?.ocrLanguage || 'eng',
+    options?.scanPreprocessing || 'none',
+    options?.mixedLanguageOcr || false
+  );
 };
 
 export class PdfDocumentSession {
@@ -325,7 +418,13 @@ export class PdfDocumentSession {
         let ocrEngine: PdfPageSummary['ocrEngine'];
 
         if (this.ocrDetector && await this.shouldRunOcr(page, textBlocks, viewport)) {
-          const ocrResult = await this.createOcrBlocks(page, this.ocrDetector, pageNumber, viewport);
+          const ocrResult = await this.createOcrBlocks(
+            page,
+            this.ocrDetector,
+            pageNumber,
+            viewport,
+            textBlocks.map(block => block.originalText).join(' ').slice(0, 20_000)
+          );
           ocrEngine = ocrResult.engine;
           if (ocrResult.blocks.length > 0) {
             ocrPageCount++;
@@ -822,7 +921,8 @@ export class PdfDocumentSession {
     page: PdfPageLike,
     detector: PdfOcrDetector,
     pageNumber: number,
-    baseViewport: PdfViewportLike
+    baseViewport: PdfViewportLike,
+    referenceText = ''
   ): Promise<{ blocks: DocumentBlock[]; engine?: 'browser' | 'tesseract' }> {
     const canvas = this.createCanvas();
     const viewport = page.getViewport({ scale: OCR_SCALE });
@@ -833,9 +933,11 @@ export class PdfDocumentSession {
     canvas.height = Math.max(1, Math.ceil(viewport.height));
     await page.render({ canvasContext: context, viewport }).promise;
 
-    const detected = await detector.detect(canvas, progress => {
-      this.onOcrProgress?.({ ...progress, pageNumber });
-    });
+    const detected = await detector.detect(
+      canvas,
+      progress => this.onOcrProgress?.({ ...progress, pageNumber }),
+      { referenceText }
+    );
     const usableResults = detected.filter(isUsableOcrResult);
     const engine = usableResults.find(result => result.engine)?.engine;
     const lines = usableResults
@@ -1034,7 +1136,7 @@ export class PdfDocumentService {
     return new PdfDocumentSession(
       pdfDocument,
       this.engine,
-      this.ocrDetectorFactory(options),
+      options.enableOcr === false ? null : this.ocrDetectorFactory(options),
       options.onOcrProgress
     );
   }

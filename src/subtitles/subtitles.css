@@ -74,11 +74,38 @@ main {
 }
 
 .file-band,
+.waveform-band,
 .control-band,
 .run-band,
 .result-section {
   padding: 18px clamp(18px, 4vw, 42px);
   border-bottom: 1px solid #dbe1e6;
+}
+
+.waveform-band {
+  background: #ffffff;
+}
+
+.waveform-header {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+#waveformSummary {
+  color: #66717a;
+  font-size: 12px;
+}
+
+#audioWaveform {
+  display: block;
+  width: 100%;
+  height: 112px;
+  background: #f4f6f8;
+  border: 1px solid #c5ced5;
+  border-radius: 5px;
 }
 
 .file-band {
@@ -367,7 +394,8 @@ progress {
   gap: 8px;
 }
 
-#timelineShift {
+#timelineShift,
+#timelineFrameRate {
   box-sizing: border-box;
   width: 150px;
   height: 36px;
@@ -377,6 +405,10 @@ progress {
   background: #ffffff;
   color: #17231c;
   font: inherit;
+}
+
+#timelineFrameRate {
+  width: 132px;
 }
 
 .timeline-overview {

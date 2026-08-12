@@ -2,6 +2,7 @@ import { BundledOcrLanguageCode } from './BundledOcrService';
 import { normalizeDocumentArchiveFileName } from './DocumentBatchArchive';
 import { DocumentBlock, DocumentTextExtractor } from './DocumentTextExtractor';
 import {
+  DocumentScanPreprocessing,
   PdfDocumentService,
   PdfDocumentSession,
   PdfOcrProgress,
@@ -25,6 +26,8 @@ export interface DocumentBatchTranslationOptions {
   targetLanguage: string;
   provider: string;
   ocrLanguage: BundledOcrLanguageCode;
+  scanPreprocessing?: DocumentScanPreprocessing;
+  mixedLanguageOcr?: boolean;
   requestIdPrefix: string;
   signal: AbortSignal;
   translateText: DocumentBatchTranslateText;
@@ -103,6 +106,8 @@ export class DocumentBatchTranslator {
         rawBytes = await this.readFileBytes(file, options.signal);
         pdfSession = await this.pdfService.open(rawBytes, {
           ocrLanguage: options.ocrLanguage,
+          scanPreprocessing: options.scanPreprocessing,
+          mixedLanguageOcr: options.mixedLanguageOcr,
           onOcrProgress: ocr => options.onProgress?.({
             completedBlocks: 0,
             totalBlocks: 0,

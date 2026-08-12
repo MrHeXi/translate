@@ -47,6 +47,22 @@
           </div>
 
           <div class="setting-item">
+            <label for="documentScanPreprocessing">PDF scan cleanup:</label>
+            <select id="documentScanPreprocessing">
+              <option value="none">None</option>
+              <option value="grayscale">Grayscale + contrast</option>
+              <option value="binarize">High-contrast binary</option>
+            </select>
+          </div>
+
+          <div class="setting-item">
+            <label>
+              <input id="documentMixedLanguageOcr" type="checkbox">
+              Detect a second OCR script when needed
+            </label>
+          </div>
+
+          <div class="setting-item">
             <label for="translationProvider">Translation provider:</label>
             <select id="translationProvider">
               <option value="google">Google Translate</option>

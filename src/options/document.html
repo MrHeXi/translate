@@ -38,6 +38,18 @@
           Image and PDF OCR language
           <select id="ocrLanguage"></select>
         </label>
+        <label>
+          Scan cleanup
+          <select id="pdfScanPreprocessing">
+            <option value="none">None</option>
+            <option value="grayscale">Grayscale + contrast</option>
+            <option value="binarize">High-contrast binary</option>
+          </select>
+        </label>
+        <label class="checkbox-control">
+          <input id="pdfMixedLanguageOcr" type="checkbox">
+          Mixed-language OCR
+        </label>
       </section>
 
       <section class="document-input">

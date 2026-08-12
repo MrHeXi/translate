@@ -55,12 +55,25 @@ body {
 .document-toolbar {
   grid-area: toolbar;
   display: grid;
-  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
   padding: 14px;
   background: #ffffff;
   border: 1px solid #dce3ee;
   border-radius: 8px;
+}
+
+.checkbox-control {
+  flex-direction: row;
+  align-items: center;
+  align-self: end;
+  min-height: 36px;
+}
+
+.checkbox-control input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
 }
 
 label {

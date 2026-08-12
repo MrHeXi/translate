@@ -6,6 +6,7 @@ import {
   BundledOcrLanguageCode
 } from '../services/BundledOcrService';
 import {
+  DocumentScanPreprocessing,
   PdfDocumentAnalysis,
   PdfDocumentSession,
   PdfOcrProgress,
@@ -53,6 +54,8 @@ interface UserSettings {
   translationProvider?: string;
   pageTranslationDisplayMode?: DisplayMode;
   documentOcrLanguage?: BundledOcrLanguageCode;
+  documentScanPreprocessing?: DocumentScanPreprocessing;
+  documentMixedLanguageOcr?: boolean;
 }
 
 interface ProviderConfigSummary {
@@ -79,6 +82,8 @@ interface BatchTranslationSettings {
   provider: string;
   targetLanguage: string;
   ocrLanguage: BundledOcrLanguageCode;
+  scanPreprocessing: DocumentScanPreprocessing;
+  mixedLanguageOcr: boolean;
   runId: string;
 }
 
@@ -103,6 +108,8 @@ class DocumentTranslatorController {
   private translationProvider: HTMLSelectElement | null = null;
   private displayMode: HTMLSelectElement | null = null;
   private ocrLanguage: HTMLSelectElement | null = null;
+  private scanPreprocessing: HTMLSelectElement | null = null;
+  private mixedLanguageOcr: HTMLInputElement | null = null;
   private message: HTMLElement | null = null;
   private progressBar: HTMLElement | null = null;
   private progressText: HTMLElement | null = null;
@@ -129,6 +136,8 @@ class DocumentTranslatorController {
   private currentResults: TranslationResult[] = [];
   private pdfSession: PdfDocumentSession | null = null;
   private pdfAnalysis: PdfDocumentAnalysis | null = null;
+  private pdfOcrPreparedLanguage: BundledOcrLanguageCode | null = null;
+  private loadedPdfUsesCompatibilityFallback = false;
   private readonly pdfPageViews = new Map<number, PdfPageView>();
   private historyEntries: DocumentHistoryEntry[] = [];
   private isBusy = false;
@@ -167,6 +176,8 @@ class DocumentTranslatorController {
     this.translationProvider = document.getElementById('translationProvider') as HTMLSelectElement | null;
     this.displayMode = document.getElementById('displayMode') as HTMLSelectElement | null;
     this.ocrLanguage = document.getElementById('ocrLanguage') as HTMLSelectElement | null;
+    this.scanPreprocessing = document.getElementById('pdfScanPreprocessing') as HTMLSelectElement | null;
+    this.mixedLanguageOcr = document.getElementById('pdfMixedLanguageOcr') as HTMLInputElement | null;
     this.message = document.getElementById('documentMessage');
     this.progressBar = document.getElementById('progressBar');
     this.progressText = document.getElementById('progressText');
@@ -249,6 +260,12 @@ class DocumentTranslatorController {
       if (this.ocrLanguage) {
         this.ocrLanguage.value = settings.documentOcrLanguage || 'eng';
       }
+      if (this.scanPreprocessing) {
+        this.scanPreprocessing.value = settings.documentScanPreprocessing || 'none';
+      }
+      if (this.mixedLanguageOcr) {
+        this.mixedLanguageOcr.checked = Boolean(settings.documentMixedLanguageOcr);
+      }
       this.updateTargetLanguageAvailability();
     } catch (error) {
       this.showMessage('Could not load settings. Using defaults.', 'error');
@@ -303,6 +320,8 @@ class DocumentTranslatorController {
     this.historyList?.addEventListener('click', event => void this.handleHistoryAction(event));
     this.displayMode?.addEventListener('change', () => this.applyDisplayMode());
     this.ocrLanguage?.addEventListener('change', () => void this.handleOcrLanguageChange());
+    this.scanPreprocessing?.addEventListener('change', () => void this.handlePdfScanSettingsChange());
+    this.mixedLanguageOcr?.addEventListener('change', () => void this.handlePdfScanSettingsChange());
     this.translationProvider?.addEventListener('change', () => this.updateTargetLanguageAvailability());
     this.batchFileInput?.addEventListener('change', () => this.loadBatchFiles());
     this.batchConcurrency?.addEventListener('change', () => this.rebuildPendingBatch());
@@ -323,6 +342,8 @@ class DocumentTranslatorController {
     try {
       this.setBusy(true);
       this.hasExplicitlyLoadedPdf = false;
+      this.pdfOcrPreparedLanguage = null;
+      this.loadedPdfUsesCompatibilityFallback = false;
       this.updateBabelDocGuideExportButton(true);
       await this.disposePdfSession();
       this.applySourceUrl();
@@ -343,8 +364,7 @@ class DocumentTranslatorController {
       if (isPdfDocument && rawBytes) {
         try {
           this.pdfSession = await pdfDocumentService.open(rawBytes, {
-            ocrLanguage: this.getOcrLanguage(),
-            onOcrProgress: progress => this.showOcrProgress(file.name, progress)
+            enableOcr: false
           });
           this.pdfAnalysis = await this.pdfSession.analyze();
           blocks = this.pdfAnalysis.blocks;
@@ -353,6 +373,7 @@ class DocumentTranslatorController {
           await this.disposePdfSession();
           blocks = await DocumentTextExtractor.extractBlocksFromFile(file);
           usedPdfFallback = true;
+          this.loadedPdfUsesCompatibilityFallback = true;
         }
       } else if (isJsonDocument) {
         blocks = DocumentTextExtractor.extractBlocksFromJson(rawText);
@@ -418,6 +439,20 @@ class DocumentTranslatorController {
   }
 
   private async translateDocument(): Promise<void> {
+    if (
+      this.loadedRawFileBytes
+      && this.isPdfFileName(this.loadedFileName)
+      && !this.loadedPdfUsesCompatibilityFallback
+      && this.pdfOcrPreparedLanguage !== this.getOcrLanguage()
+    ) {
+      try {
+        await this.preparePdfForExplicitTranslation();
+      } catch (error) {
+        this.showMessage(error instanceof Error ? error.message : 'Could not prepare PDF OCR.', 'error');
+        return;
+      }
+    }
+
     const text = this.sourceText?.value.trim() || '';
     if (!text) {
       this.showMessage('Add document text first.', 'error');
@@ -583,6 +618,8 @@ class DocumentTranslatorController {
       provider: this.translationProvider?.value || 'google',
       targetLanguage: this.targetLanguage?.value || 'zh-CN',
       ocrLanguage: this.getOcrLanguage(),
+      scanPreprocessing: this.getScanPreprocessing(),
+      mixedLanguageOcr: this.getMixedLanguageOcr(),
       runId: `${Date.now()}-${this.batchRunSequence}`
     };
     this.batchRunSequence += 1;
@@ -696,6 +733,8 @@ class DocumentTranslatorController {
       provider: settings.provider,
       targetLanguage: settings.targetLanguage,
       ocrLanguage: settings.ocrLanguage,
+      scanPreprocessing: settings.scanPreprocessing,
+      mixedLanguageOcr: settings.mixedLanguageOcr,
       requestIdPrefix: `document-batch:${settings.runId}:${input.id}`,
       signal,
       translateText: (text, context, requestId, requestSignal) => this.translateBatchBlock(
@@ -1355,6 +1394,15 @@ class DocumentTranslatorController {
       : 'eng';
   }
 
+  private getScanPreprocessing(): DocumentScanPreprocessing {
+    const selected = this.scanPreprocessing?.value;
+    return selected === 'grayscale' || selected === 'binarize' ? selected : 'none';
+  }
+
+  private getMixedLanguageOcr(): boolean {
+    return Boolean(this.mixedLanguageOcr?.checked);
+  }
+
   private updateTargetLanguageAvailability(): void {
     if (!this.targetLanguage) return;
     const providerId = this.translationProvider?.value || 'google';
@@ -1394,37 +1442,136 @@ class DocumentTranslatorController {
       this.showMessage('Could not save the PDF OCR language.', 'error');
     }
 
-    if (!this.loadedRawFileBytes || !this.isPdfFileName(this.loadedFileName)) return;
+    if (this.loadedRawFileBytes && this.isPdfFileName(this.loadedFileName)) {
+      this.pdfOcrPreparedLanguage = null;
+      this.showMessage('OCR language saved. It will apply when you click Translate document.');
+    }
+  }
 
-    const bytes = this.loadedRawFileBytes;
-    const fileName = this.loadedFileName;
+  private async handlePdfScanSettingsChange(): Promise<void> {
     try {
-      this.setBusy(true);
+      await this.sendMessage({
+        action: 'updateSettings',
+        data: {
+          documentScanPreprocessing: this.getScanPreprocessing(),
+          documentMixedLanguageOcr: this.getMixedLanguageOcr()
+        }
+      });
+      if (this.loadedRawFileBytes && this.isPdfFileName(this.loadedFileName)) {
+        this.pdfOcrPreparedLanguage = null;
+        this.showMessage('PDF scan settings saved. They will apply when you click Translate document.');
+      }
+    } catch {
+      this.showMessage('Could not save the PDF scan settings.', 'error');
+    }
+  }
+
+  private async preparePdfForExplicitTranslation(): Promise<void> {
+    const bytes = this.loadedRawFileBytes;
+    if (!bytes || !this.isPdfFileName(this.loadedFileName)) return;
+
+    const editedText = this.sourceText?.value.trim() || '';
+    const previousBlocks = editedText ? this.getCurrentDocumentBlocks(editedText) : [];
+    const baselineBlocks = this.loadedDocumentBlocks || [];
+    const fileName = this.loadedFileName;
+    this.setBusy(true);
+    this.showMessage(`${fileName}: preparing PDF text and OCR after your command`);
+
+    try {
       await this.disposePdfSession();
       this.pdfSession = await pdfDocumentService.open(bytes, {
-        ocrLanguage: language,
+        enableOcr: true,
+        ocrLanguage: this.getOcrLanguage(),
+        scanPreprocessing: this.getScanPreprocessing(),
+        mixedLanguageOcr: this.getMixedLanguageOcr(),
         onOcrProgress: progress => this.showOcrProgress(fileName, progress)
       });
       this.pdfAnalysis = await this.pdfSession.analyze();
-      const blocks = this.pdfAnalysis.blocks;
+      const analyzedBlocks = this.pdfAnalysis.blocks;
+      const blocks = previousBlocks.length > 0 || baselineBlocks.length > 0
+        ? this.reconcileExplicitPdfBlocks(analyzedBlocks, previousBlocks, baselineBlocks)
+        : analyzedBlocks;
       const text = blocks.map(block => block.originalText).join('\n\n');
       this.loadedDocumentBlocks = blocks;
       this.loadedSourceText = text;
+      this.pdfOcrPreparedLanguage = this.getOcrLanguage();
       this.currentResults = [];
       if (this.sourceText) this.sourceText.value = text;
       await this.renderPdfPreview();
       this.renderResults([]);
       this.updateProgress(0, 0);
       this.updateExportButtons();
-      this.showMessage(
-        this.createPdfLoadedMessage(fileName, this.pdfAnalysis),
-        text.trim() ? 'info' : 'error'
-      );
-    } catch (error) {
-      this.showMessage(error instanceof Error ? error.message : 'Could not rerun PDF OCR.', 'error');
     } finally {
       this.setBusy(false);
     }
+  }
+
+  private reconcileExplicitPdfBlocks(
+    analyzedBlocks: DocumentBlock[],
+    previousBlocks: DocumentBlock[],
+    baselineBlocks: DocumentBlock[]
+  ): DocumentBlock[] {
+    const remaining = [...previousBlocks];
+    const deletedPositionedBlocks = baselineBlocks.filter(baseline => (
+      baseline.layout
+      && !previousBlocks.some(candidate => this.isSamePositionedPdfBlock(baseline, candidate))
+    ));
+    const reconciled = analyzedBlocks.flatMap(block => {
+      const matchIndex = remaining.findIndex(candidate => this.isSamePositionedPdfBlock(block, candidate));
+      if (matchIndex < 0) {
+        const isNewOcrBlock = block.layout?.source === 'pdf-ocr'
+          && !deletedPositionedBlocks.some(deleted => this.isSamePositionedPdfBlock(block, deleted));
+        return isNewOcrBlock ? [block] : [];
+      }
+      const [match] = remaining.splice(matchIndex, 1);
+      return [{ ...block, id: match!.id, originalText: match!.originalText }];
+    });
+
+    const preservedIds = new Set(previousBlocks.map(block => block.id));
+    const usedIds = new Set<number>();
+    let nextId = [...analyzedBlocks, ...previousBlocks]
+      .reduce((maximum, block) => Math.max(maximum, block.id), 0) + 1;
+    const uniqueReconciled = reconciled.map(block => {
+      const isPreserved = previousBlocks.some(candidate => (
+        candidate.id === block.id && this.isSamePositionedPdfBlock(block, candidate)
+      ));
+      if (isPreserved && !usedIds.has(block.id)) {
+        usedIds.add(block.id);
+        return block;
+      }
+      if (!preservedIds.has(block.id) && !usedIds.has(block.id)) {
+        usedIds.add(block.id);
+        return block;
+      }
+      while (usedIds.has(nextId) || preservedIds.has(nextId)) nextId++;
+      const mapped = { ...block, id: nextId };
+      usedIds.add(nextId);
+      nextId++;
+      return mapped;
+    });
+    const unpositioned = remaining.filter(block => !block.layout);
+    const appended = unpositioned.map(block => {
+      if (!usedIds.has(block.id)) {
+        usedIds.add(block.id);
+        return block;
+      }
+      while (usedIds.has(nextId)) nextId++;
+      const mapped = { ...block, id: nextId };
+      usedIds.add(nextId);
+      nextId++;
+      return mapped;
+    });
+    return [...uniqueReconciled, ...appended];
+  }
+
+  private isSamePositionedPdfBlock(first: DocumentBlock, second: DocumentBlock): boolean {
+    const firstLayout = first.layout;
+    const secondLayout = second.layout;
+    if (!firstLayout || !secondLayout) return first.originalText === second.originalText;
+    return firstLayout.pageNumber === secondLayout.pageNumber
+      && firstLayout.source === secondLayout.source
+      && Math.abs(firstLayout.x - secondLayout.x) <= 1
+      && Math.abs(firstLayout.y - secondLayout.y) <= 1;
   }
 
   private createPdfLoadedMessage(fileName: string, analysis: PdfDocumentAnalysis): string {
@@ -2021,6 +2168,8 @@ class DocumentTranslatorController {
     this.loadedFileName = '';
     this.loadedSourceKind = 'manual';
     this.hasExplicitlyLoadedPdf = false;
+    this.pdfOcrPreparedLanguage = null;
+    this.loadedPdfUsesCompatibilityFallback = false;
     this.currentResults = [];
     this.applySourceUrl();
     this.renderResults([]);
@@ -2044,6 +2193,8 @@ class DocumentTranslatorController {
     if (this.targetLanguage) this.targetLanguage.disabled = isBusy;
     if (this.translationProvider) this.translationProvider.disabled = isBusy;
     if (this.ocrLanguage) this.ocrLanguage.disabled = isBusy;
+    if (this.scanPreprocessing) this.scanPreprocessing.disabled = isBusy;
+    if (this.mixedLanguageOcr) this.mixedLanguageOcr.disabled = isBusy;
     if (this.historyRetention) this.historyRetention.disabled = isBusy;
     if (this.clearHistoryButton) {
       this.clearHistoryButton.disabled = isBusy || this.historyEntries.length === 0;

@@ -56,6 +56,8 @@ Initial productized release candidate for local Chrome/Firefox testing and brows
 - Per-image Retranslate, Apply, Undo, and reconstructed-canvas Download PNG actions. Retranslate bypasses completed and pending translation caches, Apply commits only extension-owned overlays, Undo restores the untouched source, and object URLs are revoked after downloads.
 - Right-click image commands target the originating frame, inject the content bundle once into eligible pre-existing tabs when needed, wait for content initialization, reject ambiguous duplicate image URLs, and never enable persistent page-wide image click handlers.
 - Persisted offline OCR language selection for English, Simplified Chinese, Traditional Chinese, Japanese, and Korean, with PDF page progress and local worker cleanup on Stop.
+- User-triggered PDF scan cleanup and bounded second-script OCR routing; PDF selection and setting changes stay OCR-free until Translate document.
+- Explicit local subtitle waveform generation with a Generate/Stop toggle and common frame-rate timeline snapping.
 - Explicit Translate visible images command with hidden/offscreen/tiny/extension-owned filtering, duplicate-text request caching, and immediate batch cancellation when Image text stops.
 - Deterministic local comic reconstruction for safe regular bubbles: bounded panel/bubble detection, OCR line grouping, contrast text masks, flat/smooth-background repair, and measured CJK/word/RTL-aware text fitting in a temporary canvas overlay without changing the source image.
 - Browser OCR corner polygons constrain rotated source masks. Vertical CJK source columns use right-to-left column order and vertical presentation forms only when the translated text is predominantly CJK; Latin, mixed Latin-dominant, and RTL translations remain horizontal.
@@ -99,11 +101,11 @@ Verified on 2026-08-12:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand`: passed, 78 test suites and 864 tests.
+- `jest --runInBand`: passed, 81 test suites and 905 tests.
 - `npm run package`: passed for Chrome and Firefox Desktop.
 - `web-ext lint --source-dir dist-firefox`: passed with 0 errors, 0 notices, and 31 warnings retained for AMO review.
-- Chrome build metadata: source `BCA74FE02AE12AECA1B1AA1EBC9364C25056C78719D17030F156832E814FD5C1`, manifest `E105181215EF2F2030818523211C187353EEC836130ADC7FCA04DF312168887C`, payload `92AC5261B27BA990CEA0F5CBFCED7D14A4C7950A729A7826542BCAF65E498F6C`.
-- Firefox build metadata: source `99ED4603E304AE6DF755D4EB53A1A0970E369AE3F33266A04CEC9C5EAF91EEA0`, manifest `F280485846217ACDC7E58E0719AE800943FD2C3A07262789D8FE975D8A2D1C55`, payload `61B4377C1618E32E63D68AAACBCC5E95BA0C56B32E7C8B9D860D0DE56E1B4953`.
+- Chrome build metadata: source `F162008E7CB88E4EF7832075EA6E769E8B93F4EDEF0F2B7291D9B62E50A39FD0`, manifest `E105181215EF2F2030818523211C187353EEC836130ADC7FCA04DF312168887C`, payload `8948DB47832FE8E3F060F0BE2069CED75B5D416EF2F6CA90E4E1BB11967DF237`.
+- Firefox build metadata: source `63F79A2D5BA4D4ED7FAE5BCC0CF46574197DB80C2B5B9F0A765D568C3B2A01A8`, manifest `F280485846217ACDC7E58E0719AE800943FD2C3A07262789D8FE975D8A2D1C55`, payload `9630E2C4F96D58991FBD002DFA8872890819E519321831BFA8BF8471D02FD26E`.
 - Both production directories contain exactly 246 files; forbidden tests, TypeScript declarations/sources, and source maps are absent, and every non-manifest/non-metadata file is byte-identical across targets.
 - Both ZIPs were generated twice from sorted forward-slash paths with fixed timestamps, compared byte-for-byte, CRC-checked, and reloaded to match every production file.
 
@@ -119,11 +121,11 @@ Expected build warnings:
 
 - Chrome unpacked folder: `dist`
 - Chrome test package: `chrome-translation-extension.zip`
-- Chrome ZIP size: `17,853,749` bytes
-- Chrome SHA-256: `8BBDD576247BB7A2E0A1846A3993E12DC31BF12AF5ADADA619CFF9D43B6E3F2C`
+- Chrome ZIP size: `17,860,842` bytes
+- Chrome SHA-256: `696EC1577D694C392E76DC21525EE35FE7FE8B739C3134CDDD56D7039E2E3321`
 - Firefox unpacked folder: `dist-firefox`
 - Firefox test package: `firefox-translation-extension.zip`
-- Firefox ZIP size: `17,853,920` bytes
-- Firefox SHA-256: `221AAF5B63579D83ADE23A500446B9E0DAB0C5738F201A01CB6AFEC5A6C17BA2`
+- Firefox ZIP size: `17,861,014` bytes
+- Firefox SHA-256: `A1116658F3C9111D574CCBFC8B0AD5C4C6328820D14A868F0DE238DA48FCA509`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

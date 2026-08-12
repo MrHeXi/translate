@@ -64,6 +64,26 @@ const createEngine = (
 };
 
 describe('PdfDocumentService', () => {
+  it('does not create or run OCR when a caller explicitly opens a preview-only session', async () => {
+    const { engine } = createEngine([{ items: [], operatorIds: [OPS.paintImageXObject] }]);
+    const detector: PdfOcrDetector = {
+      detect: jest.fn(async () => []),
+      dispose: jest.fn(async () => undefined)
+    };
+    const detectorFactory = jest.fn(() => detector);
+    const session = await new PdfDocumentService(engine, detectorFactory).open(
+      new Uint8Array([1, 2, 3]),
+      { enableOcr: false }
+    );
+
+    const analysis = await session.analyze();
+
+    expect(detectorFactory).not.toHaveBeenCalled();
+    expect(detector.detect).not.toHaveBeenCalled();
+    expect(analysis.unreadablePageCount).toBe(1);
+    await session.destroy();
+  });
+
   it('parses a generated standards-compliant PDF with the bundled PDF.js engine', async () => {
     const source = await PDFDocument.create();
     const font = await source.embedFont(StandardFonts.Helvetica);
@@ -477,7 +497,11 @@ describe('PdfDocumentService', () => {
       const analysis = await session.analyze();
 
       expect(render).toHaveBeenCalledTimes(1);
-      expect(detector.detect).toHaveBeenCalledWith(expect.any(HTMLCanvasElement), expect.any(Function));
+      expect(detector.detect).toHaveBeenCalledWith(
+        expect.any(HTMLCanvasElement),
+        expect.any(Function),
+        { referenceText: '' }
+      );
       expect(analysis.ocrPageCount).toBe(1);
       expect(analysis.bundledOcrPageCount).toBe(0);
       expect(analysis.unreadablePageCount).toBe(0);
@@ -536,6 +560,118 @@ describe('PdfDocumentService', () => {
       expect(analysis.pages[0]?.ocrEngine).toBe('tesseract');
       expect(analysis.bundledOcrPageCount).toBe(1);
       expect(terminate).toHaveBeenCalledTimes(1);
+    } finally {
+      if (previousTextDetector === undefined) {
+        delete globalScope.TextDetector;
+      } else {
+        globalScope.TextDetector = previousTextDetector;
+      }
+      contextSpy.mockRestore();
+      createSessionSpy.mockRestore();
+    }
+  });
+
+  it('preprocesses a scan only inside an explicitly enabled OCR session', async () => {
+    const { engine } = createEngine([{ items: [] }]);
+    const browserDetect = jest.fn(async () => [{
+      rawValue: 'Cleaned scan',
+      boundingBox: { x: 20, y: 30, width: 200, height: 40 }
+    }]);
+    const getImageData = jest.fn(() => ({
+      width: 1200,
+      height: 1600,
+      data: new Uint8ClampedArray(1200 * 1600 * 4)
+    }));
+    const putImageData = jest.fn();
+    const context = {
+      getImageData,
+      createImageData: jest.fn((width: number, height: number) => ({
+        width,
+        height,
+        data: new Uint8ClampedArray(width * height * 4)
+      })),
+      putImageData
+    } as unknown as CanvasRenderingContext2D;
+    const contextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(context);
+    const globalScope = globalThis as typeof globalThis & { TextDetector?: unknown };
+    const previousTextDetector = globalScope.TextDetector;
+    globalScope.TextDetector = class {
+      detect = browserDetect;
+    };
+
+    try {
+      const preview = await new PdfDocumentService(engine).open(new Uint8Array([4]), {
+        enableOcr: false,
+        scanPreprocessing: 'binarize'
+      });
+      await preview.analyze();
+      expect(getImageData).not.toHaveBeenCalled();
+      expect(browserDetect).not.toHaveBeenCalled();
+
+      const explicit = await new PdfDocumentService(engine).open(new Uint8Array([4]), {
+        enableOcr: true,
+        scanPreprocessing: 'binarize'
+      });
+      const analysis = await explicit.analyze();
+
+      expect(getImageData).toHaveBeenCalledTimes(1);
+      expect(putImageData).toHaveBeenCalledTimes(1);
+      expect(browserDetect).toHaveBeenCalledTimes(1);
+      expect(analysis.blocks[0]?.originalText).toBe('Cleaned scan');
+    } finally {
+      if (previousTextDetector === undefined) {
+        delete globalScope.TextDetector;
+      } else {
+        globalScope.TextDetector = previousTextDetector;
+      }
+      contextSpy.mockRestore();
+    }
+  });
+
+  it('uses at most one routed secondary bundled OCR language for mixed scripts', async () => {
+    const { engine } = createEngine([{ items: [] }]);
+    const sessions = new Map<string, {
+      recognize: jest.Mock;
+      terminate: jest.Mock;
+    }>();
+    const createSessionSpy = jest.spyOn(bundledOcrService, 'createSession')
+      .mockImplementation(language => {
+        const session = {
+          recognize: jest.fn(async () => [{
+            text: language === 'eng' ? '日本語' : 'Resolved Japanese',
+            confidence: 90,
+            boundingBox: language === 'eng'
+              ? { x: 20, y: 30, width: 120, height: 30 }
+              : { x: 20, y: 80, width: 220, height: 30 }
+          }]),
+          terminate: jest.fn(async () => undefined)
+        };
+        sessions.set(language || 'eng', session);
+        return session as unknown as BundledOcrSession;
+      });
+    const contextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue({} as CanvasRenderingContext2D);
+    const globalScope = globalThis as typeof globalThis & { TextDetector?: unknown };
+    const previousTextDetector = globalScope.TextDetector;
+    delete globalScope.TextDetector;
+
+    try {
+      const session = await new PdfDocumentService(engine).open(new Uint8Array([5]), {
+        enableOcr: true,
+        ocrLanguage: 'eng',
+        mixedLanguageOcr: true
+      });
+      const analysis = await session.analyze();
+
+      expect(createSessionSpy.mock.calls.map(call => call[0])).toEqual(['eng', 'chi_tra']);
+      expect(createSessionSpy).toHaveBeenCalledTimes(2);
+      expect(analysis.blocks.map(block => block.originalText)).toEqual([
+        '日本語',
+        'Resolved Japanese'
+      ]);
+      expect(sessions.get('eng')?.terminate).toHaveBeenCalledTimes(1);
+      expect(sessions.get('chi_tra')?.terminate).toHaveBeenCalledTimes(1);
     } finally {
       if (previousTextDetector === undefined) {
         delete globalScope.TextDetector;

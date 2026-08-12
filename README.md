@@ -115,6 +115,7 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Open the subtitle generator from the popup to select a local `.flac`, `.mp3`, `.mp4`, `.mpeg`, `.mpga`, `.m4a`, `.ogg`, `.wav`, or `.webm` file up to 25 MB.
 - On YouTube standard, Live, or Shorts pages, use the contextual Generate button to open the generator without starting capture, then explicitly click Capture current tab and Stop and generate.
 - From another regular media page, explicitly click Capture current tab, keep the generator open, and click Stop and generate when enough audio has played.
+- Generate a bounded waveform locally only after clicking Generate waveform; the same control becomes Stop waveform while decoding. Choose 23.976, 24, 25, 29.97, 30, 50, 59.94, or 60 fps to snap generated caption timing locally without a provider request.
 - Choose a provider-specific speech model. OpenAI Whisper 1 and Groq Whisper models return provider-timed segments; OpenAI GPT-4o Transcribe models can display bounded SSE partial text after submission and produce one explicitly labeled, editable fallback-timing cue because that stream does not provide segment timestamps.
 - Generate captions through a configured OpenAI or Groq transcription service, optionally translate them with any configured translation provider, and export bilingual SRT or VTT.
 - Edit each generated cue's start time, end time, original text, and translated text before export. A proportional local timeline highlights overlaps and focuses a cue without playing media or contacting a provider. Shift the whole timeline by a bounded offset, split at the original-text cursor, merge adjacent cues without silent truncation, delete cues locally, and undo or redo up to 50 in-memory edit snapshots. Current-tab captures begin at the source video's playback position when the page exposes it.
@@ -349,7 +350,7 @@ In Main content scope, LexiBridge prefers semantic `article`, `main`, and `[role
 ### Translate PDF Files
 
 1. Open the document translator and choose a `.pdf` file.
-2. Choose the OCR language that matches image-only pages in the file.
+2. Choose the OCR language, optional grayscale/binary scan cleanup, and optional bounded second-script routing for image-only pages.
 3. Review the locally rendered pages and any reported OCR limitations before clicking Translate document.
 4. Choose bilingual, translation-only, or original-only display for the page preview.
 5. Click Export PDF to download flattened translated page images as a new PDF.

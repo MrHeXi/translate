@@ -25,6 +25,14 @@ import {
 } from '../services/GeneratedSubtitleDocument';
 import { createTranslationRequestNamespace } from '../services/TranslationRequestId';
 import { isTabAudioCaptureSupported } from '../services/TabAudioCaptureService';
+import {
+  AudioWaveformEnvelope,
+  DEFAULT_AUDIO_WAVEFORM_BUCKET_COUNT,
+  SUPPORTED_AUDIO_FRAME_RATES,
+  createAudioWaveformEnvelope,
+  getAudioFrameRateRatio,
+  snapAudioTimeToFrame
+} from '../services/AudioWaveformService';
 
 interface SubtitleGeneratorSettings {
   defaultTargetLanguage?: string;
@@ -54,6 +62,10 @@ class SubtitleGeneratorController {
   private cancelButton: HTMLButtonElement | null = null;
   private tabCaptureButton: HTMLButtonElement | null = null;
   private cancelTabCaptureButton: HTMLButtonElement | null = null;
+  private waveformButton: HTMLButtonElement | null = null;
+  private waveformPanel: HTMLElement | null = null;
+  private waveformCanvas: HTMLCanvasElement | null = null;
+  private waveformSummary: HTMLElement | null = null;
   private progress: HTMLProgressElement | null = null;
   private progressText: HTMLElement | null = null;
   private status: HTMLElement | null = null;
@@ -69,6 +81,8 @@ class SubtitleGeneratorController {
   private timelineOverview: HTMLElement | null = null;
   private timelineTrack: HTMLElement | null = null;
   private timelineDuration: HTMLElement | null = null;
+  private timelineFrameRate: HTMLSelectElement | null = null;
+  private snapTimelineButton: HTMLButtonElement | null = null;
   private applyToSourceVideoButton: HTMLButtonElement | null = null;
   private clearSourceVideoButton: HTMLButtonElement | null = null;
   private configuredProviderIds = new Set<string>();
@@ -81,6 +95,9 @@ class SubtitleGeneratorController {
   private uploadChunkIndex = 0;
   private runId = 0;
   private isWorking = false;
+  private isGeneratingWaveform = false;
+  private waveformRunId = 0;
+  private waveformAudioContext: AudioContext | null = null;
   private cues: GeneratedSubtitleCue[] = [];
   private timelineUndoStack: GeneratedSubtitleCue[][] = [];
   private timelineRedoStack: GeneratedSubtitleCue[][] = [];
@@ -127,6 +144,10 @@ class SubtitleGeneratorController {
     this.cancelButton = document.getElementById('cancelGeneration') as HTMLButtonElement | null;
     this.tabCaptureButton = document.getElementById('toggleTabCapture') as HTMLButtonElement | null;
     this.cancelTabCaptureButton = document.getElementById('cancelTabCapture') as HTMLButtonElement | null;
+    this.waveformButton = document.getElementById('generateWaveform') as HTMLButtonElement | null;
+    this.waveformPanel = document.getElementById('waveformPanel');
+    this.waveformCanvas = document.getElementById('audioWaveform') as HTMLCanvasElement | null;
+    this.waveformSummary = document.getElementById('waveformSummary');
     this.progress = document.getElementById('generationProgress') as HTMLProgressElement | null;
     this.progressText = document.getElementById('progressText');
     this.status = document.getElementById('generationStatus');
@@ -142,6 +163,8 @@ class SubtitleGeneratorController {
     this.timelineOverview = document.getElementById('timelineOverview');
     this.timelineTrack = document.getElementById('timelineTrack');
     this.timelineDuration = document.getElementById('timelineDuration');
+    this.timelineFrameRate = document.getElementById('timelineFrameRate') as HTMLSelectElement | null;
+    this.snapTimelineButton = document.getElementById('snapTimelineToFrames') as HTMLButtonElement | null;
     this.applyToSourceVideoButton = document.getElementById('applyToSourceVideo') as HTMLButtonElement | null;
     this.clearSourceVideoButton = document.getElementById('clearSourceVideo') as HTMLButtonElement | null;
     this.sourceTabId = this.readSourceTabId();
@@ -158,6 +181,18 @@ class SubtitleGeneratorController {
   }
 
   private populateControls(): void {
+    if (this.timelineFrameRate) {
+      const off = document.createElement('option');
+      off.value = '';
+      off.textContent = 'Off';
+      this.timelineFrameRate.replaceChildren(off, ...SUPPORTED_AUDIO_FRAME_RATES.map(frameRate => {
+        const option = document.createElement('option');
+        option.value = String(frameRate);
+        option.textContent = String(frameRate) + ' fps';
+        return option;
+      }));
+    }
+
     if (this.transcriptionProvider) {
       this.transcriptionProvider.replaceChildren(...MEDIA_TRANSCRIPTION_PROVIDERS.map(provider => {
         const option = document.createElement('option');
@@ -227,6 +262,10 @@ class SubtitleGeneratorController {
     this.translateCaptions?.addEventListener('change', () => this.updateTranslationControls());
     this.generateButton?.addEventListener('click', () => void this.startGeneration());
     this.cancelButton?.addEventListener('click', () => this.cancelGeneration());
+    this.waveformButton?.addEventListener('click', () => {
+      if (this.isGeneratingWaveform) this.stopWaveformGeneration();
+      else void this.startWaveformGeneration();
+    });
     this.tabCaptureButton?.addEventListener('click', () => {
       if (this.tabCapturePhase === 'recording') this.stopTabCapture(true);
       else void this.startTabCapture();
@@ -238,10 +277,15 @@ class SubtitleGeneratorController {
     this.applyTimelineShiftButton?.addEventListener('click', () => this.applyTimelineShift());
     this.undoTimelineButton?.addEventListener('click', () => this.undoTimelineEdit());
     this.redoTimelineButton?.addEventListener('click', () => this.redoTimelineEdit());
+    this.timelineFrameRate?.addEventListener('change', () => this.updateTimelineEditingControls());
+    this.snapTimelineButton?.addEventListener('click', () => this.snapTimelineToFrames());
     this.applyToSourceVideoButton?.addEventListener('click', () => void this.applyGeneratedSubtitlesToSourceVideo());
     this.clearSourceVideoButton?.addEventListener('click', () => void this.clearGeneratedSubtitlesFromSourceVideo());
     document.getElementById('openSettings')?.addEventListener('click', () => chrome.runtime.openOptionsPage());
-    window.addEventListener('pagehide', () => this.releaseTabCaptureForPageClose());
+    window.addEventListener('pagehide', () => {
+      this.stopWaveformGeneration(false);
+      this.releaseTabCaptureForPageClose();
+    });
   }
 
   private async loadProviderConfigurations(): Promise<void> {
@@ -323,12 +367,14 @@ class SubtitleGeneratorController {
   }
 
   private handleFileSelection(): void {
+    this.stopWaveformGeneration(false);
     this.selectedFile = this.fileInput?.files?.[0] || null;
     this.selectedFileIsTabCapture = false;
     this.generationTimeOffsetSeconds = 0;
     this.selectedFileDurationSeconds = 0;
     this.clearPartialTranscript();
     this.clearResult();
+    this.clearWaveform();
     this.setProgress(0);
     const name = document.getElementById('fileName');
     const details = document.getElementById('fileDetails');
@@ -347,6 +393,116 @@ class SubtitleGeneratorController {
     const error = this.validateFile(this.selectedFile);
     this.showStatus(error || 'Ready', Boolean(error));
     this.updateGenerateAvailability();
+  }
+
+  private async startWaveformGeneration(): Promise<void> {
+    const file = this.selectedFile;
+    if (!file || this.validateFile(file) || this.isWorking || this.isGeneratingWaveform) return;
+    const AudioContextConstructor = window.AudioContext
+      || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextConstructor) {
+      this.showStatus('Audio waveform decoding is unavailable in this browser.', true);
+      return;
+    }
+
+    const runId = ++this.waveformRunId;
+    this.isGeneratingWaveform = true;
+    this.clearWaveform();
+    this.waveformButton!.textContent = 'Stop waveform';
+    this.waveformButton!.disabled = false;
+    this.showStatus('Generating waveform locally');
+    this.updateGenerateAvailability();
+    let context: AudioContext | null = null;
+    try {
+      context = new AudioContextConstructor();
+      this.waveformAudioContext = context;
+      const bytes = await file.arrayBuffer();
+      if (runId !== this.waveformRunId) return;
+      const audioBuffer = await context.decodeAudioData(bytes.slice(0));
+      if (runId !== this.waveformRunId) return;
+      const channels = Array.from({ length: audioBuffer.numberOfChannels }, (_, index) => (
+        audioBuffer.getChannelData(index)
+      ));
+      const result = createAudioWaveformEnvelope({
+        channels,
+        sampleRate: audioBuffer.sampleRate,
+        durationSeconds: audioBuffer.duration
+      }, { bucketCount: DEFAULT_AUDIO_WAVEFORM_BUCKET_COUNT });
+      if (result.status === 'rejected') throw new Error(result.message);
+      this.renderWaveform(result.envelope);
+      this.showStatus('Waveform ready');
+    } catch (error) {
+      if (runId === this.waveformRunId) {
+        this.showStatus(error instanceof Error ? error.message : 'Could not generate the waveform.', true);
+      }
+    } finally {
+      if (context && this.waveformAudioContext === context) {
+        this.waveformAudioContext = null;
+        await context.close().catch(() => undefined);
+      }
+      if (runId === this.waveformRunId) {
+        this.isGeneratingWaveform = false;
+        if (this.waveformButton) this.waveformButton.textContent = 'Generate waveform';
+        this.updateGenerateAvailability();
+      }
+    }
+  }
+
+  private stopWaveformGeneration(showStatus = true): void {
+    if (!this.isGeneratingWaveform && !this.waveformAudioContext) return;
+    this.waveformRunId += 1;
+    const context = this.waveformAudioContext;
+    this.waveformAudioContext = null;
+    this.isGeneratingWaveform = false;
+    if (context) void context.close().catch(() => undefined);
+    if (this.waveformButton) {
+      this.waveformButton.textContent = 'Generate waveform';
+      this.waveformButton.disabled = false;
+    }
+    if (showStatus) this.showStatus('Waveform generation stopped');
+    this.updateGenerateAvailability();
+  }
+
+  private clearWaveform(): void {
+    if (this.waveformPanel) this.waveformPanel.hidden = true;
+    if (this.waveformSummary) this.waveformSummary.textContent = '';
+    try {
+      const context = this.waveformCanvas?.getContext('2d');
+      if (context && this.waveformCanvas) {
+        context.clearRect(0, 0, this.waveformCanvas.width, this.waveformCanvas.height);
+      }
+    } catch {
+      // Canvas drawing is optional until the user explicitly requests a waveform.
+    }
+  }
+
+  private renderWaveform(envelope: AudioWaveformEnvelope): void {
+    const canvas = this.waveformCanvas;
+    if (!canvas) return;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Waveform rendering is unavailable in this browser.');
+    const width = Math.max(1, canvas.width);
+    const height = Math.max(1, canvas.height);
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = '#1769aa';
+    const center = height / 2;
+    const amplitude = height * 0.44;
+    envelope.buckets.forEach((bucket, index) => {
+      const x = index / envelope.bucketCount * width;
+      const nextX = (index + 1) / envelope.bucketCount * width;
+      const barWidth = Math.max(1, nextX - x);
+      const level = Math.max(Math.abs(bucket.min), Math.abs(bucket.max), bucket.rms);
+      const top = center - level * amplitude;
+      const bottom = center + level * amplitude;
+      context.fillRect(x, top, barWidth, Math.max(1, bottom - top));
+    });
+    if (this.waveformPanel) this.waveformPanel.hidden = false;
+    if (this.waveformSummary) {
+      this.waveformSummary.textContent = String(envelope.channelCount)
+        + ' channel' + (envelope.channelCount === 1 ? '' : 's')
+        + ' · ' + this.formatClock(envelope.durationSeconds)
+        + ' · ' + envelope.sampleRate + ' Hz';
+    }
   }
 
   private updateTranslationControls(): void {
@@ -386,10 +542,18 @@ class SubtitleGeneratorController {
     const captureIdle = this.tabCapturePhase === 'idle';
     if (this.generateButton) {
       this.generateButton.disabled = this.isWorking
+        || this.isGeneratingWaveform
         || !captureIdle
         || !fileReady
         || !transcriptionReady
         || !translationReady;
+    }
+    if (this.waveformButton) {
+      this.waveformButton.disabled = this.isWorking
+        || (!this.isGeneratingWaveform && !fileReady);
+      this.waveformButton.textContent = this.isGeneratingWaveform
+        ? 'Stop waveform'
+        : 'Generate waveform';
     }
     this.updateTabCaptureControls();
   }
@@ -450,7 +614,7 @@ class SubtitleGeneratorController {
   }
 
   private async startTabCapture(): Promise<void> {
-    if (this.isWorking || this.tabCapturePhase !== 'idle') return;
+    if (this.isWorking || this.isGeneratingWaveform || this.tabCapturePhase !== 'idle') return;
     if (!this.tabCaptureSupported) {
       this.showStatus(
         'Current-tab audio capture is not supported in this browser. Choose a local media file instead.',
@@ -701,6 +865,7 @@ class SubtitleGeneratorController {
         : 'Current-tab capture unavailable';
       this.tabCaptureButton.disabled = !this.tabCaptureSupported
         || this.isWorking
+        || this.isGeneratingWaveform
         || !this.sourceTabId
         || !this.transcriptionProvider?.value
         || !this.transcriptionModel?.value
@@ -716,7 +881,7 @@ class SubtitleGeneratorController {
     if (this.cancelTabCaptureButton) {
       this.cancelTabCaptureButton.hidden = phase !== 'starting' && phase !== 'recording';
     }
-    const fileBusy = this.isWorking || phase !== 'idle';
+    const fileBusy = this.isWorking || this.isGeneratingWaveform || phase !== 'idle';
     if (this.fileInput) this.fileInput.disabled = fileBusy;
     if (this.transcriptionProvider) this.transcriptionProvider.disabled = fileBusy;
     if (this.transcriptionModel) this.transcriptionModel.disabled = fileBusy;
@@ -772,6 +937,7 @@ class SubtitleGeneratorController {
   private async startGeneration(): Promise<void> {
     if (
       this.isWorking
+      || this.isGeneratingWaveform
       || this.tabCapturePhase !== 'idle'
       || !this.selectedFile
       || !this.transcriptionProvider?.value
@@ -1040,11 +1206,15 @@ class SubtitleGeneratorController {
       };
       startInput.addEventListener('change', () => {
         const snapshot = this.cloneCues(this.cues);
-        if (commitCue({ start: startInput.valueAsNumber })) this.captureTimelineSnapshot(snapshot);
+        if (commitCue(this.createSnappedCueTimePatch(this.cues[index]!, 'start', startInput.valueAsNumber))) {
+          this.captureTimelineSnapshot(snapshot);
+        }
       });
       endInput.addEventListener('change', () => {
         const snapshot = this.cloneCues(this.cues);
-        if (commitCue({ end: endInput.valueAsNumber })) this.captureTimelineSnapshot(snapshot);
+        if (commitCue(this.createSnappedCueTimePatch(this.cues[index]!, 'end', endInput.valueAsNumber))) {
+          this.captureTimelineSnapshot(snapshot);
+        }
       });
       this.bindTextEditHistory(originalInput, () => commitCue({ originalText: originalInput.value }));
       this.bindTextEditHistory(translationInput, () => commitCue({ translatedText: translationInput.value }));
@@ -1288,9 +1458,53 @@ class SubtitleGeneratorController {
     if (this.applyTimelineShiftButton) this.applyTimelineShiftButton.disabled = disabled;
     if (this.undoTimelineButton) this.undoTimelineButton.disabled = this.isWorking || this.timelineUndoStack.length === 0;
     if (this.redoTimelineButton) this.redoTimelineButton.disabled = this.isWorking || this.timelineRedoStack.length === 0;
+    if (this.timelineFrameRate) this.timelineFrameRate.disabled = this.isWorking || this.cues.length === 0;
+    if (this.snapTimelineButton) {
+      this.snapTimelineButton.disabled = this.isWorking
+        || this.cues.length === 0
+        || !getAudioFrameRateRatio(Number(this.timelineFrameRate?.value));
+    }
     this.cueList?.querySelectorAll<HTMLButtonElement>('.cue-edit-button').forEach(button => {
       button.disabled = disabled || button.dataset.unavailable === 'true';
     });
+  }
+
+  private snapCueTime(time: number, mode: 'nearest' | 'ceil' = 'nearest'): number {
+    const frameRate = Number(this.timelineFrameRate?.value);
+    return snapAudioTimeToFrame(time, frameRate, mode)?.timeSeconds ?? time;
+  }
+
+  private createSnappedCueTimePatch(
+    cue: GeneratedSubtitleCue,
+    boundary: 'start' | 'end',
+    time: number
+  ): Partial<GeneratedSubtitleCue> {
+    const frameRate = Number(this.timelineFrameRate?.value);
+    if (!getAudioFrameRateRatio(frameRate)) return { [boundary]: time };
+    if (boundary === 'start') {
+      const start = this.snapCueTime(time);
+      const minimumEnd = this.snapCueTime(start + 0.05, 'ceil');
+      return { start, end: Math.max(cue.end, minimumEnd) };
+    }
+    const minimumEnd = this.snapCueTime(cue.start + 0.05, 'ceil');
+    return { end: Math.max(this.snapCueTime(time), minimumEnd) };
+  }
+
+  private snapTimelineToFrames(): void {
+    const frameRate = Number(this.timelineFrameRate?.value);
+    if (this.cues.length === 0 || !getAudioFrameRateRatio(frameRate)) return;
+    const snapshot = this.cloneCues(this.cues);
+    this.cues = this.cues.map(cue => {
+      const start = snapAudioTimeToFrame(cue.start, frameRate)?.timeSeconds ?? cue.start;
+      const snappedEnd = snapAudioTimeToFrame(cue.end, frameRate)?.timeSeconds ?? cue.end;
+      const minimumEnd = snapAudioTimeToFrame(start + 0.05, frameRate, 'ceil')?.timeSeconds
+        ?? start + 0.05;
+      const end = Math.max(snappedEnd, minimumEnd);
+      return updateGeneratedSubtitleCue(cue, { start, end });
+    });
+    this.captureTimelineSnapshot(snapshot);
+    this.renderCues(this.getCueTimelineEnd());
+    this.showStatus('Caption times snapped to frames');
   }
 
   private createCueTimeInput(value: number, ariaLabel: string): HTMLInputElement {

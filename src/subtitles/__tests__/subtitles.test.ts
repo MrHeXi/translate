@@ -538,6 +538,85 @@ describe('AI subtitle generator', () => {
     }
   });
 
+  it('decodes and renders a waveform only after clicking, with a true stop toggle', async () => {
+    const connect = jest.fn();
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({ success: true, data: [{ providerId: 'groq', configured: true }] });
+        return;
+      }
+      if (message.action === 'getSettings') {
+        callback({ success: true, data: { translationProvider: 'google' } });
+        return;
+      }
+      callback({ success: true });
+    });
+    let resolveDecode: ((buffer: AudioBuffer) => void) | null = null;
+    const decodeAudioData = jest.fn(() => new Promise<AudioBuffer>(resolve => {
+      resolveDecode = resolve;
+    }));
+    const close = jest.fn().mockResolvedValue(undefined);
+    const MockAudioContext = jest.fn(() => ({ decodeAudioData, close }));
+    const canvasContext = {
+      clearRect: jest.fn(),
+      fillRect: jest.fn(),
+      fillStyle: ''
+    } as unknown as CanvasRenderingContext2D;
+    const canvasSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(canvasContext);
+    Object.defineProperty(window, 'AudioContext', {
+      configurable: true,
+      value: MockAudioContext
+    });
+    (global as any).chrome = {
+      runtime: { sendMessage, connect, lastError: null, openOptionsPage: jest.fn() }
+    };
+
+    try {
+      require('../subtitles');
+      document.dispatchEvent(new Event('DOMContentLoaded'));
+      await flushPromises();
+      await flushPromises();
+      const file = setMediaFile(document.getElementById('mediaFile') as HTMLInputElement, [1, 2, 3, 4]);
+      Object.defineProperty(file, 'arrayBuffer', {
+        configurable: true,
+        value: jest.fn(async () => new Uint8Array([1, 2, 3, 4]).buffer)
+      });
+      const waveformButton = document.getElementById('generateWaveform') as HTMLButtonElement;
+
+      expect(MockAudioContext).not.toHaveBeenCalled();
+      expect(decodeAudioData).not.toHaveBeenCalled();
+      expect(connect).not.toHaveBeenCalled();
+      expect(waveformButton.disabled).toBe(false);
+
+      waveformButton.click();
+      await flushPromises();
+      expect(MockAudioContext).toHaveBeenCalledTimes(1);
+      expect(decodeAudioData).toHaveBeenCalledTimes(1);
+      expect(waveformButton.textContent).toBe('Stop waveform');
+      expect(connect).not.toHaveBeenCalled();
+
+      waveformButton.click();
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(waveformButton.textContent).toBe('Generate waveform');
+      expect(document.getElementById('generationStatus')?.textContent).toBe('Waveform generation stopped');
+
+      const finishDecode = resolveDecode as ((buffer: AudioBuffer) => void) | null;
+      finishDecode?.({
+        numberOfChannels: 1,
+        sampleRate: 4,
+        duration: 1,
+        getChannelData: () => new Float32Array([0, 0.5, -0.5, 0])
+      } as unknown as AudioBuffer);
+      await flushPromises();
+      expect(document.getElementById('waveformPanel')?.hidden).toBe(true);
+      expect(connect).not.toHaveBeenCalled();
+      expect(sendMessage.mock.calls.some(([message]) => message.action === 'translate')).toBe(false);
+    } finally {
+      canvasSpy.mockRestore();
+    }
+  });
+
   it('shifts, splits, merges, and deletes generated cues locally without new requests', async () => {
     const harness = createPortHarness();
     const connect = jest.fn(() => harness.port);
@@ -626,6 +705,19 @@ describe('AI subtitle generator', () => {
       .toEqual(['0.000', '2.000', '3.000', '5.000']);
     expect(document.getElementById('generationStatus')?.textContent)
       .toBe('Shifted 2 captions by -1.000 seconds');
+
+    const frameRate = document.getElementById('timelineFrameRate') as HTMLSelectElement;
+    frameRate.value = '25';
+    frameRate.dispatchEvent(new Event('change'));
+    const snapButton = document.getElementById('snapTimelineToFrames') as HTMLButtonElement;
+    expect(snapButton.disabled).toBe(false);
+    const localRequestBaseline = sendMessage.mock.calls.length;
+    snapButton.click();
+    expect(Array.from(document.querySelectorAll<HTMLInputElement>('.cue-time-input')).map(input => input.value))
+      .toEqual(['0.000', '2.000', '3.000', '5.000']);
+    expect(sendMessage).toHaveBeenCalledTimes(localRequestBaseline);
+    expect(document.getElementById('generationStatus')?.textContent)
+      .toBe('Caption times snapped to frames');
 
     const firstOriginal = document.querySelector('.cue-original') as HTMLTextAreaElement;
     firstOriginal.setSelectionRange(5, 5);

@@ -183,9 +183,21 @@ describe('DocumentBatchTranslator', () => {
 
     const output = await translator.translateFile(
       createFile('paper.pdf', new Uint8Array([37, 80, 68, 70]), 'application/pdf'),
-      createOptions({ translateText })
+      createOptions({
+        translateText,
+        scanPreprocessing: 'binarize',
+        mixedLanguageOcr: true
+      })
     );
 
+    expect(pdfService.open).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      expect.objectContaining({
+        ocrLanguage: 'eng',
+        scanPreprocessing: 'binarize',
+        mixedLanguageOcr: true
+      })
+    );
     expect(translateText).toHaveBeenCalledTimes(1);
     expect(output).toEqual(expect.objectContaining({
       fileName: 'paper.translated.pdf',

@@ -119,6 +119,12 @@ const setupDocumentDom = (): void => {
       <option value="original-only">Original only</option>
     </select>
     <select id="ocrLanguage"></select>
+    <select id="pdfScanPreprocessing">
+      <option value="none">None</option>
+      <option value="grayscale">Grayscale</option>
+      <option value="binarize">Binary</option>
+    </select>
+    <input id="pdfMixedLanguageOcr" type="checkbox">
     <input id="documentFile" type="file">
     <button id="translateDocument"></button>
     <button id="saveDocumentHistory" disabled></button>
@@ -853,11 +859,11 @@ describe('document translator page', () => {
 
       expect(open).toHaveBeenCalledWith(
         new Uint8Array([1, 2, 3]),
-        expect.objectContaining({
-          ocrLanguage: 'eng',
-          onOcrProgress: expect.any(Function)
-        })
+        { enableOcr: false }
       );
+      expect(open).toHaveBeenCalledTimes(1);
+      expect(((global as any).chrome.runtime.sendMessage as jest.Mock).mock.calls
+        .map(call => call[0].action)).not.toContain('translate');
       expect(renderPage.mock.calls.length).toBeGreaterThanOrEqual(1);
       expect(renderPage.mock.calls.length).toBeLessThanOrEqual(2);
       expect(document.getElementById('pdfViewer')?.hidden).toBe(false);
@@ -876,6 +882,16 @@ describe('document translator page', () => {
       document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
       await flushPromises();
       await flushPromises();
+
+      expect(open).toHaveBeenCalledTimes(2);
+      expect(open).toHaveBeenLastCalledWith(
+        new Uint8Array([1, 2, 3]),
+        expect.objectContaining({
+          enableOcr: true,
+          ocrLanguage: 'eng',
+          onOcrProgress: expect.any(Function)
+        })
+      );
 
       const overlay = document.querySelector('.pdf-translation-overlay') as HTMLElement;
       expect(overlay.textContent).toBe('translated: Edited PDF.js positioned heading');
@@ -985,23 +1001,67 @@ describe('document translator page', () => {
       );
 
       (global as any).chrome.runtime.sendMessage.mockClear();
+      const resultHtmlBeforeLanguageChange = document.getElementById('translationResults')?.innerHTML;
+      const pdfHtmlBeforeLanguageChange = document.getElementById('pdfViewer')?.innerHTML;
+      const scanPreprocessing = document.getElementById('pdfScanPreprocessing') as HTMLSelectElement;
+      const mixedLanguageOcr = document.getElementById('pdfMixedLanguageOcr') as HTMLInputElement;
+      scanPreprocessing.value = 'binarize';
+      mixedLanguageOcr.checked = true;
+      scanPreprocessing.dispatchEvent(new Event('change'));
+      mixedLanguageOcr.dispatchEvent(new Event('change'));
+      await flushPromises();
+      expect(open).toHaveBeenCalledTimes(2);
+      expect(((global as any).chrome.runtime.sendMessage as jest.Mock).mock.calls
+        .map(call => call[0].action)).not.toContain('translate');
+      expect(document.getElementById('documentMessage')?.textContent)
+        .toBe('PDF scan settings saved. They will apply when you click Translate document.');
+
+      (global as any).chrome.runtime.sendMessage.mockClear();
       const ocrLanguage = document.getElementById('ocrLanguage') as HTMLSelectElement;
       ocrLanguage.value = 'jpn';
       ocrLanguage.dispatchEvent(new Event('change'));
       await flushPromises();
       await flushPromises();
 
-      expect(open).toHaveBeenLastCalledWith(
-        new Uint8Array([1, 2, 3]),
-        expect.objectContaining({ ocrLanguage: 'jpn' })
-      );
+      expect(open).toHaveBeenCalledTimes(2);
       expect(destroy).toHaveBeenCalledTimes(1);
       expect((global as any).chrome.runtime.sendMessage).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: 'translate' }),
         expect.any(Function)
       );
       expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(true);
-      expect(document.querySelector('.pdf-translation-overlay')).toBeNull();
+      expect(document.getElementById('translationResults')?.innerHTML).toBe(resultHtmlBeforeLanguageChange);
+      expect(document.getElementById('pdfViewer')?.innerHTML).toBe(pdfHtmlBeforeLanguageChange);
+      expect(document.getElementById('documentMessage')?.textContent)
+        .toBe('OCR language saved. It will apply when you click Translate document.');
+
+      document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      expect(open).toHaveBeenCalledTimes(3);
+      expect(open).toHaveBeenLastCalledWith(
+        new Uint8Array([1, 2, 3]),
+        expect.objectContaining({
+          enableOcr: true,
+          ocrLanguage: 'jpn',
+          scanPreprocessing: 'binarize',
+          mixedLanguageOcr: true
+        })
+      );
+      expect(destroy).toHaveBeenCalledTimes(2);
+      expect((document.getElementById('sourceText') as HTMLTextAreaElement).value).toBe(
+        `${formulaText}\n\nAdded prose without source geometry`
+      );
+      const postOcrMessages = ((global as any).chrome.runtime.sendMessage as jest.Mock).mock.calls
+        .map(call => call[0])
+        .filter(message => message.action === 'translate');
+      expect(postOcrMessages.map(message => message.data.text)).toEqual([
+        'Added prose without source geometry'
+      ]);
+      expect(postOcrMessages.map(message => message.data.text)).not.toContain(
+        'PDF.js positioned heading'
+      );
     } finally {
       clickSpy.mockRestore();
     }

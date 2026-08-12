@@ -24,6 +24,7 @@ import {
   BUNDLED_OCR_LANGUAGES,
   BundledOcrLanguageCode
 } from '../services/BundledOcrService';
+import type { DocumentScanPreprocessing } from '../services/PdfDocumentService';
 import {
   buildAiTranslationSystemPrompt,
   buildAiTranslationUserMessage,
@@ -71,6 +72,8 @@ interface UserSettings {
   pageTranslationScope?: PageTranslationScope;
   siteTranslationRules?: SiteTranslationRule[];
   documentOcrLanguage?: BundledOcrLanguageCode;
+  documentScanPreprocessing?: DocumentScanPreprocessing;
+  documentMixedLanguageOcr?: boolean;
   aiContextEnabled?: boolean;
   aiTranslationDomain?: TranslationDomain;
   translationGlossary?: TranslationGlossaryEntry[];
@@ -285,6 +288,10 @@ class OptionsController {
 
     const documentOcrLanguage = document.getElementById('documentOcrLanguage') as HTMLSelectElement;
     documentOcrLanguage?.addEventListener('change', () => this.onSettingChange());
+    const documentScanPreprocessing = document.getElementById('documentScanPreprocessing') as HTMLSelectElement;
+    documentScanPreprocessing?.addEventListener('change', () => this.onSettingChange());
+    const documentMixedLanguageOcr = document.getElementById('documentMixedLanguageOcr') as HTMLInputElement;
+    documentMixedLanguageOcr?.addEventListener('change', () => this.onSettingChange());
 
     const aiContextEnabled = document.getElementById('aiContextEnabled') as HTMLInputElement;
     aiContextEnabled?.addEventListener('change', () => this.onSettingChange());
@@ -942,6 +949,18 @@ class OptionsController {
     const documentOcrLanguage = document.getElementById('documentOcrLanguage') as HTMLSelectElement;
     if (documentOcrLanguage) {
       this.setSelectValue(documentOcrLanguage, this.settings.documentOcrLanguage || 'eng', 'eng');
+    }
+    const documentScanPreprocessing = document.getElementById('documentScanPreprocessing') as HTMLSelectElement;
+    if (documentScanPreprocessing) {
+      this.setSelectValue(
+        documentScanPreprocessing,
+        this.settings.documentScanPreprocessing || 'none',
+        'none'
+      );
+    }
+    const documentMixedLanguageOcr = document.getElementById('documentMixedLanguageOcr') as HTMLInputElement;
+    if (documentMixedLanguageOcr) {
+      documentMixedLanguageOcr.checked = Boolean(this.settings.documentMixedLanguageOcr);
     }
 
     const aiContextEnabled = document.getElementById('aiContextEnabled') as HTMLInputElement;
@@ -1640,6 +1659,15 @@ class OptionsController {
     const documentOcrLanguage = BUNDLED_OCR_LANGUAGES.some(language => language.code === selectedOcrLanguage)
       ? selectedOcrLanguage as BundledOcrLanguageCode
       : 'eng';
+    const selectedScanPreprocessing = (
+      document.getElementById('documentScanPreprocessing') as HTMLSelectElement
+    )?.value;
+    const documentScanPreprocessing: DocumentScanPreprocessing = (
+      selectedScanPreprocessing === 'grayscale' || selectedScanPreprocessing === 'binarize'
+    ) ? selectedScanPreprocessing : 'none';
+    const documentMixedLanguageOcr = Boolean(
+      (document.getElementById('documentMixedLanguageOcr') as HTMLInputElement)?.checked
+    );
     const aiContextEnabled = (document.getElementById('aiContextEnabled') as HTMLInputElement)?.checked || false;
     const selectedDomain = (document.getElementById('aiTranslationDomain') as HTMLSelectElement)?.value;
     const aiTranslationDomain = TRANSLATION_DOMAINS.some(domain => domain.code === selectedDomain)
@@ -1704,6 +1732,8 @@ class OptionsController {
     return {
       defaultTargetLanguage: targetLanguage,
       documentOcrLanguage,
+      documentScanPreprocessing,
+      documentMixedLanguageOcr,
       aiContextEnabled,
       aiTranslationDomain,
       translationGlossary,

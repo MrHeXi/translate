@@ -11,6 +11,7 @@ import {
 } from '../StorageManager';
 import type { BundledOcrLanguageCode } from '../BundledOcrService';
 import type { TranslationDomain } from '../AiTranslationPreferences';
+import type { DocumentScanPreprocessing } from '../PdfDocumentService';
 
 // 模拟 Chrome Storage API
 const mockChromeStorage = {
@@ -92,6 +93,8 @@ describe('StorageManager', () => {
       await expect(storageManager.getSettings()).resolves.toEqual(
         expect.objectContaining({
           documentOcrLanguage: 'eng',
+          documentScanPreprocessing: 'none',
+          documentMixedLanguageOcr: false,
           aiContextEnabled: false,
           aiTranslationDomain: 'general',
           translationGlossary: [],
@@ -102,6 +105,8 @@ describe('StorageManager', () => {
       mockChromeStorage.sync.get.mockResolvedValue({
         settings: {
           documentOcrLanguage: 'kor',
+          documentScanPreprocessing: 'binarize',
+          documentMixedLanguageOcr: true,
           aiContextEnabled: true,
           aiTranslationDomain: 'medical',
           translationGlossary: [{ source: 'dose', target: '剂量' }],
@@ -112,6 +117,8 @@ describe('StorageManager', () => {
       await expect(storageManager.getSettings()).resolves.toEqual(
         expect.objectContaining({
           documentOcrLanguage: 'kor',
+          documentScanPreprocessing: 'binarize',
+          documentMixedLanguageOcr: true,
           aiContextEnabled: true,
           aiTranslationDomain: 'medical',
           translationGlossary: [{ source: 'dose', target: '剂量' }],
@@ -698,6 +705,12 @@ describe('StorageManager', () => {
               pageTranslationScope: translationScopeArbitrary,
               siteTranslationRules: fc.array(siteTranslationRuleArbitrary, { maxLength: 3 }),
               documentOcrLanguage: ocrLanguageArbitrary,
+              documentScanPreprocessing: fc.constantFrom<DocumentScanPreprocessing>(
+                'none',
+                'grayscale',
+                'binarize'
+              ),
+              documentMixedLanguageOcr: fc.boolean(),
               aiContextEnabled: fc.boolean(),
               aiTranslationDomain: translationDomainArbitrary,
               translationGlossary: glossaryArbitrary,
@@ -754,6 +767,12 @@ describe('StorageManager', () => {
             expect(loadedData.settings.pageTranslationScope).toBe(originalData.settings.pageTranslationScope);
             expect(loadedData.settings.siteTranslationRules).toEqual(originalData.settings.siteTranslationRules);
             expect(loadedData.settings.documentOcrLanguage).toBe(originalData.settings.documentOcrLanguage);
+            expect(loadedData.settings.documentScanPreprocessing).toBe(
+              originalData.settings.documentScanPreprocessing
+            );
+            expect(loadedData.settings.documentMixedLanguageOcr).toBe(
+              originalData.settings.documentMixedLanguageOcr
+            );
             expect(loadedData.settings.aiContextEnabled).toBe(originalData.settings.aiContextEnabled);
             expect(loadedData.settings.aiTranslationDomain).toBe(originalData.settings.aiTranslationDomain);
             expect(loadedData.settings.translationGlossary).toEqual(originalData.settings.translationGlossary);
@@ -792,6 +811,12 @@ describe('StorageManager', () => {
               pageTranslationScope: translationScopeArbitrary,
               siteTranslationRules: fc.array(siteTranslationRuleArbitrary, { maxLength: 3 }),
               documentOcrLanguage: ocrLanguageArbitrary,
+              documentScanPreprocessing: fc.constantFrom<DocumentScanPreprocessing>(
+                'none',
+                'grayscale',
+                'binarize'
+              ),
+              documentMixedLanguageOcr: fc.boolean(),
               aiContextEnabled: fc.boolean(),
               aiTranslationDomain: translationDomainArbitrary,
               translationGlossary: glossaryArbitrary,
@@ -871,6 +896,12 @@ describe('StorageManager', () => {
             expect(exportedUserData.settings.pageTranslationScope).toBe(originalData.settings.pageTranslationScope);
             expect(exportedUserData.settings.siteTranslationRules).toEqual(originalData.settings.siteTranslationRules);
             expect(exportedUserData.settings.documentOcrLanguage).toBe(originalData.settings.documentOcrLanguage);
+            expect(exportedUserData.settings.documentScanPreprocessing).toBe(
+              originalData.settings.documentScanPreprocessing
+            );
+            expect(exportedUserData.settings.documentMixedLanguageOcr).toBe(
+              originalData.settings.documentMixedLanguageOcr
+            );
             expect(exportedUserData.settings.aiContextEnabled).toBe(originalData.settings.aiContextEnabled);
             expect(exportedUserData.settings.aiTranslationDomain).toBe(originalData.settings.aiTranslationDomain);
             expect(exportedUserData.settings.translationGlossary).toEqual(originalData.settings.translationGlossary);
@@ -964,6 +995,12 @@ describe('StorageManager', () => {
               pageTranslationScope: translationScopeArbitrary,
               siteTranslationRules: fc.array(siteTranslationRuleArbitrary, { maxLength: 3 }),
               documentOcrLanguage: ocrLanguageArbitrary,
+              documentScanPreprocessing: fc.constantFrom<DocumentScanPreprocessing>(
+                'none',
+                'grayscale',
+                'binarize'
+              ),
+              documentMixedLanguageOcr: fc.boolean(),
               aiContextEnabled: fc.boolean(),
               aiTranslationDomain: translationDomainArbitrary,
               translationGlossary: glossaryArbitrary,
@@ -1035,6 +1072,12 @@ describe('StorageManager', () => {
               expect(deviceBData.settings.pageTranslationScope).toBe(deviceAData.settings.pageTranslationScope);
               expect(deviceBData.settings.siteTranslationRules).toEqual(deviceAData.settings.siteTranslationRules);
               expect(deviceBData.settings.documentOcrLanguage).toBe(deviceAData.settings.documentOcrLanguage);
+              expect(deviceBData.settings.documentScanPreprocessing).toBe(
+                deviceAData.settings.documentScanPreprocessing
+              );
+              expect(deviceBData.settings.documentMixedLanguageOcr).toBe(
+                deviceAData.settings.documentMixedLanguageOcr
+              );
               expect(deviceBData.settings.aiContextEnabled).toBe(deviceAData.settings.aiContextEnabled);
               expect(deviceBData.settings.aiTranslationDomain).toBe(deviceAData.settings.aiTranslationDomain);
               expect(deviceBData.settings.translationGlossary).toEqual(deviceAData.settings.translationGlossary);

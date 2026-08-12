@@ -793,6 +793,8 @@ describe('BackgroundService provider configuration messages', () => {
     const resetResponse = await send({ action: 'resetSettings' });
     expect(mockStorageManager.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({
       documentOcrLanguage: 'eng',
+      documentScanPreprocessing: 'none',
+      documentMixedLanguageOcr: false,
       aiContextEnabled: false,
       aiTranslationDomain: 'general',
       translationGlossary: [],
@@ -804,6 +806,8 @@ describe('BackgroundService provider configuration messages', () => {
     const resetAllResponse = await send({ action: 'resetAllSettings' });
     expect(mockStorageManager.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({
       documentOcrLanguage: 'eng',
+      documentScanPreprocessing: 'none',
+      documentMixedLanguageOcr: false,
       aiContextEnabled: false,
       aiTranslationDomain: 'general',
       translationGlossary: [],

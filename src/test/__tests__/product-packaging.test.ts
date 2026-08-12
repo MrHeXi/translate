@@ -324,6 +324,8 @@ describe('product packaging contract', () => {
     expect(privacy).toContain('Glossary and prompt settings may sync through Chrome storage');
     expect(privacy).toContain('No transcription request or partial stream starts while current-tab capture is still recording');
     expect(privacy).toContain('Export BabelDOC guide is a local text download');
+    expect(privacy).toContain('PDF scan cleanup and mixed-language OCR run locally only after the user clicks Translate document');
+    expect(privacy).toContain('Subtitle waveform decoding starts only after Generate waveform is clicked');
     expect(privacy).toContain('stateless `ghs_` JWT tokens');
 
     const checklist = readProjectFile('RELEASE_CHECKLIST.md');
@@ -346,6 +348,8 @@ describe('product packaging contract', () => {
     const listing = readProjectFile('STORE_LISTING.md');
 
     expect(listing).toContain('LexiBridge Translate');
+    expect(listing).toContain('Waveform generation is a separate local action');
+    expect(listing).toContain('PDF scan cleanup and optional mixed-language OCR');
     expect(listing).toContain('Translate web pages on demand');
     expect(listing).toContain('Manual page translation');
     expect(listing).toContain('Configurable CSS selector exclusions');
@@ -438,13 +442,13 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('78 test suites and 864 tests');
-    expect(releaseNotes).toContain('17,853,749');
-    expect(releaseNotes).toContain('8BBDD576247BB7A2E0A1846A3993E12DC31BF12AF5ADADA619CFF9D43B6E3F2C');
-    expect(releaseNotes).toContain('17,853,920');
-    expect(releaseNotes).toContain('221AAF5B63579D83ADE23A500446B9E0DAB0C5738F201A01CB6AFEC5A6C17BA2');
-    expect(releaseNotes).toContain('BCA74FE02AE12AECA1B1AA1EBC9364C25056C78719D17030F156832E814FD5C1');
-    expect(releaseNotes).toContain('99ED4603E304AE6DF755D4EB53A1A0970E369AE3F33266A04CEC9C5EAF91EEA0');
+    expect(releaseNotes).toContain('81 test suites and 905 tests');
+    expect(releaseNotes).toContain('17,860,842');
+    expect(releaseNotes).toContain('696EC1577D694C392E76DC21525EE35FE7FE8B739C3134CDDD56D7039E2E3321');
+    expect(releaseNotes).toContain('17,861,014');
+    expect(releaseNotes).toContain('A1116658F3C9111D574CCBFC8B0AD5C4C6328820D14A868F0DE238DA48FCA509');
+    expect(releaseNotes).toContain('F162008E7CB88E4EF7832075EA6E769E8B93F4EDEF0F2B7291D9B62E50A39FD0');
+    expect(releaseNotes).toContain('63F79A2D5BA4D4ED7FAE5BCC0CF46574197DB80C2B5B9F0A765D568C3B2A01A8');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('firefox-translation-extension.zip');
     expect(releaseNotes).toContain('`npm run package`: passed');
@@ -756,6 +760,10 @@ describe('product packaging contract', () => {
       /<button[^>]*id="toggleTabCapture"[^>]*>Capture current tab<\/button>/
     );
     expect(subtitlesHtml).toContain('id="generateSubtitles"');
+    expect(subtitlesHtml).toContain('id="generateWaveform"');
+    expect(subtitlesHtml).toContain('id="audioWaveform"');
+    expect(subtitlesHtml).toContain('id="timelineFrameRate"');
+    expect(subtitlesHtml).toContain('id="snapTimelineToFrames"');
     expect(subtitlesHtml).toContain('id="exportSrt"');
     expect(subtitlesHtml).toContain('id="exportVtt"');
     expect(subtitlesHtml).toContain('id="cueEditToolbar"');
@@ -777,6 +785,8 @@ describe('product packaging contract', () => {
     expect(subtitlesScript).toContain('splitGeneratedSubtitleCue');
     expect(subtitlesScript).toContain('mergeGeneratedSubtitleCues');
     expect(subtitlesScript).toContain('createGeneratedSubtitleTimelineLayout');
+    expect(subtitlesScript).toContain('createAudioWaveformEnvelope');
+    expect(subtitlesScript).toContain('snapAudioTimeToFrame');
     expect(subtitlesStyles).toContain('.cue-time-input');
     expect(subtitlesStyles).toContain('.cue-translation-field');
     expect(subtitlesStyles).toContain('.timeline-cue');

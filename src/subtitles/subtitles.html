@@ -24,12 +24,21 @@
             <input id="mediaFile" type="file" accept=".flac,.mp3,.mp4,.mpeg,.mpga,.m4a,.ogg,.wav,.webm,audio/flac,audio/mpeg,audio/mp4,audio/ogg,audio/x-m4a,audio/wav,audio/x-wav,audio/webm,video/mp4,video/webm">
           </label>
           <button id="toggleTabCapture" class="secondary-button capture-button" type="button" disabled>Capture current tab</button>
+          <button id="generateWaveform" class="secondary-button" type="button" disabled>Generate waveform</button>
           <button id="cancelTabCapture" class="icon-button icon-button-dark" type="button" title="Cancel tab capture" aria-label="Cancel tab capture" hidden>&#10005;</button>
         </div>
         <div class="file-summary">
           <strong id="fileName">No media selected</strong>
           <span id="fileDetails">Local audio/video or current tab, up to 25 MB</span>
         </div>
+      </section>
+
+      <section id="waveformPanel" class="waveform-band" aria-label="Audio waveform" hidden>
+        <div class="waveform-header">
+          <strong>Waveform</strong>
+          <span id="waveformSummary"></span>
+        </div>
+        <canvas id="audioWaveform" width="1200" height="160"></canvas>
       </section>
 
       <section class="control-band" aria-label="Subtitle generation settings">
@@ -96,6 +105,13 @@
             <input id="timelineShift" type="number" step="0.001" value="0">
           </label>
           <button id="applyTimelineShift" class="secondary-button" type="button">Apply shift</button>
+          <label class="timeline-shift-field" for="timelineFrameRate">
+            <span>Frame rate</span>
+            <select id="timelineFrameRate">
+              <option value="">Off</option>
+            </select>
+          </label>
+          <button id="snapTimelineToFrames" class="secondary-button" type="button" disabled>Snap to frames</button>
           <div class="timeline-history-actions">
             <button id="undoTimelineEdit" class="icon-button icon-button-dark" type="button" title="Undo caption edit" aria-label="Undo caption edit" disabled>&#8630;</button>
             <button id="redoTimelineEdit" class="icon-button icon-button-dark" type="button" title="Redo caption edit" aria-label="Redo caption edit" disabled>&#8631;</button>

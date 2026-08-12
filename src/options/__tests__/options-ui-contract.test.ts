@@ -15,6 +15,12 @@ describe('options UI settings contract', () => {
       <button id="startReview"></button>
       <select id="targetLanguage"><option value="zh-CN" selected>Chinese</option></select>
       <select id="documentOcrLanguage"><option value="eng" selected>English</option></select>
+      <select id="documentScanPreprocessing">
+        <option value="none" selected>None</option>
+        <option value="grayscale">Grayscale</option>
+        <option value="binarize">Binary</option>
+      </select>
+      <input id="documentMixedLanguageOcr" type="checkbox">
       <input id="aiContextEnabled" type="checkbox">
       <select id="aiTranslationDomain"><option value="general" selected>General</option></select>
       <textarea id="translationGlossary"></textarea>
@@ -143,6 +149,8 @@ describe('options UI settings contract', () => {
   const createSettings = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
     defaultTargetLanguage: 'zh-CN',
     documentOcrLanguage: 'eng',
+    documentScanPreprocessing: 'none',
+    documentMixedLanguageOcr: false,
     aiContextEnabled: false,
     aiTranslationDomain: 'general',
     translationGlossary: [],
@@ -252,6 +260,8 @@ describe('options UI settings contract', () => {
     const showFloatingIcon = document.getElementById('showFloatingIcon') as HTMLInputElement;
     showFloatingIcon.checked = false;
     (document.getElementById('documentOcrLanguage') as HTMLSelectElement).value = 'chi_sim';
+    (document.getElementById('documentScanPreprocessing') as HTMLSelectElement).value = 'binarize';
+    (document.getElementById('documentMixedLanguageOcr') as HTMLInputElement).checked = true;
     (document.getElementById('aiContextEnabled') as HTMLInputElement).checked = true;
     (document.getElementById('aiTranslationDomain') as HTMLSelectElement).value = 'legal';
     (document.getElementById('translationGlossary') as HTMLTextAreaElement).value = [
@@ -268,6 +278,8 @@ describe('options UI settings contract', () => {
         data: expect.objectContaining({
           showFloatingIcon: false,
           documentOcrLanguage: 'chi_sim',
+          documentScanPreprocessing: 'binarize',
+          documentMixedLanguageOcr: true,
           aiContextEnabled: true,
           aiTranslationDomain: 'legal',
           translationGlossary: [
