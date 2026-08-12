@@ -119,6 +119,8 @@ Capture a regular video page with available text-track or DOM-rendered captions 
 Capture the subtitle generator after an explicit run with:
 
 - A harmless local media filename and no personal file path.
+- The provider-specific speech model selector. If showing an OpenAI streaming model, use harmless partial text and show the editable fallback-timing label; do not imply provider timestamps or transcription during recording.
+- Two or more harmless generated cues with the proportional cue track, local timeline shift, Undo/Redo, and split/merge/delete controls visible after generation; do not imply the track is an audio waveform or that these edits call a provider.
 - A configured OpenAI or Groq speech service, spoken language, and translation controls visible.
 - The Capture current tab command in its idle state after capture has stopped, without private media titles.
 - Editable Start/End controls plus original and translated caption text visible.

@@ -125,7 +125,9 @@ Current batch:
 - Done: add opt-in neighboring page/document context, isolate source/context as untrusted request data, and include AI preferences in cache identity.
 - Done: integrate Amazon Translate with region-derived official endpoints, AWS Signature Version 4, optional STS credentials, its published target-language set, and the 10,000-byte synchronous text limit.
 - Done: add explicit, bounded dynamic language discovery for configured LibreTranslate and SYSTRAN instances, cache the discovered capabilities locally, preserve source-target pairs and provider-native language codes, invalidate on endpoint or credential changes, and keep all discovery off page/view initialization.
-- Remaining: reassess Tencent Cloud TMT text translation because the current official product SDK no longer exposes the legacy `TextTranslate` action; evaluate a supported Reverso integration; complete real-account smoke tests for credentialed services.
+- Done: mark Tencent Cloud TMT text translation unavailable after Tencent's official API history recorded deletion of `TextTranslate` on July 8, 2026, instead of reverse engineering a retired endpoint ([official history](https://cloud.tencent.com/document/api/551/17231)).
+- Done: mark Reverso unavailable because its official consumer and corporate product pages publish no self-service translation API contract; do not use reverse-engineered website endpoints ([official products](https://www.corporate-translation.reverso.com/products)).
+- Remaining: complete real-account smoke tests for credentialed services.
 
 ### Batch D: PDF and Document Translation
 
@@ -166,7 +168,9 @@ Current batch:
 - Done: generate timestamped captions from explicitly selected local audio/video files through configured OpenAI or Groq transcription endpoints.
 - Done: upload media in bounded ordered chunks, abort on cancellation/disconnect, keep bytes in memory only, optionally translate normalized cues, and export bilingual SRT/VTT.
 - Done: declare `tabCapture` so Chrome can authorize the source tab when the popup is invoked, call it only after an explicit subtitle-generator click, preserve local playback, and stop/discard on cancel, page close, failure, or the 25 MB limit.
-- Remaining: deeper site-specific optimizations, additional speech providers, files above provider limits, live partial transcription, and richer caption timing/editing controls.
+- Done: add provider-specific Whisper/GPT-4o transcription-model selection, OpenAI SSE partial text after explicit submission, strict event/size/abort handling, and visibly labeled editable fallback timing when a stream has no provider segments; add FLAC/OGG inputs.
+- Done: add local generated-caption timeline editing with a proportional overlap-aware cue track, bounded whole-timeline shifts, Unicode-safe cursor splitting, lossless adjacent-cue merging with overflow rejection, automatic renumbering, cue deletion, and bounded in-memory Undo/Redo without provider requests.
+- Remaining: deeper site-specific optimizations, additional speech providers, files above provider limits, continuous partial transcription while capture is still running, real audio waveform visualization, and frame-level snapping.
 
 ### Batch F: Image, Manga, and OCR Translation
 
@@ -223,7 +227,8 @@ Current batch:
 - Done: add AI-assisted polish, rewrite, compose, reply, and summary workflows with explicit submission only.
 - Done: restrict writing actions to configured AI-capable providers and support output language, tone, length, bounded custom instructions, and iterative result reuse.
 - Done: add a Firefox native sidebar equivalent with install-time auto-open disabled and popup/`Alt+S` user-action entry points.
-- Remaining: additional specialized text-processing templates and side-panel equivalents for other target platforms.
+- Done: add fixed local proofreading, explanation, key-point extraction, and academic-rewrite templates with action-specific preservation and anti-fabrication constraints; switching templates never sends a request.
+- Remaining: side-panel equivalents for target platforms that first gain an implemented runtime and release artifact.
 
 ### Batch I: Document Formats, Batch Workflows, and History
 
@@ -233,17 +238,18 @@ Current batch:
 - Done: add bounded MOBI and KF8-based AZW3 import with a 64 MiB file limit, 4,096-chapter limit, 8 MiB per-chapter limit, 64 MiB extracted-HTML limit, deterministic spine/text ordering, duplicate paragraph preservation, cancellation, and translated-text export without claiming eBook container rewriting.
 - Done: add explicit multi-file batch translation with 100-file, 64 MiB per-file, and 128 MiB total limits that stays idle after file selection, starts only after Start batch, limits concurrency to 1/2/3, reports per-file status, supports cancellation and explicit failed-file retry, and creates a deterministic ZIP only after all files succeed.
 - Done: add an explicit bounded bilingual Markdown research-note handoff with source/provider/language metadata and safe text fences for local attachment to academic reference workflows, without claiming or attempting a Zotero API integration.
-- Remaining: add BabelDOC-compatible PDF workflow guidance without claiming unsupported third-party integration.
+- Done: add an explicit bounded BabelDOC-compatible local workflow guide after PDF loading, with sanitized PDF names, supported language mapping, shell-quoted PowerShell/POSIX commands, absolute-path placeholders, and no third-party upload, execution, path discovery, or credential integration.
 
 ### Batch J: Video and Site Adapter Parity
 
 - Done: add a side-effect-free versioned adapter registry and YouTube Adapter v1 for standard videos, Live pages, Shorts, and `youtu.be`, with page classification, active-player-scoped selectors, route checks before cue requests/results, DOM caption normalization, same-text timed-cue preservation, bounded cue retention, and immediate Stop when SPA navigation changes videos.
 - Done: expose YouTube-specific manual generator entry points while retaining the explicit second Capture click; declare OpenAI/Groq timed-segment and cancellation capabilities, show indeterminate transcription progress, offset captured cues by the source playback position, allow cue text/start/end editing, abort active translation requests, and export edited bilingual SRT/VTT.
+- Done: let generated captions be shifted, split, merged, and deleted locally before export or explicit Apply, without opening another transcription connection or translation request.
 - Done: load validated edited bilingual cues into the originating source video only after the user clicks Apply, synchronize them without starting playback, keep generated playback mutually exclusive with live translation, and remove event bindings immediately on Clear, video replacement, source change, or route navigation.
 - Done: add contract-tested dedicated adapters for Netflix, Vimeo, Bilibili, Udemy, Coursera, Khan Academy, Nebula, and Bloomberg, with exact-domain/subdomain matching, malicious-lookalike rejection, stable content navigation keys, site-first selectors, generic fallbacks, and side-effect-free resolution.
 - Done: settle incremental YouTube Live DOM cues before translation, abort an in-flight partial request when a cue grows, and coalesce translated cue growth into one final exported cue without changing the explicit Start/Stop contract.
 - Done: add YouTube Live caption-container support to Live captions, reject unrelated ARIA status regions while retaining semantic generic caption containers, and make Video subtitles and Live captions mutually exclusive in both directions.
-- Remaining: complete real-account/site smoke tests for dedicated adapters, add adapters for further evidence-backed documented sites, add additional speech providers, support files above provider limits, and add live partial transcription.
+- Remaining: complete real-account/site smoke tests for dedicated adapters, add adapters for further evidence-backed documented sites, add additional speech providers, support files above provider limits, and add continuous partial transcription while current-tab capture is still running.
 - Keep every subtitle-generation and media-capture path user-triggered; visiting or playing a video never starts capture, OCR, transcription, or translation.
 
 ### Batch K: AI Experts, Prompt Templates, and Privacy
@@ -252,8 +258,11 @@ Current batch:
 - Done: add structured `js-yaml` prompt-template import/export with aliases and unsafe tags disabled, deterministic output, schema/complexity/variable/render limits, local preview, selected-template removal fallback, and rollback to the built-in default.
 - Done: add opt-in request-scoped masking for supported emails, phone numbers, Luhn-valid cards, IPv4 addresses, valid IBANs, and sensitive URL query values across source/context/prompt fields; restore required source placeholders locally and discard ambiguous provider output visibly.
 - Done: extend masking with structurally validated IPv6 addresses and strict JWTs while preserving duplicate, transformed, unknown, unexpected, and cross-field fail-closed restoration behavior.
+- Done: extend masking with complete validated PEM private-key blocks, AWS `AKIA`/`ASIA` access-key IDs, GitHub classic/fine-grained/app tokens including the stateless `ghs_` JWT format, and high-entropy scoped OpenAI keys, while rejecting examples and malformed lookalikes.
+- Done: extend high-confidence masking to GitLab, Slack, Stripe secret/restricted, Google API, Azure Storage, database-URI password, and checksum-valid Chinese resident-ID formats with structure/entropy/boundary checks and fail-closed restoration.
+- Done: add a fixed local curated expert/template catalog with versioned metadata, HTTPS attribution, pinned SHA-256 integrity, exact explicit selection, user confirmation, revalidation through the existing schemas, and no network, dynamic execution, or automatic installation.
 - Done: keep webpage, document, subtitle, OCR, neighboring context, installed experts, YAML templates, glossary entries, and custom preferences in the untrusted user-message channel; reject page-content template variables; and keep the extension-owned source-isolation and exact-placeholder requirements fixed in a separate system message.
-- Remaining: continue measured sensitive-pattern coverage beyond IPv6/JWT, add a curated expert/template discovery channel without executing remote content, and complete real-provider prompt-adherence smoke tests.
+- Remaining: continue measured sensitive-pattern coverage for further evidence-backed formats and complete real-provider prompt-adherence smoke tests.
 
 ### Batch L: Cross-Platform Distribution
 
@@ -262,7 +271,8 @@ Current batch:
 - Done: migrate recurring background cache cleanup from an in-memory interval to `alarms` so suspended workers and event pages can resume the task.
 - Done: capability-gate Chrome `tabCapture`; Firefox disables only current-tab recording with a local-media alternative and never starts capture, OCR, transcription, or translation automatically.
 - Done: declare a stable Gecko ID, Firefox Desktop 140 minimum, and Mozilla built-in data-collection consent categories; run `web-ext lint` with zero errors and retain warnings for explicit AMO review.
-- Remaining: complete hands-on Firefox smoke testing and AMO signing, then add Safari, userscript, Zotero, iOS, and Android feasibility gates without claiming one browser bundle works everywhere.
+- Done: add a versioned, fail-closed platform capability matrix covering Chrome, Firefox, Safari, userscript, Zotero, iOS, and Android; unknown platforms/capabilities are rejected, interactive capabilities require explicit user action, and unimplemented targets remain `unsupported`.
+- Remaining: complete hands-on Firefox smoke testing and AMO signing, then implement separate Safari, userscript, Zotero, iOS, and Android runtimes/builds/packages before claiming support.
 
 ## Non-Negotiable Product Rules
 

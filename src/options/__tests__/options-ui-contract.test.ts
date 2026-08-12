@@ -19,6 +19,9 @@ describe('options UI settings contract', () => {
       <select id="aiTranslationDomain"><option value="general" selected>General</option></select>
       <textarea id="translationGlossary"></textarea>
       <textarea id="aiCustomPrompt"></textarea>
+      <select id="aiToolsCatalogItem"></select>
+      <p id="aiToolsCatalogDetails"></p>
+      <button id="installAiToolsCatalogItem" type="button" disabled></button>
       <select id="aiExpertId"></select>
       <p id="aiExpertDetails"></p>
       <pre id="aiExpertInstruction"></pre>
@@ -480,6 +483,30 @@ describe('options UI settings contract', () => {
     expertFile.dispatchEvent(new Event('change'));
     await flushPromises();
     expect(sendMessage.mock.calls.flatMap(call => [call[0].action])).not.toContain('installAiExpert');
+
+    const catalogSelect = document.getElementById('aiToolsCatalogItem') as HTMLSelectElement;
+    const catalogInstall = document.getElementById('installAiToolsCatalogItem') as HTMLButtonElement;
+    expect(catalogSelect.options.length).toBe(5);
+    expect(catalogSelect.value).toBe('');
+    expect(catalogInstall.disabled).toBe(true);
+    expect(sendMessage.mock.calls.flatMap(call => [call[0].action])).not.toContain('installAiExpert');
+
+    catalogSelect.value = 'ai-expert:scientific-reviewer';
+    catalogSelect.dispatchEvent(new Event('change'));
+    expect(catalogInstall.disabled).toBe(false);
+    expect(document.getElementById('aiToolsCatalogDetails')?.textContent)
+      .toContain('sha256-');
+    expect(sendMessage.mock.calls.flatMap(call => [call[0].action])).not.toContain('installAiExpert');
+
+    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
+    catalogInstall.click();
+    await flushPromises();
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('Scientific Reviewer'));
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'installAiExpert',
+      data: { definition: expect.objectContaining({ id: 'scientific-reviewer' }) }
+    }), expect.any(Function));
+    confirmSpy.mockRestore();
   });
 
   it('saves the selected page translation display mode', async () => {

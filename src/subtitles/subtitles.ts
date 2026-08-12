@@ -10,12 +10,17 @@ import {
   MEDIA_TRANSCRIPTION_PROVIDERS,
   MediaTranscriptionResult,
   MediaTranscriptionSegment,
+  getMediaTranscriptionModels,
   isSupportedMediaTranscriptionFile
 } from '../services/MediaTranscriptionService';
 import {
   GeneratedSubtitleCue,
+  createGeneratedSubtitleTimelineLayout,
+  mergeGeneratedSubtitleCues,
   normalizeGeneratedSubtitleCue,
   serializeGeneratedSubtitles,
+  shiftGeneratedSubtitleCues,
+  splitGeneratedSubtitleCue,
   updateGeneratedSubtitleCue
 } from '../services/GeneratedSubtitleDocument';
 import { createTranslationRequestNamespace } from '../services/TranslationRequestId';
@@ -33,11 +38,13 @@ interface ProviderConfigSummary {
 }
 
 type TabCapturePhase = 'idle' | 'starting' | 'recording' | 'stopping';
+const TIMELINE_HISTORY_LIMIT = 50;
 
 class SubtitleGeneratorController {
   private readonly requestNamespace = createTranslationRequestNamespace('subtitle');
   private fileInput: HTMLInputElement | null = null;
   private transcriptionProvider: HTMLSelectElement | null = null;
+  private transcriptionModel: HTMLSelectElement | null = null;
   private sourceLanguage: HTMLSelectElement | null = null;
   private transcriptionPrompt: HTMLInputElement | null = null;
   private translateCaptions: HTMLInputElement | null = null;
@@ -50,9 +57,18 @@ class SubtitleGeneratorController {
   private progress: HTMLProgressElement | null = null;
   private progressText: HTMLElement | null = null;
   private status: HTMLElement | null = null;
+  private partialTranscript: HTMLElement | null = null;
   private resultSection: HTMLElement | null = null;
   private resultSummary: HTMLElement | null = null;
   private cueList: HTMLElement | null = null;
+  private cueEditToolbar: HTMLElement | null = null;
+  private timelineShiftInput: HTMLInputElement | null = null;
+  private applyTimelineShiftButton: HTMLButtonElement | null = null;
+  private undoTimelineButton: HTMLButtonElement | null = null;
+  private redoTimelineButton: HTMLButtonElement | null = null;
+  private timelineOverview: HTMLElement | null = null;
+  private timelineTrack: HTMLElement | null = null;
+  private timelineDuration: HTMLElement | null = null;
   private applyToSourceVideoButton: HTMLButtonElement | null = null;
   private clearSourceVideoButton: HTMLButtonElement | null = null;
   private configuredProviderIds = new Set<string>();
@@ -66,14 +82,18 @@ class SubtitleGeneratorController {
   private runId = 0;
   private isWorking = false;
   private cues: GeneratedSubtitleCue[] = [];
+  private timelineUndoStack: GeneratedSubtitleCue[][] = [];
+  private timelineRedoStack: GeneratedSubtitleCue[][] = [];
   private sourceTabId: number | null = null;
   private sourceSite = '';
   private sourcePageType = '';
   private sourceTitle = '';
   private sourceNavigationToken = '';
   private generationTimeOffsetSeconds = 0;
+  private selectedFileDurationSeconds = 0;
   private activeTranslationRequestId: string | null = null;
   private resultDurationSeconds = 0;
+  private resultUsesFallbackTiming = false;
   private tabCapturePhase: TabCapturePhase = 'idle';
   private tabCaptureRunId = 0;
   private tabCaptureStream: MediaStream | null = null;
@@ -97,6 +117,7 @@ class SubtitleGeneratorController {
   private async initialize(): Promise<void> {
     this.fileInput = document.getElementById('mediaFile') as HTMLInputElement | null;
     this.transcriptionProvider = document.getElementById('transcriptionProvider') as HTMLSelectElement | null;
+    this.transcriptionModel = document.getElementById('transcriptionModel') as HTMLSelectElement | null;
     this.sourceLanguage = document.getElementById('sourceLanguage') as HTMLSelectElement | null;
     this.transcriptionPrompt = document.getElementById('transcriptionPrompt') as HTMLInputElement | null;
     this.translateCaptions = document.getElementById('translateCaptions') as HTMLInputElement | null;
@@ -109,9 +130,18 @@ class SubtitleGeneratorController {
     this.progress = document.getElementById('generationProgress') as HTMLProgressElement | null;
     this.progressText = document.getElementById('progressText');
     this.status = document.getElementById('generationStatus');
+    this.partialTranscript = document.getElementById('partialTranscript');
     this.resultSection = document.getElementById('resultSection');
     this.resultSummary = document.getElementById('resultSummary');
     this.cueList = document.getElementById('cueList');
+    this.cueEditToolbar = document.getElementById('cueEditToolbar');
+    this.timelineShiftInput = document.getElementById('timelineShift') as HTMLInputElement | null;
+    this.applyTimelineShiftButton = document.getElementById('applyTimelineShift') as HTMLButtonElement | null;
+    this.undoTimelineButton = document.getElementById('undoTimelineEdit') as HTMLButtonElement | null;
+    this.redoTimelineButton = document.getElementById('redoTimelineEdit') as HTMLButtonElement | null;
+    this.timelineOverview = document.getElementById('timelineOverview');
+    this.timelineTrack = document.getElementById('timelineTrack');
+    this.timelineDuration = document.getElementById('timelineDuration');
     this.applyToSourceVideoButton = document.getElementById('applyToSourceVideo') as HTMLButtonElement | null;
     this.clearSourceVideoButton = document.getElementById('clearSourceVideo') as HTMLButtonElement | null;
     this.sourceTabId = this.readSourceTabId();
@@ -136,6 +166,7 @@ class SubtitleGeneratorController {
         return option;
       }));
     }
+    this.updateTranscriptionModelOptions();
 
     if (this.sourceLanguage) {
       const automatic = document.createElement('option');
@@ -169,9 +200,29 @@ class SubtitleGeneratorController {
     }
   }
 
+  private updateTranscriptionModelOptions(): void {
+    if (!this.transcriptionModel) return;
+    const previousModel = this.transcriptionModel.value;
+    const models = getMediaTranscriptionModels(this.transcriptionProvider?.value);
+    this.transcriptionModel.replaceChildren(...models.map(model => {
+      const option = document.createElement('option');
+      option.value = model.id;
+      option.textContent = model.label;
+      return option;
+    }));
+    this.transcriptionModel.value = models.some(model => model.id === previousModel)
+      ? previousModel
+      : models[0]?.id || '';
+    this.transcriptionModel.disabled = this.isWorking || models.length === 0;
+  }
+
   private bindEvents(): void {
     this.fileInput?.addEventListener('change', () => this.handleFileSelection());
-    this.transcriptionProvider?.addEventListener('change', () => this.updateGenerateAvailability());
+    this.transcriptionProvider?.addEventListener('change', () => {
+      this.updateTranscriptionModelOptions();
+      this.updateGenerateAvailability();
+    });
+    this.transcriptionModel?.addEventListener('change', () => this.updateGenerateAvailability());
     this.translationProvider?.addEventListener('change', () => this.updateTargetLanguageAvailability());
     this.translateCaptions?.addEventListener('change', () => this.updateTranslationControls());
     this.generateButton?.addEventListener('click', () => void this.startGeneration());
@@ -184,6 +235,9 @@ class SubtitleGeneratorController {
     document.getElementById('exportSrt')?.addEventListener('click', () => this.exportCaptions('srt'));
     document.getElementById('exportVtt')?.addEventListener('click', () => this.exportCaptions('vtt'));
     document.getElementById('clearResult')?.addEventListener('click', () => this.clearResult());
+    this.applyTimelineShiftButton?.addEventListener('click', () => this.applyTimelineShift());
+    this.undoTimelineButton?.addEventListener('click', () => this.undoTimelineEdit());
+    this.redoTimelineButton?.addEventListener('click', () => this.redoTimelineEdit());
     this.applyToSourceVideoButton?.addEventListener('click', () => void this.applyGeneratedSubtitlesToSourceVideo());
     this.clearSourceVideoButton?.addEventListener('click', () => void this.clearGeneratedSubtitlesFromSourceVideo());
     document.getElementById('openSettings')?.addEventListener('click', () => chrome.runtime.openOptionsPage());
@@ -230,6 +284,7 @@ class SubtitleGeneratorController {
       if (!this.transcriptionProvider.value) {
         this.showStatus('Configure OpenAI or Groq in Settings.', true);
       }
+      this.updateTranscriptionModelOptions();
     }
 
     if (this.translationProvider) {
@@ -271,6 +326,8 @@ class SubtitleGeneratorController {
     this.selectedFile = this.fileInput?.files?.[0] || null;
     this.selectedFileIsTabCapture = false;
     this.generationTimeOffsetSeconds = 0;
+    this.selectedFileDurationSeconds = 0;
+    this.clearPartialTranscript();
     this.clearResult();
     this.setProgress(0);
     const name = document.getElementById('fileName');
@@ -322,7 +379,9 @@ class SubtitleGeneratorController {
 
   private updateGenerateAvailability(): void {
     const fileReady = Boolean(this.selectedFile && !this.validateFile(this.selectedFile));
-    const transcriptionReady = Boolean(this.transcriptionProvider?.value);
+    const transcriptionReady = Boolean(
+      this.transcriptionProvider?.value && this.transcriptionModel?.value
+    );
     const translationReady = !this.translateCaptions?.checked || Boolean(this.translationProvider?.value);
     const captureIdle = this.tabCapturePhase === 'idle';
     if (this.generateButton) {
@@ -403,7 +462,7 @@ class SubtitleGeneratorController {
       this.showStatus('Open this generator from the popup on a regular media page.', true);
       return;
     }
-    if (!this.transcriptionProvider?.value) {
+    if (!this.transcriptionProvider?.value || !this.transcriptionModel?.value) {
       this.showStatus('Configure OpenAI or Groq in Settings.', true);
       return;
     }
@@ -595,6 +654,7 @@ class SubtitleGeneratorController {
       : `tab-audio-${timestamp}`;
     this.selectedFile = new File(chunks, `${sourceBaseName}.webm`, { type: mimeType });
     this.selectedFileIsTabCapture = true;
+    this.selectedFileDurationSeconds = duration;
     const name = document.getElementById('fileName');
     const details = document.getElementById('fileDetails');
     if (name) name.textContent = 'Current tab audio';
@@ -643,6 +703,7 @@ class SubtitleGeneratorController {
         || this.isWorking
         || !this.sourceTabId
         || !this.transcriptionProvider?.value
+        || !this.transcriptionModel?.value
         || phase === 'starting'
         || phase === 'stopping';
       this.tabCaptureButton.classList.toggle('recording', phase === 'recording');
@@ -658,6 +719,7 @@ class SubtitleGeneratorController {
     const fileBusy = this.isWorking || phase !== 'idle';
     if (this.fileInput) this.fileInput.disabled = fileBusy;
     if (this.transcriptionProvider) this.transcriptionProvider.disabled = fileBusy;
+    if (this.transcriptionModel) this.transcriptionModel.disabled = fileBusy;
     if (this.sourceLanguage) this.sourceLanguage.disabled = fileBusy;
     if (this.transcriptionPrompt) this.transcriptionPrompt.disabled = fileBusy;
     if (this.translateCaptions) this.translateCaptions.disabled = fileBusy;
@@ -713,6 +775,7 @@ class SubtitleGeneratorController {
       || this.tabCapturePhase !== 'idle'
       || !this.selectedFile
       || !this.transcriptionProvider?.value
+      || !this.transcriptionModel?.value
     ) return;
     const fileError = this.validateFile(this.selectedFile);
     if (fileError) {
@@ -729,6 +792,7 @@ class SubtitleGeneratorController {
     this.setWorking(true);
     this.setProgress(0);
     this.showStatus('Preparing media');
+    this.clearPartialTranscript();
 
     try {
       const port = chrome.runtime.connect({ name: 'lexibridge-media-transcription' });
@@ -745,11 +809,15 @@ class SubtitleGeneratorController {
         type: 'initialize',
         metadata: {
           providerId: this.transcriptionProvider.value,
+          transcriptionModel: this.transcriptionModel?.value,
           fileName: this.selectedFile.name,
           mimeType: this.selectedFile.type || 'application/octet-stream',
           totalBytes: this.selectedFile.size,
           language: this.sourceLanguage?.value || 'auto',
-          prompt: this.transcriptionPrompt?.value || ''
+          prompt: this.transcriptionPrompt?.value || '',
+          ...(this.selectedFileDurationSeconds > 0
+            ? { fallbackDurationSeconds: this.selectedFileDurationSeconds }
+            : {})
         }
       });
     } catch (error) {
@@ -773,9 +841,20 @@ class SubtitleGeneratorController {
       case 'transcribing':
         this.releaseCapturedFile();
         this.setProgressIndeterminate();
-        this.showStatus('Generating timed transcript');
+        this.showStatus(
+          this.isStreamingTranscriptionSelected()
+            ? 'Generating streaming transcript'
+            : 'Generating timed transcript'
+        );
+        break;
+      case 'transcription-partial':
+        if (typeof message.text === 'string' && message.text) {
+          this.showPartialTranscript(message.text);
+          this.showStatus('Receiving streaming transcript');
+        }
         break;
       case 'transcription-complete':
+        this.clearPartialTranscript();
         this.port = null;
         port.disconnect();
         void this.finishTranscription(message.result as MediaTranscriptionResult, runId);
@@ -826,6 +905,8 @@ class SubtitleGeneratorController {
         originalText: segment.text,
         translatedText: ''
       }, index));
+      this.resetTimelineHistory();
+      this.resultUsesFallbackTiming = result.timingMode === 'fallback';
 
       if (this.translateCaptions?.checked) {
         this.showStatus('Translating captions');
@@ -869,7 +950,11 @@ class SubtitleGeneratorController {
       if (runId !== this.runId) return;
       this.renderCues(result.duration + this.generationTimeOffsetSeconds);
       this.setProgress(100);
-      this.showStatus(`Generated ${this.cues.length} captions`);
+      this.showStatus(
+        this.resultUsesFallbackTiming
+          ? `Generated ${this.cues.length} captions with editable fallback timing`
+          : `Generated ${this.cues.length} captions`
+      );
       this.setWorking(false);
     } catch (error) {
       if (runId !== this.runId) return;
@@ -936,30 +1021,276 @@ class SubtitleGeneratorController {
         `Caption ${cue.id} translated text`,
         'cue-translation'
       );
-      const commitCue = (patch: Partial<GeneratedSubtitleCue>): void => {
+      const commitCue = (patch: Partial<GeneratedSubtitleCue>): boolean => {
+        const previous = this.cues[index]!;
         const updated = updateGeneratedSubtitleCue(this.cues[index]!, patch);
-        this.cues[index] = updated;
+        const changed = updated.start !== previous.start
+          || updated.end !== previous.end
+          || updated.originalText !== previous.originalText
+          || updated.translatedText !== previous.translatedText;
         startInput.value = updated.start.toFixed(3);
         endInput.value = updated.end.toFixed(3);
         if (originalInput.value !== updated.originalText) originalInput.value = updated.originalText;
         if (translationInput.value !== updated.translatedText) translationInput.value = updated.translatedText;
+        if (!changed) return false;
+        this.cues[index] = updated;
         this.updateResultSummary();
+        this.renderTimelineOverview();
+        return true;
       };
-      startInput.addEventListener('change', () => commitCue({ start: Number(startInput.value) }));
-      endInput.addEventListener('change', () => commitCue({ end: Number(endInput.value) }));
-      originalInput.addEventListener('input', () => commitCue({ originalText: originalInput.value }));
-      translationInput.addEventListener('input', () => commitCue({ translatedText: translationInput.value }));
+      startInput.addEventListener('change', () => {
+        const snapshot = this.cloneCues(this.cues);
+        if (commitCue({ start: startInput.valueAsNumber })) this.captureTimelineSnapshot(snapshot);
+      });
+      endInput.addEventListener('change', () => {
+        const snapshot = this.cloneCues(this.cues);
+        if (commitCue({ end: endInput.valueAsNumber })) this.captureTimelineSnapshot(snapshot);
+      });
+      this.bindTextEditHistory(originalInput, () => commitCue({ originalText: originalInput.value }));
+      this.bindTextEditHistory(translationInput, () => commitCue({ translatedText: translationInput.value }));
 
       const originalField = this.createCueFieldLabel('Original', originalInput);
       originalField.classList.add('cue-original-field');
       const translationField = this.createCueFieldLabel('Translation', translationInput);
       translationField.classList.add('cue-translation-field');
-      row.append(timing, originalField, translationField);
+      const actions = document.createElement('div');
+      actions.className = 'cue-row-actions';
+      const splitButton = this.createCueActionButton('Split', 'Split this caption at the text cursor', () => {
+        this.splitCueAt(index, originalInput);
+      });
+      const updateSplitAvailability = (): void => {
+        splitButton.dataset.unavailable = String(Array.from(originalInput.value).length < 2);
+        splitButton.disabled = this.isWorking || splitButton.dataset.unavailable === 'true';
+      };
+      originalInput.addEventListener('input', updateSplitAvailability);
+      updateSplitAvailability();
+      const mergePreviousButton = this.createCueActionButton('Merge previous', 'Merge this caption with the previous caption', () => {
+        this.mergeCueAt(index - 1);
+      });
+      mergePreviousButton.hidden = index === 0;
+      const mergeNextButton = this.createCueActionButton('Merge next', 'Merge this caption with the next caption', () => {
+        this.mergeCueAt(index);
+      });
+      mergeNextButton.hidden = index === this.cues.length - 1;
+      const deleteButton = this.createCueActionButton('Delete', 'Delete this caption', () => {
+        this.deleteCueAt(index);
+      });
+      actions.append(splitButton, mergePreviousButton, mergeNextButton, deleteButton);
+      row.append(timing, originalField, translationField, actions);
       return row;
     }));
     this.updateResultSummary();
+    this.renderTimelineOverview();
     this.resultSection.hidden = false;
+    if (this.cueEditToolbar) {
+      this.cueEditToolbar.hidden = this.cues.length === 0
+        && this.timelineUndoStack.length === 0
+        && this.timelineRedoStack.length === 0;
+    }
+    this.updateTimelineEditingControls();
     this.updateSourceVideoControls();
+  }
+
+  private createCueActionButton(
+    labelText: string,
+    title: string,
+    action: () => void
+  ): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'secondary-button cue-edit-button';
+    button.textContent = labelText;
+    button.title = title;
+    button.addEventListener('click', action);
+    return button;
+  }
+
+  private renderTimelineOverview(): void {
+    if (!this.timelineOverview || !this.timelineTrack || !this.timelineDuration) return;
+    const layout = createGeneratedSubtitleTimelineLayout(this.cues);
+    this.timelineOverview.hidden = layout.items.length === 0;
+    this.timelineDuration.textContent = this.formatClock(layout.duration);
+    this.timelineTrack.style.height = `${Math.min(206, Math.max(38, 14 + layout.laneCount * 24))}px`;
+    this.timelineTrack.replaceChildren(...layout.items.map(item => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'timeline-cue';
+      button.dataset.cueIndex = String(item.cueIndex);
+      button.dataset.overlap = String(item.overlapsPrevious);
+      button.style.setProperty('--timeline-left', `${item.leftPercent}%`);
+      button.style.setProperty('--timeline-width', `${item.widthPercent}%`);
+      button.style.setProperty('--timeline-lane', String(item.lane));
+      button.textContent = String(item.id);
+      button.title = `Caption ${item.id}: ${this.formatClock(item.start)} to ${this.formatClock(item.end)}`;
+      button.setAttribute('aria-label', button.title);
+      button.addEventListener('click', () => {
+        const row = this.cueList?.querySelector<HTMLElement>(`[data-cue-id="${item.id}"]`);
+        row?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        row?.querySelector<HTMLInputElement>('.cue-time-input')?.focus();
+      });
+      return button;
+    }));
+  }
+
+  private applyTimelineShift(): void {
+    if (this.cues.length === 0) {
+      this.showStatus('Generate captions before shifting the timeline.', true);
+      return;
+    }
+    const offset = Number(this.timelineShiftInput?.value || '0');
+    if (!Number.isFinite(offset)) {
+      this.showStatus('Enter a valid timeline shift in seconds.', true);
+      return;
+    }
+    if (offset === 0) {
+      this.showStatus('Enter a non-zero timeline shift.', true);
+      return;
+    }
+    const previousStart = this.cues.reduce(
+      (minimum, cue) => Math.min(minimum, cue.start),
+      Number.POSITIVE_INFINITY
+    );
+    const shiftedCues = shiftGeneratedSubtitleCues(this.cues, offset);
+    const currentStart = shiftedCues.reduce(
+      (minimum, cue) => Math.min(minimum, cue.start),
+      Number.POSITIVE_INFINITY
+    );
+    const appliedOffset = currentStart - previousStart;
+    if (Math.abs(appliedOffset) < 0.000_001) {
+      this.showStatus('The caption timeline is already at its valid boundary.', true);
+      return;
+    }
+    this.captureTimelineSnapshot();
+    this.cues = shiftedCues;
+    this.renumberCues();
+    this.renderCues(this.getCueTimelineEnd());
+    if (this.timelineShiftInput) this.timelineShiftInput.value = '0';
+    this.showStatus(`Shifted ${this.cues.length} captions by ${appliedOffset.toFixed(3)} seconds`);
+  }
+
+  private splitCueAt(index: number, originalInput: HTMLTextAreaElement): void {
+    const cue = this.cues[index];
+    if (!cue) return;
+    const text = Array.from(cue.originalText);
+    const cursor = originalInput.selectionStart;
+    const splitIndex = cursor > 0
+      ? Array.from(originalInput.value.slice(0, cursor)).length
+      : Math.ceil(text.length / 2);
+    const split = splitGeneratedSubtitleCue(cue, splitIndex);
+    if (!split) {
+      this.showStatus('This caption is too short to split.', true);
+      return;
+    }
+    this.captureTimelineSnapshot();
+    this.cues.splice(index, 1, ...split);
+    this.renumberCues();
+    this.renderCues(this.getCueTimelineEnd());
+    this.showStatus('Caption split locally');
+  }
+
+  private mergeCueAt(firstIndex: number): void {
+    const first = this.cues[firstIndex];
+    const second = this.cues[firstIndex + 1];
+    if (!first || !second) return;
+    const merged = mergeGeneratedSubtitleCues(first, second);
+    if (!merged) {
+      this.showStatus('These captions are too long to merge without losing text.', true);
+      return;
+    }
+    this.captureTimelineSnapshot();
+    this.cues.splice(firstIndex, 2, merged);
+    this.renumberCues();
+    this.renderCues(this.getCueTimelineEnd());
+    this.showStatus('Captions merged locally');
+  }
+
+  private deleteCueAt(index: number): void {
+    if (!this.cues[index]) return;
+    this.captureTimelineSnapshot();
+    this.cues.splice(index, 1);
+    this.renumberCues();
+    if (this.cues.length === 0) {
+      this.renderCues(0);
+      this.showStatus('All captions deleted');
+      return;
+    }
+    this.renderCues(this.getCueTimelineEnd());
+    this.showStatus('Caption deleted locally');
+  }
+
+  private renumberCues(): void {
+    this.cues = this.cues.map((cue, index) => normalizeGeneratedSubtitleCue({
+      ...cue,
+      id: index + 1
+    }, index));
+  }
+
+  private getCueTimelineEnd(): number {
+    return this.cues.reduce((maximum, cue) => Math.max(maximum, cue.end), 0);
+  }
+
+  private bindTextEditHistory(input: HTMLTextAreaElement, commit: () => boolean): void {
+    let snapshotCaptured = false;
+    input.addEventListener('input', () => {
+      if (!snapshotCaptured) {
+        const snapshot = this.cloneCues(this.cues);
+        if (commit()) {
+          this.captureTimelineSnapshot(snapshot);
+          snapshotCaptured = true;
+        }
+        return;
+      }
+      commit();
+    });
+    input.addEventListener('blur', () => {
+      snapshotCaptured = false;
+    });
+  }
+
+  private cloneCues(cues: readonly GeneratedSubtitleCue[]): GeneratedSubtitleCue[] {
+    return cues.map(cue => ({ ...cue }));
+  }
+
+  private captureTimelineSnapshot(snapshot: GeneratedSubtitleCue[] = this.cloneCues(this.cues)): void {
+    this.timelineUndoStack.push(snapshot);
+    if (this.timelineUndoStack.length > TIMELINE_HISTORY_LIMIT) this.timelineUndoStack.shift();
+    this.timelineRedoStack = [];
+    this.updateTimelineEditingControls();
+  }
+
+  private undoTimelineEdit(): void {
+    const previous = this.timelineUndoStack.pop();
+    if (!previous) return;
+    this.timelineRedoStack.push(this.cloneCues(this.cues));
+    this.cues = previous;
+    this.renderCues(this.getCueTimelineEnd());
+    this.showStatus('Undid caption edit');
+  }
+
+  private redoTimelineEdit(): void {
+    const next = this.timelineRedoStack.pop();
+    if (!next) return;
+    this.timelineUndoStack.push(this.cloneCues(this.cues));
+    this.cues = next;
+    this.renderCues(this.getCueTimelineEnd());
+    this.showStatus('Redid caption edit');
+  }
+
+  private resetTimelineHistory(): void {
+    this.timelineUndoStack = [];
+    this.timelineRedoStack = [];
+    this.updateTimelineEditingControls();
+  }
+
+  private updateTimelineEditingControls(): void {
+    const disabled = this.isWorking || this.cues.length === 0;
+    if (this.timelineShiftInput) this.timelineShiftInput.disabled = disabled;
+    if (this.applyTimelineShiftButton) this.applyTimelineShiftButton.disabled = disabled;
+    if (this.undoTimelineButton) this.undoTimelineButton.disabled = this.isWorking || this.timelineUndoStack.length === 0;
+    if (this.redoTimelineButton) this.redoTimelineButton.disabled = this.isWorking || this.timelineRedoStack.length === 0;
+    this.cueList?.querySelectorAll<HTMLButtonElement>('.cue-edit-button').forEach(button => {
+      button.disabled = disabled || button.dataset.unavailable === 'true';
+    });
   }
 
   private createCueTimeInput(value: number, ariaLabel: string): HTMLInputElement {
@@ -995,7 +1326,7 @@ class SubtitleGeneratorController {
   private updateResultSummary(): void {
     if (!this.resultSummary) return;
     const finalEnd = this.cues.reduce((maximum, cue) => Math.max(maximum, cue.end), 0);
-    this.resultDurationSeconds = Math.max(this.resultDurationSeconds, finalEnd);
+    this.resultDurationSeconds = finalEnd;
     this.resultSummary.textContent = `${this.cues.length} captions · ${this.formatClock(this.resultDurationSeconds)}`;
   }
 
@@ -1027,6 +1358,7 @@ class SubtitleGeneratorController {
 
   private finishCanceled(): void {
     this.releaseCapturedFile();
+    this.clearPartialTranscript();
     this.setWorking(false);
     this.setProgress(0);
     this.showStatus('Canceled');
@@ -1049,17 +1381,27 @@ class SubtitleGeneratorController {
       }
     }
     this.releaseCapturedFile();
+    this.clearPartialTranscript();
     this.setWorking(false);
     this.showStatus(message, true);
   }
 
   private clearResult(): void {
     this.cues = [];
+    this.timelineUndoStack = [];
+    this.timelineRedoStack = [];
     this.resultDurationSeconds = 0;
+    this.resultUsesFallbackTiming = false;
     this.cueList?.replaceChildren();
+    this.timelineTrack?.replaceChildren();
+    if (this.timelineOverview) this.timelineOverview.hidden = true;
+    if (this.timelineDuration) this.timelineDuration.textContent = '00:00';
+    if (this.cueEditToolbar) this.cueEditToolbar.hidden = true;
+    if (this.timelineShiftInput) this.timelineShiftInput.value = '0';
     if (this.resultSection) this.resultSection.hidden = true;
     if (this.resultSummary) this.resultSummary.textContent = '';
     this.updateSourceVideoControls();
+    this.updateTimelineEditingControls();
   }
 
   private updateSourceVideoControls(): void {
@@ -1158,6 +1500,7 @@ class SubtitleGeneratorController {
   private setWorking(working: boolean): void {
     this.isWorking = working;
     if (this.transcriptionProvider) this.transcriptionProvider.disabled = working;
+    if (this.transcriptionModel) this.transcriptionModel.disabled = working;
     if (this.sourceLanguage) this.sourceLanguage.disabled = working;
     if (this.transcriptionPrompt) this.transcriptionPrompt.disabled = working;
     if (this.translateCaptions) this.translateCaptions.disabled = working;
@@ -1165,6 +1508,24 @@ class SubtitleGeneratorController {
     this.updateTranslationControls();
     this.updateGenerateAvailability();
     this.updateSourceVideoControls();
+    this.updateTimelineEditingControls();
+  }
+
+  private isStreamingTranscriptionSelected(): boolean {
+    return getMediaTranscriptionModels(this.transcriptionProvider?.value)
+      .some(model => model.id === this.transcriptionModel?.value && model.responseMode === 'text-sse');
+  }
+
+  private showPartialTranscript(text: string): void {
+    if (!this.partialTranscript) return;
+    this.partialTranscript.textContent = Array.from(text).slice(-4_000).join('');
+    this.partialTranscript.hidden = false;
+  }
+
+  private clearPartialTranscript(): void {
+    if (!this.partialTranscript) return;
+    this.partialTranscript.textContent = '';
+    this.partialTranscript.hidden = true;
   }
 
   private setProgress(value: number): void {

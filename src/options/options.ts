@@ -48,6 +48,10 @@ import {
   renderPromptTemplatePreview,
   validatePromptTemplate
 } from '../services/PromptTemplateService';
+import {
+  AiToolsCatalogItem,
+  createAiToolsCatalogService
+} from '../services/AiToolsCatalogService';
 
 interface UserSettings {
   defaultTargetLanguage: string;
@@ -111,6 +115,8 @@ class OptionsController {
   private providerConfigSummaries: Map<string, TranslationProviderConfigSummary> = new Map();
   private aiExperts: AiExpertRegistryEntry[] = [];
   private promptTemplates: PromptTemplateRegistryEntry[] = [];
+  private readonly aiToolsCatalog = createAiToolsCatalogService();
+  private readonly aiToolsCatalogItems = this.aiToolsCatalog.list();
   private siteTranslationRules: Map<string, SiteTranslationRule> = new Map();
   private editingSiteRulePattern: string | null = null;
   private readonly floatingIconEdgeMargin = 24;
@@ -217,6 +223,13 @@ class OptionsController {
   }
 
   private bindAiToolListeners(): void {
+    const catalogSelect = document.getElementById('aiToolsCatalogItem') as HTMLSelectElement | null;
+    catalogSelect?.addEventListener('change', () => this.updateAiToolsCatalogDetails());
+    document.getElementById('installAiToolsCatalogItem')?.addEventListener(
+      'click',
+      () => void this.installSelectedAiToolsCatalogItem()
+    );
+
     const expertSelect = document.getElementById('aiExpertId') as HTMLSelectElement | null;
     expertSelect?.addEventListener('change', () => {
       this.onSettingChange();
@@ -381,7 +394,10 @@ class OptionsController {
         ...TRANSLATION_PROVIDERS.map(provider => {
           const option = document.createElement('option');
           option.value = provider.id;
-          option.textContent = provider.status === 'available' ? provider.label : `${provider.label} (planned)`;
+          option.textContent = provider.status === 'available'
+            ? provider.label
+            : `${provider.label} (${provider.status})`;
+          if (provider.unavailableReason) option.title = provider.unavailableReason;
           option.disabled = provider.status !== 'available';
           return option;
         })
@@ -463,6 +479,20 @@ class OptionsController {
   }
 
   private populateAiToolControls(): void {
+    const catalogSelect = document.getElementById('aiToolsCatalogItem') as HTMLSelectElement | null;
+    if (catalogSelect && typeof catalogSelect.replaceChildren === 'function') {
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = 'Choose a curated item';
+      catalogSelect.replaceChildren(placeholder, ...this.aiToolsCatalogItems.map(item => {
+        const option = document.createElement('option');
+        option.value = `${item.kind}:${item.id}`;
+        option.textContent = `${item.name} (${item.kind === 'ai-expert' ? 'expert' : 'template'})`;
+        return option;
+      }));
+      catalogSelect.value = '';
+    }
+
     const expertSelect = document.getElementById('aiExpertId') as HTMLSelectElement | null;
     if (expertSelect && typeof expertSelect.replaceChildren === 'function') {
       expertSelect.replaceChildren(...this.aiExperts.map(entry => {
@@ -503,6 +533,66 @@ class OptionsController {
     if (masking) masking.checked = Boolean(this.settings?.sensitiveDataMaskingEnabled);
     this.updateAiExpertDetails();
     this.updatePromptTemplateDetails();
+    this.updateAiToolsCatalogDetails();
+  }
+
+  private getSelectedAiToolsCatalogItem(): AiToolsCatalogItem | undefined {
+    const value = (document.getElementById('aiToolsCatalogItem') as HTMLSelectElement | null)?.value;
+    if (!value) return undefined;
+    return this.aiToolsCatalogItems.find(item => `${item.kind}:${item.id}` === value);
+  }
+
+  private updateAiToolsCatalogDetails(): void {
+    const selected = this.getSelectedAiToolsCatalogItem();
+    const details = document.getElementById('aiToolsCatalogDetails');
+    if (details) {
+      details.textContent = selected
+        ? `${selected.summary} Version ${selected.version}. Source: ${selected.sourceUrl}. Integrity: ${selected.integrity}.`
+        : '';
+    }
+    const install = document.getElementById('installAiToolsCatalogItem') as HTMLButtonElement | null;
+    if (install) install.disabled = !selected;
+  }
+
+  private async installSelectedAiToolsCatalogItem(): Promise<void> {
+    const selected = this.getSelectedAiToolsCatalogItem();
+    if (!selected || !confirm(`Install curated ${selected.name} version ${selected.version}?`)) return;
+
+    try {
+      const candidate = this.aiToolsCatalog.prepareSelection({
+        catalogVersion: selected.catalogVersion,
+        kind: selected.kind,
+        id: selected.id,
+        version: selected.version,
+        integrity: selected.integrity
+      });
+      const response = candidate.kind === 'ai-expert'
+        ? await this.sendMessage({
+          action: 'installAiExpert',
+          data: { definition: candidate.definition }
+        })
+        : await this.sendMessage({
+          action: 'installPromptTemplate',
+          data: { template: candidate.template }
+        });
+      if (!response.success) throw new Error(response.error || 'Curated item installation failed.');
+
+      if (this.settings && candidate.kind === 'ai-expert') {
+        this.settings.aiExpertId = candidate.definition.id;
+      }
+      if (this.settings && candidate.kind === 'prompt-template') {
+        this.settings.aiPromptTemplateId = candidate.template.id;
+        this.settings.aiPromptVariables = {};
+      }
+      await this.loadAiTools();
+      this.populateAiToolControls();
+      this.showAiToolsMessage(`${selected.name} installed from the local curated catalog.`);
+    } catch (error) {
+      this.showAiToolsMessage(
+        error instanceof Error ? error.message : 'Curated item installation failed.',
+        true
+      );
+    }
   }
 
   private getSelectedAiExpert(): AiExpertRegistryEntry | undefined {

@@ -1,9 +1,14 @@
 import {
   GENERATED_SUBTITLE_MAX_TIME_SECONDS,
+  GENERATED_SUBTITLE_MAX_TEXT_CODE_POINTS,
   GENERATED_SUBTITLE_MIN_DURATION_SECONDS,
   GeneratedSubtitleCue,
+  createGeneratedSubtitleTimelineLayout,
   normalizeGeneratedSubtitleCue,
+  mergeGeneratedSubtitleCues,
   serializeGeneratedSubtitles,
+  shiftGeneratedSubtitleCues,
+  splitGeneratedSubtitleCue,
   updateGeneratedSubtitleCue
 } from '../GeneratedSubtitleDocument';
 
@@ -96,6 +101,83 @@ describe('GeneratedSubtitleDocument', () => {
         start: Number.POSITIVE_INFINITY,
         end: Number.NaN
       })).toEqual(original);
+    });
+  });
+
+  describe('local timeline editing', () => {
+    it('shifts all cues together while clamping the entire timeline to valid bounds', () => {
+      const shifted = shiftGeneratedSubtitleCues([
+        cue({ id: 4, start: 2, end: 3 }),
+        cue({ id: 5, start: 5, end: 6 })
+      ], -10);
+
+      expect(shifted.map(item => [item.start, item.end])).toEqual([[0, 1], [3, 4]]);
+      expect(shiftGeneratedSubtitleCues([cue({ start: 1, end: 2 })], 1.5)[0]).toEqual(
+        expect.objectContaining({ start: 2.5, end: 3.5 })
+      );
+    });
+
+    it('splits a cue at a Unicode-safe text position and distributes translation timing', () => {
+      const result = splitGeneratedSubtitleCue(cue({ start: 2, end: 12, originalText: 'Hello world', translatedText: '你好世界' }), 5);
+
+      expect(result).not.toBeNull();
+      expect(result?.[0]).toEqual(expect.objectContaining({
+        start: 2,
+        originalText: 'Hello',
+        translatedText: '你好'
+      }));
+      expect(result?.[0].end).toBeCloseTo(2 + (10 * 5 / 11), 12);
+      expect(result?.[1]).toEqual(expect.objectContaining({
+        end: 12,
+        originalText: ' world',
+        translatedText: '世界'
+      }));
+      expect(result?.[1].start).toBeCloseTo(2 + (10 * 5 / 11), 12);
+      expect(splitGeneratedSubtitleCue(cue({ originalText: 'x' }), 1)).toBeNull();
+    });
+
+    it('merges adjacent cues without losing either text field', () => {
+      expect(mergeGeneratedSubtitleCues(
+        cue({ id: 7, start: 3, end: 4, originalText: 'first', translatedText: '一' }),
+        cue({ id: 8, start: 4.2, end: 6, originalText: 'second', translatedText: '二' })
+      )).toEqual({
+        id: 7,
+        start: 3,
+        end: 6,
+        originalText: 'first\nsecond',
+        translatedText: '一\n二'
+      });
+
+      expect(mergeGeneratedSubtitleCues(
+        cue({ originalText: 'x'.repeat(GENERATED_SUBTITLE_MAX_TEXT_CODE_POINTS) }),
+        cue({ originalText: 'cannot-fit' })
+      )).toBeNull();
+    });
+
+    it('creates deterministic proportional timeline items and marks overlaps', () => {
+      const layout = createGeneratedSubtitleTimelineLayout([
+        cue({ id: 3, start: 4, end: 8, originalText: 'third' }),
+        cue({ id: 1, start: 0, end: 3, originalText: 'first' }),
+        cue({ id: 2, start: 2, end: 5, originalText: 'second' })
+      ]);
+
+      expect(layout.duration).toBe(8);
+      expect(layout.laneCount).toBe(2);
+      expect(layout.items.map(item => item.id)).toEqual([1, 2, 3]);
+      expect(layout.items).toEqual([
+        expect.objectContaining({ cueIndex: 1, leftPercent: 0, widthPercent: 37.5, overlapsPrevious: false, lane: 0 }),
+        expect.objectContaining({ cueIndex: 2, leftPercent: 25, widthPercent: 37.5, overlapsPrevious: true, lane: 1 }),
+        expect.objectContaining({ cueIndex: 0, leftPercent: 50, widthPercent: 50, overlapsPrevious: true, lane: 0 })
+      ]);
+      expect(createGeneratedSubtitleTimelineLayout([])).toEqual({ duration: 0, laneCount: 0, items: [] });
+
+      const tripleOverlap = createGeneratedSubtitleTimelineLayout([
+        cue({ id: 1, start: 0, end: 4 }),
+        cue({ id: 2, start: 1, end: 3 }),
+        cue({ id: 3, start: 2, end: 5 })
+      ]);
+      expect(tripleOverlap.laneCount).toBe(3);
+      expect(tripleOverlap.items.map(item => item.lane)).toEqual([0, 1, 2]);
     });
   });
 

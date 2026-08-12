@@ -39,11 +39,13 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Create exact-domain or wildcard site rules that can block page translation or override display mode, translation scope, style, and excluded selectors.
 - Choose from 100+ target language options in settings.
 - Choose from 29 implemented provider adapters: Google Translate, MyMemory, DeepL, Microsoft Translator, OpenAI-compatible, Gemini, DeepSeek, OpenRouter, Groq, Qwen, Zhipu GLM/ChatGLM, SiliconFlow, Ollama, Claude, Azure OpenAI, LibreTranslate, Yandex Cloud Translate, NiuTrans, Caiyun Translate, ModernMT, Lingvanex, Naver Papago, Baidu Translate, Volcengine Translate, Alibaba Machine Translation, Amazon Translate, IBM Watson Language Translator, Youdao Translate, and SYSTRAN Translate.
+- Tencent Cloud TMT and Reverso are shown as unavailable rather than usable providers: Tencent removed its public `TextTranslate` action in July 2026, and Reverso does not publish a self-service translation API contract. LexiBridge does not call reverse-engineered website endpoints.
 - With AI-capable providers, choose a domain expert, enforce a local terminology glossary, add custom translation instructions, and optionally use neighboring page or document text as reference context.
 - Keep neighboring-context sharing off by default. Context is collected only after a manual page or document translation starts and is bounded before it is sent to the selected AI provider.
 - Install versioned AI expert definitions from strict duplicate-key-safe JSON, review their source attribution and full instruction text, enable or disable them, and safely remove custom definitions without replacing trusted built-ins.
 - Import and export validated YAML prompt templates, set bounded declared variables as a JSON object, preview the separated system and user messages locally, and return to the built-in template without a provider request.
-- Optionally mask supported emails, phone numbers, Luhn-valid payment card numbers, IPv4/IPv6 addresses, valid IBANs, strict JWTs, and sensitive URL query values before provider requests. Restoration happens locally; ambiguous placeholder output is discarded with an error.
+- Browse a fixed local curated catalog of versioned expert/template metadata, inspect its HTTPS attribution and pinned SHA-256 integrity, then explicitly confirm installation. Browsing and selection never fetch, execute, install, or contact a provider.
+- Optionally mask supported emails, phone numbers, Luhn-valid payment card numbers, IPv4/IPv6 addresses, valid IBANs, strict JWTs, validated PEM private keys, high-confidence AWS credentials, classic GitHub tokens and the stateless `ghs_` format, OpenAI/GitLab/Slack/Stripe/Google credentials, Azure Storage account keys, database-URI passwords, checksum-valid Chinese resident IDs, and sensitive URL query values before provider requests. Restoration happens locally; ambiguous placeholder output is discarded with an error.
 - Keep provider API keys, client/application IDs, and temporary session tokens in local Chrome storage only; credentials are excluded from Chrome sync and learning-data exports.
 
 ### Selection Translation
@@ -64,7 +66,7 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 ### Side Panel Text Translation
 
 - Open the Chrome side panel from the popup header or with `Alt+S`.
-- Translate with any configured provider, or use a configured AI-capable provider to polish, rewrite, compose, reply, or summarize.
+- Translate with any configured provider, or use a configured AI-capable provider to polish, rewrite, compose, reply, or summarize; proofread, explain, extract key points, and create an academic rewrite are also available as explicit writing actions.
 - For AI writing actions, choose the output language or keep the input language, then select tone, length, and an optional additional requirement.
 - Use `Ctrl+Enter` to submit, copy the result, move a result back into the input for another pass, or clear the current text without storing a side-panel history.
 - Keep all side-panel actions idle when the panel opens or the user changes modes; no text is sent until the user submits it.
@@ -84,6 +86,7 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Export translated DOCX files by writing translated paragraph text back into the original document archive.
 - Export translated EPUB files by writing translated readable blocks back into the original book archive.
 - Export a bounded bilingual Markdown research note with source metadata, provider/language identity, and fenced original/translated blocks for explicit attachment to an academic reference workflow. This local download does not connect to or modify Zotero.
+- After explicitly loading a PDF, export a bounded BabelDOC local-workflow guide with sanitized PowerShell/POSIX commands and absolute-path placeholders. The extension never installs or runs BabelDOC, obtains the PDF's real path, uploads the PDF, or includes an API key.
 - Export translated `.srt` and `.vtt` subtitle files by replacing cue text only, preserving original timing, cue identifiers/settings, WEBVTT metadata and NOTE/STYLE/REGION sections, line endings, and other non-cue content.
 - Import and export `.ass` and `.ssa` subtitles while preserving script sections, timing, styles, comments, commas inside dialogue text, and inline override tags; vector-drawing dialogue remains untouched.
 - Queue up to 100 supported documents, limited to 64 MiB per file and 128 MiB total, choose concurrency 1, 2, or 3, and click Start batch explicitly. Cancel an active batch, queue failed files for an explicit retry, and download a deterministic ZIP only after every file succeeds.
@@ -109,15 +112,16 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Render a bilingual subtitle overlay without recording audio or blocking playback.
 - Export translated subtitle cues from the current session as an `.srt` file.
 - Keep video subtitle sessions isolated with abortable translation requests, bounded cue retention, DOM caption deduplication, and native text-track restoration on Stop.
-- Open the subtitle generator from the popup to select a local `.mp3`, `.mp4`, `.mpeg`, `.mpga`, `.m4a`, `.wav`, or `.webm` file up to 25 MB.
+- Open the subtitle generator from the popup to select a local `.flac`, `.mp3`, `.mp4`, `.mpeg`, `.mpga`, `.m4a`, `.ogg`, `.wav`, or `.webm` file up to 25 MB.
 - On YouTube standard, Live, or Shorts pages, use the contextual Generate button to open the generator without starting capture, then explicitly click Capture current tab and Stop and generate.
 - From another regular media page, explicitly click Capture current tab, keep the generator open, and click Stop and generate when enough audio has played.
-- Generate timestamped captions through a configured OpenAI or Groq transcription service, optionally translate them with any configured translation provider, and export bilingual SRT or VTT.
-- Edit each generated cue's start time, end time, original text, and translated text before export. Current-tab captures begin at the source video's playback position when the page exposes it.
+- Choose a provider-specific speech model. OpenAI Whisper 1 and Groq Whisper models return provider-timed segments; OpenAI GPT-4o Transcribe models can display bounded SSE partial text after submission and produce one explicitly labeled, editable fallback-timing cue because that stream does not provide segment timestamps.
+- Generate captions through a configured OpenAI or Groq transcription service, optionally translate them with any configured translation provider, and export bilingual SRT or VTT.
+- Edit each generated cue's start time, end time, original text, and translated text before export. A proportional local timeline highlights overlaps and focuses a cue without playing media or contacting a provider. Shift the whole timeline by a bounded offset, split at the original-text cursor, merge adjacent cues without silent truncation, delete cues locally, and undo or redo up to 50 in-memory edit snapshots. Current-tab captures begin at the source video's playback position when the page exposes it.
 - Click Apply to source video to load the edited bilingual cues into the originating page and synchronize them with its active video. Apply never starts playback, and Clear source video subtitles removes the overlay and listeners immediately.
 - Keep selected local media idle until Generate subtitles is clicked; current-tab audio remains local until Stop and generate. Stream submitted media to the background in bounded chunks and clear buffers after completion, cancellation, provider errors, or disconnection.
 - Use the declared `tabCapture` permission only after the explicit capture button; cancel also aborts active per-cue translation, while page close, stream failure, or the 25 MB limit stops and discards the temporary recording. This workflow requires Chrome 116 or newer.
-- Video translation still requires captions exposed by the current site. Real-account smoke testing for the dedicated adapters, adapters for additional documented sites, more speech providers, files above provider limits, and live partial transcription remain later work.
+- Video translation still requires captions exposed by the current site. Real-account smoke testing for the dedicated adapters, adapters for additional documented sites, more speech providers, files above provider limits, and continuous partial transcription while capture is still running remain later work.
 
 ### Live Caption Translation
 
@@ -199,6 +203,8 @@ The generated Firefox test package is `firefox-translation-extension.zip`. An un
 
 Firefox uses its native sidebar and never opens it automatically at install. Current-tab audio capture is unavailable because Firefox does not provide Chrome's `tabCapture` API; choose a local audio/video file in the subtitle generator instead.
 
+The versioned platform capability matrix reports only Chrome and Firefox Desktop as implemented release targets. Safari, userscript, Zotero, iOS, and Android remain explicitly unsupported until each has its own runtime, build, package, and hands-on validation; no browser bundle is presented as a substitute.
+
 ## Usage
 
 ### Start Page Translation
@@ -231,7 +237,7 @@ Firefox uses its native sidebar and never opens it automatically at install. Cur
 ### Translate Text in the Side Panel
 
 1. Click the side-panel button in the popup header or press `Alt+S`.
-2. Choose Translate, Polish, Rewrite, Write, Reply, or Summarize.
+2. Choose Translate, Polish, Rewrite, Write, Reply, Summarize, Proofread, Explain, Key points, or Academic.
 3. Choose a configured provider and output language. Writing actions require an AI-capable provider.
 4. For a writing action, optionally select tone, length, and an additional requirement.
 5. Enter text and click the action button or press `Ctrl+Enter`.
@@ -249,7 +255,7 @@ Google Translate and MyMemory remain available without provider configuration. C
 
 For cloud providers that use account-level access keys, create dedicated least-privilege credentials and prefer short-lived STS credentials when available. Local extension storage prevents Chrome Sync and export leakage, but it is not a server-side secret manager.
 
-For AI-capable providers, the AI translation controls in settings can select a subject domain, define terminology as `source term => required translation`, and add custom instructions. The AI tools section manages installable JSON experts and YAML prompt templates; import, export, enable/disable, removal, and prompt preview are local actions and never start translation. Imported expert/template content is sent only as untrusted user-level translation preferences and cannot replace the extension-owned system requirements. Neighboring context is opt-in and applies to manually translated page batches and document blocks only. Configured AI-capable providers also power the side-panel writing actions; ordinary machine-translation providers remain translation-only.
+For AI-capable providers, the AI translation controls in settings can select a subject domain, define terminology as `source term => required translation`, and add custom instructions. The AI tools section manages installable JSON experts and YAML prompt templates. Its curated catalog is bundled local data: selecting an item reveals metadata only, and installation requires a separate button plus confirmation before the candidate is revalidated through the ordinary local install path. Import, export, enable/disable, removal, catalog browsing, and prompt preview never start translation. Imported expert/template content is sent only as untrusted user-level translation preferences and cannot replace the extension-owned system requirements. Neighboring context is opt-in and applies to manually translated page batches and document blocks only. Configured AI-capable providers also power the side-panel writing actions; ordinary machine-translation providers remain translation-only.
 
 Sensitive-data masking is an opt-in provider privacy setting. When enabled, supported values, including strictly validated IPv6 addresses and JWTs, are replaced with request-scoped ASCII placeholders before text, context, glossary, expert, template, or AI-writing instruction content reaches a provider. The extension restores required placeholders only when every expected token is present exactly once. A missing, duplicated, unknown, or transformed token causes the provider result to be discarded. Pattern matching can have false negatives, so masking is not a substitute for reviewing content before translation.
 
@@ -276,7 +282,7 @@ In Main content scope, LexiBridge prefers semantic `article`, `main`, and `[role
 
 1. Open the extension popup and click Generate from media.
 2. Choose a supported local audio or video file up to 25 MB.
-3. Choose a configured OpenAI or Groq speech service, spoken language, and optional vocabulary context.
+3. Choose a configured OpenAI or Groq speech service, a provider-specific speech model, spoken language, and optional vocabulary context.
 4. Choose whether to translate the generated captions, then click Generate subtitles.
 5. Export the generated captions as bilingual SRT or VTT.
 

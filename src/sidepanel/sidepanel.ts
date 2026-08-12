@@ -500,6 +500,10 @@ class SidePanelController {
       case 'compose': return 'Creating draft...';
       case 'reply': return 'Drafting reply...';
       case 'summarize': return 'Summarizing...';
+      case 'proofread': return 'Proofreading...';
+      case 'explain': return 'Explaining...';
+      case 'extract': return 'Extracting key points...';
+      case 'academic': return 'Rewriting academically...';
     }
   }
 
@@ -511,6 +515,10 @@ class SidePanelController {
       case 'compose': return 'Draft created';
       case 'reply': return 'Reply drafted';
       case 'summarize': return 'Summarized';
+      case 'proofread': return 'Proofread';
+      case 'explain': return 'Explained';
+      case 'extract': return 'Key points extracted';
+      case 'academic': return 'Academic rewrite created';
     }
   }
 

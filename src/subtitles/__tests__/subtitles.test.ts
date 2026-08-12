@@ -189,6 +189,8 @@ describe('AI subtitle generator', () => {
 
     const speechProvider = document.getElementById('transcriptionProvider') as HTMLSelectElement;
     expect(speechProvider.value).toBe('groq');
+    expect((document.getElementById('transcriptionModel') as HTMLSelectElement).value)
+      .toBe('whisper-large-v3-turbo');
     expect(Array.from(speechProvider.options).find(option => option.value === 'openai')?.disabled).toBe(true);
     expect((document.getElementById('translationProvider') as HTMLSelectElement).value).toBe('google');
     expect((document.getElementById('targetLanguage') as HTMLSelectElement).value).toBe('fr');
@@ -198,6 +200,68 @@ describe('AI subtitle generator', () => {
     expect(sendMessage.mock.calls.some(([message]) => message.action === 'translate')).toBe(false);
     expect((document.getElementById('applyToSourceVideo') as HTMLButtonElement).hidden).toBe(true);
     expect((document.getElementById('clearSourceVideo') as HTMLButtonElement).hidden).toBe(true);
+  });
+
+  it('streams partial OpenAI text only after Generate and ignores late partials after Cancel', async () => {
+    const harness = createPortHarness();
+    const connect = jest.fn(() => harness.port);
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({ success: true, data: [{ providerId: 'openai', configured: true }] });
+        return;
+      }
+      if (message.action === 'getSettings') {
+        callback({ success: true, data: { translationProvider: 'google' } });
+        return;
+      }
+      callback({ success: true });
+    });
+    (global as any).chrome = {
+      runtime: { sendMessage, connect, lastError: null, openOptionsPage: jest.fn() }
+    };
+
+    require('../subtitles');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+    await flushPromises();
+
+    const model = document.getElementById('transcriptionModel') as HTMLSelectElement;
+    expect(Array.from(model.options).map(option => option.value)).toEqual([
+      'whisper-1',
+      'gpt-4o-transcribe',
+      'gpt-4o-mini-transcribe'
+    ]);
+    model.value = 'gpt-4o-mini-transcribe';
+    model.dispatchEvent(new Event('change'));
+    (document.getElementById('translateCaptions') as HTMLInputElement).checked = false;
+    document.getElementById('translateCaptions')!.dispatchEvent(new Event('change'));
+    setMediaFile(document.getElementById('mediaFile') as HTMLInputElement);
+
+    expect(connect).not.toHaveBeenCalled();
+    expect(document.getElementById('partialTranscript')?.hidden).toBe(true);
+    document.getElementById('generateSubtitles')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    expect(harness.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'initialize',
+      metadata: expect.objectContaining({
+        providerId: 'openai',
+        transcriptionModel: 'gpt-4o-mini-transcribe'
+      })
+    }));
+    harness.emitMessage({ type: 'transcribing' });
+    harness.emitMessage({ type: 'transcription-partial', text: '<img src=x onerror=alert(1)> Hello' });
+    const preview = document.getElementById('partialTranscript')!;
+    expect(preview.hidden).toBe(false);
+    expect(preview.textContent).toBe('<img src=x onerror=alert(1)> Hello');
+    expect(preview.querySelector('img')).toBeNull();
+
+    document.getElementById('cancelGeneration')!.dispatchEvent(new Event('click'));
+    expect(preview.hidden).toBe(true);
+    harness.emitMessage({ type: 'transcription-partial', text: 'late partial' });
+    expect(preview.hidden).toBe(true);
+    expect(preview.textContent).toBe('');
+    expect(sendMessage.mock.calls.some(([message]) => message.action === 'translate')).toBe(false);
   });
 
   it('applies and clears generated cues in the source video only after explicit clicks', async () => {
@@ -403,6 +467,7 @@ describe('AI subtitle generator', () => {
         type: 'initialize',
         metadata: expect.objectContaining({
           providerId: 'groq',
+          transcriptionModel: 'whisper-large-v3-turbo',
           fileName: 'lecture.webm',
           totalBytes: 3
         })
@@ -471,6 +536,132 @@ describe('AI subtitle generator', () => {
     } finally {
       clickSpy.mockRestore();
     }
+  });
+
+  it('shifts, splits, merges, and deletes generated cues locally without new requests', async () => {
+    const harness = createPortHarness();
+    const connect = jest.fn(() => harness.port);
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({ success: true, data: [{ providerId: 'groq', configured: true }] });
+        return;
+      }
+      if (message.action === 'getSettings') {
+        callback({ success: true, data: { translationProvider: 'google' } });
+        return;
+      }
+      callback({ success: true });
+    });
+    (global as any).chrome = {
+      runtime: { sendMessage, connect, lastError: null, openOptionsPage: jest.fn() }
+    };
+
+    require('../subtitles');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+    await flushPromises();
+
+    const translateCaptions = document.getElementById('translateCaptions') as HTMLInputElement;
+    translateCaptions.checked = false;
+    translateCaptions.dispatchEvent(new Event('change'));
+    setMediaFile(document.getElementById('mediaFile') as HTMLInputElement);
+    document.getElementById('generateSubtitles')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+    harness.emitMessage({ type: 'ready', totalBytes: 3 });
+    await flushPromises();
+    harness.emitMessage({ type: 'chunk-accepted', index: 0, receivedBytes: 3, totalBytes: 3 });
+    await flushPromises();
+    harness.emitMessage({
+      type: 'transcription-complete',
+      result: {
+        text: 'Alpha beta Gamma',
+        language: 'en',
+        duration: 6,
+        segments: [
+          { id: 1, start: 1, end: 3, text: 'Alpha beta' },
+          { id: 2, start: 4, end: 6, text: 'Gamma' }
+        ],
+        timingMode: 'provider-segments'
+      }
+    });
+    await flushPromises();
+    await flushPromises();
+
+    expect(document.querySelectorAll('.cue-row')).toHaveLength(2);
+    expect(document.querySelectorAll('.timeline-cue')).toHaveLength(2);
+    expect(document.getElementById('timelineDuration')?.textContent).toBe('00:06');
+    expect(document.getElementById('cueEditToolbar')?.hidden).toBe(false);
+    const firstRow = document.querySelector<HTMLElement>('.cue-row')!;
+    const scrollIntoView = jest.fn();
+    Object.defineProperty(firstRow, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+    (document.querySelector('.timeline-cue') as HTMLButtonElement).click();
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center', behavior: 'smooth' });
+    expect(document.activeElement).toBe(firstRow.querySelector('.cue-time-input'));
+    const undoButton = document.getElementById('undoTimelineEdit') as HTMLButtonElement;
+    const secondEndInput = Array.from(
+      document.querySelectorAll<HTMLInputElement>('.cue-time-input')
+    )[3]!;
+    secondEndInput.value = '6';
+    secondEndInput.dispatchEvent(new Event('change'));
+    expect(undoButton.disabled).toBe(true);
+    secondEndInput.value = '';
+    secondEndInput.dispatchEvent(new Event('change'));
+    expect(secondEndInput.value).toBe('6.000');
+    expect(undoButton.disabled).toBe(true);
+    secondEndInput.value = '5.4';
+    secondEndInput.dispatchEvent(new Event('change'));
+    expect(undoButton.disabled).toBe(false);
+    expect(document.getElementById('resultSummary')?.textContent).toContain('00:05');
+    expect(document.getElementById('timelineDuration')?.textContent).toBe('00:05');
+    undoButton.click();
+    expect(document.getElementById('timelineDuration')?.textContent).toBe('00:06');
+    const connectionBaseline = connect.mock.calls.length;
+    const portMessageBaseline = harness.postMessage.mock.calls.length;
+    const runtimeMessageBaseline = sendMessage.mock.calls.length;
+
+    const shiftInput = document.getElementById('timelineShift') as HTMLInputElement;
+    shiftInput.value = '-1';
+    document.getElementById('applyTimelineShift')!.dispatchEvent(new Event('click'));
+    expect(Array.from(document.querySelectorAll<HTMLInputElement>('.cue-time-input')).map(input => input.value))
+      .toEqual(['0.000', '2.000', '3.000', '5.000']);
+    expect(document.getElementById('generationStatus')?.textContent)
+      .toBe('Shifted 2 captions by -1.000 seconds');
+
+    const firstOriginal = document.querySelector('.cue-original') as HTMLTextAreaElement;
+    firstOriginal.setSelectionRange(5, 5);
+    (document.querySelector('.cue-row button[title^="Split"]') as HTMLButtonElement).click();
+    expect(document.querySelectorAll('.cue-row')).toHaveLength(3);
+    expect(document.querySelectorAll('.timeline-cue')).toHaveLength(3);
+    expect(Array.from(document.querySelectorAll<HTMLTextAreaElement>('.cue-original')).map(input => input.value))
+      .toEqual(['Alpha', ' beta', 'Gamma']);
+
+    (document.querySelector('.cue-row button[title*="next caption"]') as HTMLButtonElement).click();
+    expect(document.querySelectorAll('.cue-row')).toHaveLength(2);
+    expect(document.querySelectorAll('.timeline-cue')).toHaveLength(2);
+    expect((document.querySelector('.cue-original') as HTMLTextAreaElement).value).toBe('Alpha\n beta');
+
+    const deleteButtons = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('.cue-row button[title^="Delete"]')
+    );
+    deleteButtons[1]!.click();
+    expect(document.querySelectorAll('.cue-row')).toHaveLength(1);
+    expect(document.querySelectorAll('.timeline-cue')).toHaveLength(1);
+    expect(document.getElementById('resultSummary')?.textContent).toContain('1 captions');
+
+    const redoButton = document.getElementById('redoTimelineEdit') as HTMLButtonElement;
+    expect(undoButton.disabled).toBe(false);
+    undoButton.click();
+    expect(document.querySelectorAll('.cue-row')).toHaveLength(2);
+    expect(document.querySelectorAll('.timeline-cue')).toHaveLength(2);
+    expect(redoButton.disabled).toBe(false);
+    redoButton.click();
+    expect(document.querySelectorAll('.cue-row')).toHaveLength(1);
+    expect(document.querySelectorAll('.timeline-cue')).toHaveLength(1);
+
+    expect(connect).toHaveBeenCalledTimes(connectionBaseline);
+    expect(harness.postMessage).toHaveBeenCalledTimes(portMessageBaseline);
+    expect(sendMessage).toHaveBeenCalledTimes(runtimeMessageBaseline);
+    expect(sendMessage.mock.calls.some(([message]) => message.action === 'translate')).toBe(false);
   });
 
   it('cancels an active upload and clears the working state', async () => {
@@ -782,6 +973,7 @@ describe('AI subtitle generator', () => {
         type: 'initialize',
         metadata: expect.objectContaining({
           providerId: 'groq',
+          transcriptionModel: 'whisper-large-v3-turbo',
           fileName: expect.stringMatching(/^tab-audio-.+\.webm$/),
           mimeType: 'audio/webm;codecs=opus',
           totalBytes: 3

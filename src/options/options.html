@@ -130,6 +130,18 @@
           <fieldset class="ai-tools-section">
             <legend>AI tools</legend>
             <div class="ai-tools-grid">
+              <section class="ai-tool-group ai-tool-catalog" aria-labelledby="aiToolsCatalogHeading">
+                <h3 id="aiToolsCatalogHeading">Curated catalog</h3>
+                <label class="ai-translation-field" for="aiToolsCatalogItem">
+                  Local catalog item
+                  <select id="aiToolsCatalogItem"></select>
+                </label>
+                <p id="aiToolsCatalogDetails" class="ai-tool-details"></p>
+                <div class="ai-tool-actions">
+                  <button id="installAiToolsCatalogItem" class="secondary-btn" type="button" disabled>Install selected</button>
+                </div>
+              </section>
+
               <section class="ai-tool-group" aria-labelledby="aiExpertHeading">
                 <h3 id="aiExpertHeading">Expert library</h3>
                 <label class="ai-translation-field" for="aiExpertId">

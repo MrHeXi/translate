@@ -6,6 +6,7 @@ import { TranslationService } from '../TranslationService';
 import {
   AVAILABLE_TRANSLATION_PROVIDERS,
   getProviderTargetLanguages,
+  getTranslationProvider,
   TRANSLATION_LANGUAGES,
   TRANSLATION_PROVIDERS
 } from '../TranslationProviderRegistry';
@@ -130,6 +131,14 @@ describe('TranslationService', () => {
       ]);
       expect(AVAILABLE_TRANSLATION_PROVIDERS).toHaveLength(29);
       expect(AVAILABLE_TRANSLATION_PROVIDERS.every(provider => Boolean(provider.adapter))).toBe(true);
+      expect(getTranslationProvider('tencent')).toEqual(expect.objectContaining({
+        status: 'unavailable',
+        unavailableReason: expect.stringContaining('removed the public TextTranslate API')
+      }));
+      expect(getTranslationProvider('reverso')).toEqual(expect.objectContaining({
+        status: 'unavailable',
+        unavailableReason: expect.stringContaining('does not publish')
+      }));
       expect(new Set(AVAILABLE_TRANSLATION_PROVIDERS.map(provider => provider.adapter))).toEqual(new Set([
         'google',
         'mymemory',

@@ -1,4 +1,4 @@
-export type TranslationProviderStatus = 'available' | 'planned';
+export type TranslationProviderStatus = 'available' | 'planned' | 'unavailable';
 export type TranslationProviderLanguageDiscovery = 'libretranslate' | 'systran';
 export type TranslationProviderConfigField =
   | 'clientId'
@@ -72,6 +72,7 @@ export interface TranslationProviderDefinition {
   defaultRegion?: string;
   regionEndpointTemplate?: string;
   regionPattern?: string;
+  unavailableReason?: string;
 }
 
 export interface TranslationLanguageDefinition {
@@ -241,7 +242,14 @@ export const TRANSLATION_PROVIDERS: TranslationProviderDefinition[] = [
       'it', 'el', 'nl', 'pl', 'bg', 'et', 'da', 'fi', 'cs', 'ro', 'sl', 'sv', 'hu', 'vi'
     ]
   },
-  { id: 'tencent', label: 'Tencent Cloud TMT', status: 'planned', requiresApiKey: true, supportsAutoDetect: true },
+  {
+    id: 'tencent',
+    label: 'Tencent Cloud TMT',
+    status: 'unavailable',
+    requiresApiKey: true,
+    supportsAutoDetect: true,
+    unavailableReason: 'Tencent Cloud removed the public TextTranslate API on July 8, 2026.'
+  },
   {
     id: 'volcengine', label: 'Volcengine Translate', status: 'available', adapter: 'volcengine',
     requiresApiKey: true, supportsAutoDetect: true,
@@ -323,7 +331,14 @@ export const TRANSLATION_PROVIDERS: TranslationProviderDefinition[] = [
       'si', 'sk', 'sl', 'es', 'sv', 'ta', 'te', 'th', 'tr', 'uk', 'ur', 'vi', 'cy'
     ]
   },
-  { id: 'reverso', label: 'Reverso Context', status: 'planned', requiresApiKey: false, supportsAutoDetect: true },
+  {
+    id: 'reverso',
+    label: 'Reverso Context',
+    status: 'unavailable',
+    requiresApiKey: false,
+    supportsAutoDetect: true,
+    unavailableReason: 'Reverso does not publish a self-service translation API contract.'
+  },
   {
     id: 'systran', label: 'SYSTRAN Translate', status: 'available', adapter: 'systran',
     requiresApiKey: true, supportsAutoDetect: true,

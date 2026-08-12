@@ -22,6 +22,7 @@ const setupDocumentDom = (): void => {
     </select>
     <input id="documentFile" type="file">
     <button id="translateDocument"></button>
+    <button id="exportBabelDocGuide" hidden disabled></button>
     <button id="clearDocument"></button>
     <textarea id="sourceText"></textarea>
     <p id="documentMessage"></p>
@@ -81,6 +82,8 @@ describe('document translator HTML files', () => {
     expect(html).toContain('id="downloadDocumentBatch"');
     expect(html).toContain('id="exportTextFile"');
     expect(html).toContain('id="exportResearchNote"');
+    expect(html).toContain('id="exportBabelDocGuide"');
+    expect(html).toContain('hidden disabled>Export BabelDOC guide</button>');
     expect(html).toContain('.mobi,.azw3');
   });
 

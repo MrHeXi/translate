@@ -32,7 +32,8 @@ const transcriptionResult = {
   text: 'Hello world',
   language: 'en',
   duration: 2,
-  segments: [{ id: 1, start: 0, end: 2, text: 'Hello world' }]
+  segments: [{ id: 1, start: 0, end: 2, text: 'Hello world' }],
+  timingMode: 'provider-segments'
 };
 
 const loadBackgroundHarness = (transcribe: jest.Mock): BackgroundHarness => {
@@ -197,6 +198,7 @@ const initializeUpload = async (port: PortHarness): Promise<void> => {
     type: 'initialize',
     metadata: {
       providerId: 'groq',
+      transcriptionModel: 'whisper-large-v3-turbo',
       fileName: 'clip.webm',
       mimeType: 'audio/webm',
       totalBytes: 3,
@@ -240,7 +242,8 @@ describe('BackgroundService media transcription port', () => {
     expect(transcribe).toHaveBeenCalledWith(
       expect.objectContaining({ metadata: expect.objectContaining({ providerId: 'groq' }) }),
       expect.objectContaining({ apiKey: 'background-only-secret' }),
-      expect.any(AbortSignal)
+      expect.any(AbortSignal),
+      expect.any(Function)
     );
     expect(port.postMessage).toHaveBeenCalledWith({ type: 'transcribing' });
     expect(port.postMessage).toHaveBeenCalledWith({
@@ -249,6 +252,36 @@ describe('BackgroundService media transcription port', () => {
     });
     expect(harness.uploads[0]?.appendBase64Chunk).toHaveBeenCalledWith(0, 'AQID');
     expect(harness.uploads[0]?.clear).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(port.postMessage.mock.calls)).not.toContain('background-only-secret');
+  });
+
+  it('forwards accumulated streaming text without exposing credentials', async () => {
+    const transcribe = jest.fn().mockImplementation(async (
+      _upload,
+      _config,
+      _signal,
+      onPartialText: (text: string) => void
+    ) => {
+      onPartialText('Hello');
+      onPartialText('Hello world');
+      return { ...transcriptionResult, timingMode: 'fallback' };
+    });
+    const harness = loadBackgroundHarness(transcribe);
+    const port = harness.connect();
+    await initializeUpload(port);
+
+    port.send({ type: 'complete' });
+    await flushPromises();
+    await flushPromises();
+
+    expect(port.postMessage).toHaveBeenCalledWith({
+      type: 'transcription-partial',
+      text: 'Hello'
+    });
+    expect(port.postMessage).toHaveBeenCalledWith({
+      type: 'transcription-partial',
+      text: 'Hello world'
+    });
     expect(JSON.stringify(port.postMessage.mock.calls)).not.toContain('background-only-secret');
   });
 
@@ -277,6 +310,13 @@ describe('BackgroundService media transcription port', () => {
       if (action === 'cancel') {
         expect(port.postMessage).toHaveBeenCalledWith({ type: 'canceled' });
       }
+
+      const partialCallback = transcribe.mock.calls[0]?.[3] as (text: string) => void;
+      partialCallback('late partial text');
+      expect(port.postMessage).not.toHaveBeenCalledWith({
+        type: 'transcription-partial',
+        text: 'late partial text'
+      });
 
       resolveTranscription!(transcriptionResult);
       await flushPromises();

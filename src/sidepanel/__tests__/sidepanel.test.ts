@@ -435,4 +435,54 @@ describe('translation side panel', () => {
     expect(document.getElementById('panelStatus')?.textContent).toContain('Configure an AI provider');
     expect(sendMessage.mock.calls.some(([message]) => message.action === 'processAiText')).toBe(false);
   });
+
+  it('offers professional templates without running them until explicit submission', async () => {
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({ success: true, data: [{ providerId: 'openai', configured: true }] });
+        return;
+      }
+      if (message.action === 'getSettings') {
+        callback({
+          success: true,
+          data: { translationProvider: 'openai', defaultTargetLanguage: 'en' }
+        });
+        return;
+      }
+      if (message.action === 'processAiText') {
+        callback({ success: true, data: { outputText: 'A precise academic revision.' } });
+        return;
+      }
+      callback({ success: true });
+    });
+    (global as any).chrome = {
+      runtime: { sendMessage, lastError: null, openOptionsPage: jest.fn() }
+    };
+
+    require('../sidepanel');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+    await flushPromises();
+
+    const modes = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-mode]'))
+      .map(button => button.dataset['mode']);
+    expect(modes).toEqual(expect.arrayContaining(['proofread', 'explain', 'extract', 'academic']));
+    expect(sendMessage.mock.calls.some(([message]) => message.action === 'processAiText')).toBe(false);
+
+    document.querySelector<HTMLButtonElement>('[data-mode="academic"]')!.click();
+    expect(sendMessage.mock.calls.some(([message]) => message.action === 'processAiText')).toBe(false);
+    const sourceText = document.getElementById('sourceText') as HTMLTextAreaElement;
+    sourceText.value = 'Our result maybe proves x = 1 [4].';
+    document.getElementById('translateText')!.click();
+    await flushPromises();
+
+    expect(sendMessage).toHaveBeenCalledWith({
+      action: 'processAiText',
+      data: expect.objectContaining({
+        text: 'Our result maybe proves x = 1 [4].',
+        task: expect.objectContaining({ action: 'academic' })
+      })
+    }, expect.any(Function));
+    expect(document.getElementById('resultHeading')?.textContent).toBe('Academic rewrite');
+  });
 });

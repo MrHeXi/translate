@@ -24,6 +24,56 @@ function placeholders(text: string): string[] {
   return text.match(PLACEHOLDER_PATTERN) || [];
 }
 
+function credentialBody(
+  length: number,
+  seed = 0,
+  alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+): string {
+  return Array.from(
+    { length },
+    (_, index) => alphabet[(index * 17 + seed * 11) % alphabet.length]
+  ).join('');
+}
+
+function wrapPrivateKeyPem(label: string, bytes: Buffer, lineEnding = '\n'): string {
+  const encoded = bytes.toString('base64');
+  const lines = encoded.match(/.{1,64}/g) || [];
+  return [
+    `-----BEGIN ${label}-----`,
+    ...lines,
+    `-----END ${label}-----`
+  ].join(lineEnding);
+}
+
+function derPrivateKeyPem(label: string, lineEnding = '\n'): string {
+  const contentLength = 157;
+  const bytes = Buffer.alloc(contentLength + 3);
+  bytes[0] = 0x30;
+  bytes[1] = 0x81;
+  bytes[2] = contentLength;
+  for (let index = 3; index < bytes.length; index += 1) {
+    bytes[index] = (index * 37 + 11) % 256;
+  }
+  return wrapPrivateKeyPem(label, bytes, lineEnding);
+}
+
+function openSshPrivateKeyPem(lineEnding = '\n'): string {
+  const bytes = Buffer.alloc(180);
+  Buffer.from('openssh-key-v1\0', 'ascii').copy(bytes);
+  for (let index = 15; index < bytes.length; index += 1) {
+    bytes[index] = (index * 29 + 7) % 256;
+  }
+  return wrapPrivateKeyPem('OPENSSH PRIVATE KEY', bytes, lineEnding);
+}
+
+function azureStorageAccountKey(seed = 0): string {
+  const bytes = Buffer.alloc(64);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = (index * 43 + seed * 31 + 17) % 256;
+  }
+  return bytes.toString('base64');
+}
+
 describe('SensitiveDataMasker', () => {
   it('masks supported sensitive values but leaves ordinary short numbers intact', () => {
     const original = [
@@ -139,6 +189,371 @@ describe('SensitiveDataMasker', () => {
     for (const result of [duplicate, transformed, unknown, crossField]) {
       expect(result).not.toHaveProperty('fields');
     }
+  });
+
+  it('masks each supported private-key PEM format as one complete block', () => {
+    const privateKeys = [
+      derPrivateKeyPem('PRIVATE KEY'),
+      derPrivateKeyPem('ENCRYPTED PRIVATE KEY'),
+      derPrivateKeyPem('RSA PRIVATE KEY', '\r\n'),
+      derPrivateKeyPem('DSA PRIVATE KEY'),
+      derPrivateKeyPem('EC PRIVATE KEY'),
+      openSshPrivateKeyPem('\r\n')
+    ];
+    const original = `before\n${privateKeys.join('\nseparator\n')}\nafter`;
+    const session = createSensitiveDataMaskingSession();
+    const result = session.maskFields([{ id: 'source', text: original, requireRestoration: true }]);
+
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.maskedMatchCount).toBe(6);
+    expect(placeholders(result.fields[0].text)).toHaveLength(6);
+    expect(result.fields[0].text).not.toContain('BEGIN PRIVATE KEY');
+    expect(result.fields[0].text).not.toContain('BEGIN ENCRYPTED PRIVATE KEY');
+    expect(result.fields[0].text).not.toContain('BEGIN DSA PRIVATE KEY');
+    expect(result.fields[0].text).not.toContain('BEGIN OPENSSH PRIVATE KEY');
+    expect(session.restoreFields([{ id: 'source', text: result.fields[0].text }])).toEqual({
+      status: 'ok',
+      fields: [{ id: 'source', text: original }]
+    });
+  });
+
+  it('rejects malformed, mismatched, short, and non-key base64 PEM lookalikes', () => {
+    const valid = derPrivateKeyPem('PRIVATE KEY');
+    const mismatched = valid.replace('END PRIVATE KEY', 'END RSA PRIVATE KEY');
+    const malformed = valid.replace(/\n([A-Za-z0-9+/])/, '\n!$1');
+    const shortDer = wrapPrivateKeyPem('PRIVATE KEY', Buffer.from([0x30, 0x02, 0x01, 0x00]));
+    const randomBytes = Buffer.alloc(160);
+    for (let index = 0; index < randomBytes.length; index += 1) randomBytes[index] = (index * 19 + 5) % 256;
+    const nonDerPem = wrapPrivateKeyPem('RSA PRIVATE KEY', randomBytes);
+    const ordinaryBase64 = randomBytes.toString('base64');
+    const original = [mismatched, malformed, shortDer, nonDerPem, ordinaryBase64].join('\n---\n');
+    const { masked } = maskSingle(original);
+
+    expect({ masked, placeholders: placeholders(masked) }).toEqual({
+      masked: original,
+      placeholders: []
+    });
+  });
+
+  it('masks strict AWS, GitHub, and scoped OpenAI credential structures', () => {
+    const credentials = [
+      `AKIA${credentialBody(16, 1, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')}`,
+      `ASIA${credentialBody(16, 2, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')}`,
+      `ghp_${credentialBody(36, 3)}`,
+      `gho_${credentialBody(36, 4)}`,
+      `ghu_${credentialBody(36, 5)}`,
+      `ghs_${credentialBody(36, 6)}`,
+      `ghs_${credentialBody(12, 30)}_${credentialBody(80, 31)}.${credentialBody(120, 32)}.${credentialBody(86, 33)}`,
+      `ghr_${credentialBody(76, 7)}`,
+      `github_pat_${credentialBody(22, 8)}_${credentialBody(59, 9)}`,
+      `sk-proj-${credentialBody(64, 10)}`,
+      `sk-svcacct-${credentialBody(72, 11)}`,
+      `sk-admin-${credentialBody(48, 12)}`
+    ];
+    const original = credentials.map((credential, index) => `credential-${index}=${credential}`).join('\n');
+    const { session, masked } = maskSingle(original);
+
+    expect(placeholders(masked)).toHaveLength(credentials.length);
+    for (const credential of credentials) expect(masked).not.toContain(credential);
+    expect(session.restoreFields([{ id: 'source', text: masked }])).toEqual({
+      status: 'ok',
+      fields: [{ id: 'source', text: original }]
+    });
+  });
+
+  it('leaves credential placeholders, bad boundaries, bad lengths, and illegal structures intact', () => {
+    const aws = `AKIA${credentialBody(16, 13, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')}`;
+    const github = `ghp_${credentialBody(36, 14)}`;
+    const openAiBody = credentialBody(64, 15);
+    const ordinaryBase64 = Buffer.from(credentialBody(120, 16)).toString('base64');
+    const lookalikes = [
+      'AKIAIOSFODNN7EXAMPLE',
+      'AKIA1234567890123456',
+      `x${aws}`,
+      `${aws}Z`,
+      `akia${credentialBody(16, 17, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')}`,
+      `_${github}`,
+      `${github}_suffix`,
+      `ghs_${credentialBody(80, 34)}.${credentialBody(80, 35)}`,
+      `ghp_${credentialBody(35, 18)}`,
+      `gho_${'A'.repeat(36)}`,
+      `github_pat_${credentialBody(21, 19)}_${credentialBody(60, 20)}`,
+      'sk-ordinary-product-name',
+      `sk-proj-${credentialBody(39, 21)}`,
+      `sk-proj-${'A'.repeat(64)}`,
+      `sk-svcacct-EXAMPLE_${credentialBody(64, 22)}`,
+      `sk-proj-${openAiBody.slice(0, 20)}!${openAiBody.slice(20)}`,
+      ordinaryBase64
+    ];
+    const original = lookalikes.join('\n');
+    for (const value of lookalikes) {
+      const maskedValue = maskSingle(value).masked;
+      expect({ value, placeholders: placeholders(maskedValue) }).toEqual({
+        value,
+        placeholders: []
+      });
+    }
+    const { masked } = maskSingle(original);
+
+    expect(placeholders(masked)).toHaveLength(0);
+    expect(masked).toBe(original);
+  });
+
+  it('preserves repeated and cross-field credential restoration semantics and rejects tampering', () => {
+    const github = `ghp_${credentialBody(36, 23)}`;
+    const aws = `ASIA${credentialBody(16, 24, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')}`;
+    const privateKey = derPrivateKeyPem('EC PRIVATE KEY');
+    const session = createSensitiveDataMaskingSession();
+    const masked = session.maskFields([
+      { id: 'source', text: `GitHub ${github}\n${privateKey}`, requireRestoration: true },
+      { id: 'other', text: `Again ${github} and AWS ${aws}`, requireRestoration: true },
+      { id: 'context', text: `Context ${github}\n${privateKey}`, requireRestoration: false }
+    ]);
+    expect(masked.status).toBe('ok');
+    if (masked.status !== 'ok') return;
+
+    const [githubToken, privateKeyToken] = placeholders(masked.fields[0].text);
+    const [sharedGithubToken, awsToken] = placeholders(masked.fields[1].text);
+    expect(sharedGithubToken).toBe(githubToken);
+    expect(placeholders(masked.fields[2].text)).toEqual([githubToken, privateKeyToken]);
+    expect(session.restoreFields([
+      { id: 'source', text: `Translated ${githubToken}\n${privateKeyToken}` },
+      { id: 'other', text: `Translated ${sharedGithubToken} ${awsToken}` }
+    ])).toEqual({
+      status: 'ok',
+      fields: [
+        { id: 'source', text: `Translated ${github}\n${privateKey}` },
+        { id: 'other', text: `Translated ${github} ${aws}` }
+      ]
+    });
+
+    const duplicate = session.restoreFields([
+      { id: 'source', text: `${githubToken} ${githubToken} ${privateKeyToken}` },
+      { id: 'other', text: `${sharedGithubToken} ${awsToken}` }
+    ]);
+    expect(duplicate).toEqual(expect.objectContaining({
+      status: 'ambiguous', reason: 'duplicate-placeholder'
+    }));
+
+    const transformed = session.restoreFields([
+      { id: 'source', text: `${githubToken.toLowerCase()} ${privateKeyToken}` },
+      { id: 'other', text: `${sharedGithubToken} ${awsToken}` }
+    ]);
+    expect(transformed).toEqual(expect.objectContaining({
+      status: 'ambiguous', reason: 'transformed-placeholder'
+    }));
+
+    const crossField = session.restoreFields([
+      { id: 'source', text: `${githubToken} ${privateKeyToken} ${awsToken}` },
+      { id: 'other', text: `${sharedGithubToken} ${awsToken}` }
+    ]);
+    expect(crossField).toEqual(expect.objectContaining({
+      status: 'ambiguous', reason: 'unexpected-placeholder'
+    }));
+    for (const result of [duplicate, transformed, crossField]) expect(result).not.toHaveProperty('fields');
+  });
+
+  it('masks strict GitLab, Slack, Stripe, Google, Azure, and database credentials', () => {
+    const gitlab = `glpat-${credentialBody(28, 40)}`;
+    const slackBot = `xoxb-123456789012-987654321098-${credentialBody(24, 41)}`;
+    const slackUser = `xoxp-123456789012-987654321098-${credentialBody(24, 42)}`;
+    const slackApp = `xapp-1-${credentialBody(28, 43)}-${credentialBody(32, 44)}`;
+    const stripeSecret = `sk_live_${credentialBody(32, 45)}`;
+    const stripeTest = `sk_test_${credentialBody(32, 46)}`;
+    const stripeRestricted = `rk_test_${credentialBody(32, 61)}`;
+    const stripeRestrictedLive = `rk_live_${credentialBody(32, 62)}`;
+    const google = `AIza${credentialBody(35, 47, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-')}`;
+    const azureKey = azureStorageAccountKey(48);
+    const azure = `DefaultEndpointsProtocol=https;AccountName=lexibridge123;AccountKey=${azureKey};EndpointSuffix=core.windows.net`;
+    const databasePasswords = ['P%40ssw0rd!42', 'm0Ng0%2FK8vQ', 'mY5ql-X7vQ9', 'mY5ql-K8qV7'];
+    const databaseUris = [
+      `postgresql://translator:${databasePasswords[0]}@db.example.test:5432/app`,
+      `mongodb+srv://reader:${databasePasswords[1]}@cluster.example.test/app?retryWrites=true`,
+      `mysqlx://worker:${databasePasswords[2]}@db.example.test:33060/app`,
+      `mysql://worker:${databasePasswords[3]}@db.example.test:3306/app`
+    ];
+    const credentials = [
+      gitlab, slackBot, slackUser, slackApp,
+      stripeSecret, stripeTest, stripeRestricted, stripeRestrictedLive, google, azureKey,
+      ...databasePasswords
+    ];
+    const original = [
+      `gitlab=${gitlab}`,
+      `slack-bot=${slackBot}`,
+      `slack-user=${slackUser}`,
+      `slack-app=${slackApp}`,
+      `stripe-secret=${stripeSecret}`,
+      `stripe-test=${stripeTest}`,
+      `stripe-restricted=${stripeRestricted}`,
+      `stripe-restricted-live=${stripeRestrictedLive}`,
+      `google=${google}`,
+      azure,
+      ...databaseUris
+    ].join('\n');
+    const { session, masked } = maskSingle(original);
+
+    expect(placeholders(masked)).toHaveLength(credentials.length);
+    for (const credential of credentials) expect(masked).not.toContain(credential);
+    expect(masked).toContain('DefaultEndpointsProtocol=https;AccountName=lexibridge123;AccountKey=');
+    expect(masked).toContain(';EndpointSuffix=core.windows.net');
+    expect(masked).toContain('postgresql://translator:');
+    expect(masked).toContain('@db.example.test:5432/app');
+    expect(session.restoreFields([{ id: 'source', text: masked }])).toEqual({
+      status: 'ok',
+      fields: [{ id: 'source', text: original }]
+    });
+  });
+
+  it('masks the database password occurrence when it repeats in the URI prefix', () => {
+    const original = 'postgresql://postgresql:postgresql@db.example.test/app';
+    const { session, masked } = maskSingle(original);
+
+    expect(masked).toMatch(/^postgresql:\/\/postgresql:\[\[LEXIBRIDGE_MASK_/);
+    expect(masked).toContain(']]@db.example.test/app');
+    expect(session.restoreFields([{ id: 'source', text: masked }])).toEqual({
+      status: 'ok', fields: [{ id: 'source', text: original }]
+    });
+  });
+
+  it('leaves provider and connection-string lookalikes or public identifiers intact', () => {
+    const validGitLab = `glpat-${credentialBody(28, 49)}`;
+    const validGoogle = `AIza${credentialBody(35, 50, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-')}`;
+    const validAzureKey = azureStorageAccountKey(51);
+    const shortAzureKey = Buffer.alloc(63, 37).toString('base64');
+    const lookalikes = [
+      'glpat-EXAMPLE_TOKEN_FOR_DOCUMENTATION',
+      `glpat-${credentialBody(19, 52)}`,
+      `prefix_${validGitLab}`,
+      `xoxb-${'1'.repeat(40)}`,
+      `xoxa-${credentialBody(40, 53)}`,
+      `prefix_xoxb-${credentialBody(32, 58)}`,
+      `xoxb-${credentialBody(32, 59)}_suffix`,
+      `sk_live_${'A'.repeat(32)}`,
+      `pk_live_${credentialBody(32, 54)}`,
+      `sk_live_${credentialBody(23, 55)}`,
+      `sk_live_${credentialBody(32, 60)}_suffix`,
+      `AIza${credentialBody(34, 56)}`,
+      `prefix-${validGoogle}`,
+      `DefaultEndpointsProtocol=https;AccountName=UpperCase;AccountKey=${validAzureKey}`,
+      `DefaultEndpointsProtocol=https;AccountName=validaccount;AccountKey=${shortAzureKey}`,
+      `AccountKey=${validAzureKey}`,
+      'UseDevelopmentStorage=true',
+      'postgresql://translator@db.example.test/app',
+      'postgresql://translator:@db.example.test/app',
+      'postgresql://translator:password@localhost/app',
+      'postgresql://translator:test@localhost/app',
+      'postgresql://translator:bad%value@localhost/app'
+    ];
+    const original = lookalikes.join('\n');
+    const { masked } = maskSingle(original);
+
+    expect({ masked, placeholders: placeholders(masked) }).toEqual({
+      masked: original,
+      placeholders: []
+    });
+  });
+
+  it('masks checksum-valid Chinese resident IDs and rejects malformed lookalikes', () => {
+    const residentId = '11010519491231002X';
+    const original = [
+      `resident=${residentId}`,
+      'wrong-checksum=110105194912310021',
+      'impossible-date=110105199902300026',
+      'unknown-region=990105194912310025',
+      'empty-sequence=11010519491231000X',
+      'ordinary-number=123456789012345678'
+    ].join('\n');
+    const { session, masked } = maskSingle(original);
+
+    expect(placeholders(masked)).toHaveLength(1);
+    expect(masked).not.toContain(residentId);
+    expect(masked).not.toMatch(/\]\]X/);
+    expect(masked).toContain('110105194912310021');
+    expect(masked).toContain('110105199902300026');
+    expect(masked).toContain('990105194912310025');
+    expect(masked).toContain('11010519491231000X');
+    expect(masked).toContain('123456789012345678');
+    expect(session.restoreFields([{ id: 'source', text: masked }])).toEqual({
+      status: 'ok', fields: [{ id: 'source', text: original }]
+    });
+  });
+
+  it('keeps fail-closed restoration for new credentials across repeated and crossed fields', () => {
+    const gitlab = `glpat-${credentialBody(28, 57)}`;
+    const databasePassword = 'R3al%40DbK8vQ!';
+    const sourceText = `GitLab ${gitlab}; postgres://user:${databasePassword}@db.example.test/app`;
+    const session = createSensitiveDataMaskingSession();
+    const result = session.maskFields([
+      { id: 'source', text: sourceText, requireRestoration: true },
+      { id: 'other', text: `Again ${gitlab}`, requireRestoration: true },
+      { id: 'context', text: `Context ${gitlab}`, requireRestoration: false }
+    ]);
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+
+    const [gitlabToken, passwordToken] = placeholders(result.fields[0].text);
+    const sharedGitlabToken = placeholders(result.fields[1].text)[0];
+    expect(sharedGitlabToken).toBe(gitlabToken);
+    expect(placeholders(result.fields[2].text)).toEqual([gitlabToken]);
+    expect(session.restoreFields([
+      { id: 'source', text: `${gitlabToken} ${passwordToken}` },
+      { id: 'other', text: sharedGitlabToken }
+    ])).toEqual({
+      status: 'ok',
+      fields: [
+        { id: 'source', text: `${gitlab} ${databasePassword}` },
+        { id: 'other', text: gitlab }
+      ]
+    });
+
+    const duplicate = session.restoreFields([
+      { id: 'source', text: `${gitlabToken} ${passwordToken} ${passwordToken}` },
+      { id: 'other', text: sharedGitlabToken }
+    ]);
+    const transformed = session.restoreFields([
+      { id: 'source', text: `${gitlabToken.toLowerCase()} ${passwordToken}` },
+      { id: 'other', text: sharedGitlabToken }
+    ]);
+    const crossField = session.restoreFields([
+      { id: 'source', text: `${gitlabToken} ${passwordToken}` },
+      { id: 'other', text: `${sharedGitlabToken} ${passwordToken}` }
+    ]);
+
+    expect(duplicate).toEqual(expect.objectContaining({ status: 'ambiguous', reason: 'duplicate-placeholder' }));
+    expect(transformed).toEqual(expect.objectContaining({ status: 'ambiguous', reason: 'transformed-placeholder' }));
+    expect(crossField).toEqual(expect.objectContaining({ status: 'ambiguous', reason: 'unexpected-placeholder' }));
+    for (const ambiguous of [duplicate, transformed, crossField]) {
+      expect(ambiguous).not.toHaveProperty('fields');
+      expect(JSON.stringify(ambiguous)).not.toContain(gitlab);
+      expect(JSON.stringify(ambiguous)).not.toContain(databasePassword);
+    }
+  });
+
+  it('allocates distinct restorable placeholders for a credential repeated in one field', () => {
+    const credential = `sk-proj-${credentialBody(64, 26)}`;
+    const original = `${credential}\nagain ${credential}`;
+    const { session, masked } = maskSingle(original);
+    const tokens = placeholders(masked);
+
+    expect(tokens).toHaveLength(2);
+    expect(new Set(tokens).size).toBe(2);
+    expect(session.restoreFields([{ id: 'source', text: masked }])).toEqual({
+      status: 'ok',
+      fields: [{ id: 'source', text: original }]
+    });
+  });
+
+  it('fails closed when credential matches exceed the shared match limit', () => {
+    const credential = `ghp_${credentialBody(36, 25)}`;
+    const repeatedCredentials = Array.from(
+      { length: SENSITIVE_DATA_MAX_MATCHES + 1 },
+      () => credential
+    ).join(' ');
+
+    expect(createSensitiveDataMaskingSession().maskFields([{
+      id: 'source', text: repeatedCredentials, requireRestoration: true
+    }])).toEqual(expect.objectContaining({ status: 'rejected', reason: 'too-many-matches' }));
   });
 
   it('uses a shared primary placeholder for the same secret across fields', () => {

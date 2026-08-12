@@ -1,6 +1,20 @@
 import { TranslationProviderRuntimeConfig } from './TranslationProviderRegistry';
 
 export type MediaTranscriptionProviderId = 'openai' | 'groq';
+export type MediaTranscriptionModelId =
+  | 'whisper-1'
+  | 'gpt-4o-transcribe'
+  | 'gpt-4o-mini-transcribe'
+  | 'whisper-large-v3-turbo'
+  | 'whisper-large-v3';
+
+export interface MediaTranscriptionModelDefinition {
+  id: MediaTranscriptionModelId;
+  providerId: MediaTranscriptionProviderId;
+  label: string;
+  responseMode: 'timed-json' | 'text-sse';
+  supportsTimedSegments: boolean;
+}
 
 export interface MediaTranscriptionProviderDefinition {
   id: MediaTranscriptionProviderId;
@@ -16,11 +30,13 @@ export interface MediaTranscriptionProviderDefinition {
 
 export interface MediaTranscriptionMetadata {
   providerId: MediaTranscriptionProviderId;
+  transcriptionModel: MediaTranscriptionModelId;
   fileName: string;
   mimeType: string;
   totalBytes: number;
   language?: string;
   prompt?: string;
+  fallbackDurationSeconds?: number;
 }
 
 export interface MediaTranscriptionSegment {
@@ -35,16 +51,28 @@ export interface MediaTranscriptionResult {
   language: string;
   duration: number;
   segments: MediaTranscriptionSegment[];
+  timingMode: 'provider-segments' | 'fallback';
 }
 
 export const MEDIA_TRANSCRIPTION_MAX_BYTES = 25 * 1024 * 1024;
 export const MEDIA_TRANSCRIPTION_CHUNK_BYTES = 256 * 1024;
+export const MEDIA_TRANSCRIPTION_MAX_TEXT_LENGTH = 200000;
+export const MEDIA_TRANSCRIPTION_MAX_SSE_EVENTS = 50_000;
+export const MEDIA_TRANSCRIPTION_PARTIAL_PREVIEW_LENGTH = 4_000;
 
-const MEDIA_TRANSCRIPTION_EXTENSION_PATTERN = /\.(mp3|mp4|mpeg|mpga|m4a|wav|webm)$/i;
+const MEDIA_TRANSCRIPTION_MAX_SSE_EVENT_LENGTH = MEDIA_TRANSCRIPTION_MAX_TEXT_LENGTH + 8192;
+const MEDIA_TRANSCRIPTION_INITIAL_PARTIAL_EMISSIONS = 16;
+const MEDIA_TRANSCRIPTION_PARTIAL_EMIT_INTERVAL = 64;
+const MEDIA_TRANSCRIPTION_DEFAULT_FALLBACK_DURATION_SECONDS = 5;
+const MEDIA_TRANSCRIPTION_MAX_FALLBACK_DURATION_SECONDS = 24 * 60 * 60;
+
+const MEDIA_TRANSCRIPTION_EXTENSION_PATTERN = /\.(flac|mp3|mp4|mpeg|mpga|m4a|ogg|wav|webm)$/i;
 const MEDIA_TRANSCRIPTION_MIME_TYPES = new Set([
+  'audio/flac',
   'audio/m4a',
   'audio/mp4',
   'audio/mpeg',
+  'audio/ogg',
   'audio/wav',
   'audio/wave',
   'audio/webm',
@@ -89,10 +117,61 @@ export const MEDIA_TRANSCRIPTION_PROVIDERS: MediaTranscriptionProviderDefinition
   }
 ];
 
+export const MEDIA_TRANSCRIPTION_MODELS: readonly MediaTranscriptionModelDefinition[] = Object.freeze([
+  {
+    id: 'whisper-1',
+    providerId: 'openai',
+    label: 'Whisper 1 (timed captions)',
+    responseMode: 'timed-json',
+    supportsTimedSegments: true
+  },
+  {
+    id: 'gpt-4o-transcribe',
+    providerId: 'openai',
+    label: 'GPT-4o Transcribe (streaming text)',
+    responseMode: 'text-sse',
+    supportsTimedSegments: false
+  },
+  {
+    id: 'gpt-4o-mini-transcribe',
+    providerId: 'openai',
+    label: 'GPT-4o mini Transcribe (streaming text)',
+    responseMode: 'text-sse',
+    supportsTimedSegments: false
+  },
+  {
+    id: 'whisper-large-v3-turbo',
+    providerId: 'groq',
+    label: 'Whisper Large V3 Turbo',
+    responseMode: 'timed-json',
+    supportsTimedSegments: true
+  },
+  {
+    id: 'whisper-large-v3',
+    providerId: 'groq',
+    label: 'Whisper Large V3',
+    responseMode: 'timed-json',
+    supportsTimedSegments: true
+  }
+]);
+
 export const getMediaTranscriptionProvider = (
   providerId: unknown
 ): MediaTranscriptionProviderDefinition | undefined => (
   MEDIA_TRANSCRIPTION_PROVIDERS.find(provider => provider.id === providerId)
+);
+
+export const getMediaTranscriptionModels = (
+  providerId: unknown
+): readonly MediaTranscriptionModelDefinition[] => (
+  MEDIA_TRANSCRIPTION_MODELS.filter(model => model.providerId === providerId)
+);
+
+export const getMediaTranscriptionModel = (
+  providerId: unknown,
+  modelId: unknown
+): MediaTranscriptionModelDefinition | undefined => (
+  MEDIA_TRANSCRIPTION_MODELS.find(model => model.providerId === providerId && model.id === modelId)
 );
 
 export class MediaTranscriptionUpload {
@@ -151,6 +230,9 @@ export class MediaTranscriptionUpload {
     if (!getMediaTranscriptionProvider(metadata.providerId)) {
       throw new Error('Choose a supported transcription provider.');
     }
+    if (!getMediaTranscriptionModel(metadata.providerId, metadata.transcriptionModel)) {
+      throw new Error('Choose a transcription model supported by the selected provider.');
+    }
     if (!metadata.fileName?.trim()) throw new Error('Choose an audio or video file.');
     if (!isSupportedMediaTranscriptionFile(metadata.fileName, metadata.mimeType || '')) {
       throw new Error('Choose a supported audio or video file.');
@@ -160,6 +242,16 @@ export class MediaTranscriptionUpload {
     }
     if (metadata.totalBytes > MEDIA_TRANSCRIPTION_MAX_BYTES) {
       throw new Error('The selected media file exceeds the 25 MB transcription limit.');
+    }
+    if (
+      metadata.fallbackDurationSeconds !== undefined
+      && (
+        !Number.isFinite(metadata.fallbackDurationSeconds)
+        || metadata.fallbackDurationSeconds <= 0
+        || metadata.fallbackDurationSeconds > MEDIA_TRANSCRIPTION_MAX_FALLBACK_DURATION_SECONDS
+      )
+    ) {
+      throw new Error('The media fallback duration is invalid.');
     }
   }
 
@@ -182,18 +274,29 @@ export class MediaTranscriptionService {
   async transcribe(
     upload: MediaTranscriptionUpload,
     providerConfig: TranslationProviderRuntimeConfig | undefined,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    onPartialText?: (text: string) => void
   ): Promise<MediaTranscriptionResult> {
     const definition = getMediaTranscriptionProvider(upload.metadata.providerId)!;
+    const model = getMediaTranscriptionModel(
+      upload.metadata.providerId,
+      upload.metadata.transcriptionModel
+    );
+    if (!model) throw new Error('Choose a transcription model supported by the selected provider.');
     const apiKey = providerConfig?.apiKey?.trim() || '';
     if (!apiKey) throw new Error(`${definition.label} API key is not configured.`);
 
     const endpoint = this.resolveEndpoint(definition, providerConfig?.endpoint);
     const form = new FormData();
     form.append('file', upload.createBlob(), this.sanitizeFileName(upload.metadata.fileName));
-    form.append('model', definition.defaultModel);
-    form.append('response_format', 'verbose_json');
-    form.append('timestamp_granularities[]', 'segment');
+    form.append('model', model.id);
+    if (model.responseMode === 'text-sse') {
+      form.append('stream', 'true');
+      form.append('response_format', 'json');
+    } else {
+      form.append('response_format', 'verbose_json');
+      form.append('timestamp_granularities[]', 'segment');
+    }
     form.append('temperature', '0');
     const language = this.normalizeLanguage(upload.metadata.language);
     if (language) form.append('language', language);
@@ -206,18 +309,38 @@ export class MediaTranscriptionService {
       body: form,
       signal
     });
+    if (!response.ok) {
+      const data = await this.readErrorResponse(response);
+      const providerMessage = typeof data?.error?.message === 'string' ? data.error.message.trim() : '';
+      throw new Error(providerMessage || `${definition.label} request failed with HTTP ${response.status}.`);
+    }
+
+    if (model.responseMode === 'text-sse') {
+      const text = await this.readStreamingTranscript(response, signal, onPartialText);
+      const duration = this.normalizeFallbackDuration(upload.metadata.fallbackDurationSeconds);
+      return {
+        text,
+        language: language || 'auto',
+        duration,
+        segments: [{ id: 1, start: 0, end: duration, text }],
+        timingMode: 'fallback'
+      };
+    }
+
     let data: any;
     try {
       data = await response.json();
     } catch {
       throw new Error(`${definition.label} returned invalid JSON.`);
     }
-    if (!response.ok) {
-      const providerMessage = typeof data?.error?.message === 'string' ? data.error.message.trim() : '';
-      throw new Error(providerMessage || `${definition.label} request failed with HTTP ${response.status}.`);
-    }
 
-    const segments = this.normalizeSegments(data?.segments, data?.text, data?.duration);
+    const timedSegments = this.normalizeTimedSegments(data?.segments);
+    const segments = timedSegments.length > 0
+      ? timedSegments
+      : this.normalizeFallbackSegment(
+        data?.text,
+        data?.duration ?? upload.metadata.fallbackDurationSeconds
+      );
     if (segments.length === 0) throw new Error(`${definition.label} returned no transcript text.`);
     const text = typeof data?.text === 'string' && data.text.trim()
       ? data.text.trim()
@@ -229,8 +352,162 @@ export class MediaTranscriptionService {
       text,
       language: typeof data?.language === 'string' ? data.language : language || 'auto',
       duration: Math.max(0, duration),
-      segments
+      segments,
+      timingMode: timedSegments.length > 0 ? 'provider-segments' : 'fallback'
     };
+  }
+
+  private async readErrorResponse(response: Response): Promise<any> {
+    try {
+      return await response.json();
+    } catch {
+      return null;
+    }
+  }
+
+  private async readStreamingTranscript(
+    response: Response,
+    signal?: AbortSignal,
+    onPartialText?: (text: string) => void
+  ): Promise<string> {
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('OpenAI transcription stream is unavailable.');
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let accumulated = '';
+    let completedText = '';
+    let receivedDone = false;
+    let processedEventCount = 0;
+    let partialEmissionCount = 0;
+    let lastPartialEmissionLength = 0;
+    const abortReader = (): void => {
+      void reader.cancel().catch(() => undefined);
+    };
+    signal?.addEventListener('abort', abortReader, { once: true });
+
+    const assertNotAborted = (): void => {
+      if (!signal?.aborted) return;
+      const error = new Error('Media transcription was canceled.');
+      error.name = 'AbortError';
+      throw error;
+    };
+    const processEvent = (rawEvent: string): void => {
+      processedEventCount++;
+      if (processedEventCount > MEDIA_TRANSCRIPTION_MAX_SSE_EVENTS) {
+        throw new Error('OpenAI transcription stream exceeded the event count limit.');
+      }
+      const lines = rawEvent.split(/\r?\n/);
+      let eventName = '';
+      const dataLines: string[] = [];
+      for (const line of lines) {
+        if (!line || line.startsWith(':')) continue;
+        const separator = line.indexOf(':');
+        const field = separator >= 0 ? line.slice(0, separator) : line;
+        let value = separator >= 0 ? line.slice(separator + 1) : '';
+        if (value.startsWith(' ')) value = value.slice(1);
+        if (field === 'event') eventName = value;
+        else if (field === 'data') dataLines.push(value);
+      }
+      if (dataLines.length === 0) return;
+
+      const serializedPayload = dataLines.join('\n').trim();
+      if (serializedPayload === '[DONE]') {
+        return;
+      }
+
+      let payload: any;
+      try {
+        payload = JSON.parse(serializedPayload);
+      } catch {
+        throw new Error('OpenAI transcription stream returned invalid JSON.');
+      }
+      const payloadType = typeof payload?.type === 'string' ? payload.type : '';
+      const knownTypes = new Set(['transcript.text.delta', 'transcript.text.done']);
+      const eventIsKnown = knownTypes.has(eventName);
+      const payloadIsKnown = knownTypes.has(payloadType);
+      if (!eventIsKnown && !payloadIsKnown) return;
+      if ((eventName && eventName !== payloadType) || !payloadIsKnown) {
+        throw new Error('OpenAI transcription stream returned a mismatched event type.');
+      }
+      if (receivedDone) {
+        throw new Error('OpenAI transcription stream returned data after completion.');
+      }
+
+      if (payloadType === 'transcript.text.delta') {
+        if (typeof payload.delta !== 'string') {
+          throw new Error('OpenAI transcription stream returned an invalid text delta.');
+        }
+        accumulated += payload.delta.split('\u0000').join('');
+        if (accumulated.length > MEDIA_TRANSCRIPTION_MAX_TEXT_LENGTH) {
+          throw new Error('OpenAI transcription stream exceeded the transcript text limit.');
+        }
+        assertNotAborted();
+        const shouldEmitPartial = partialEmissionCount < MEDIA_TRANSCRIPTION_INITIAL_PARTIAL_EMISSIONS
+          || accumulated.length - lastPartialEmissionLength >= MEDIA_TRANSCRIPTION_PARTIAL_EMIT_INTERVAL;
+        if (payload.delta && onPartialText && shouldEmitPartial) {
+          onPartialText(this.takeTrailingCodePoints(
+            accumulated,
+            MEDIA_TRANSCRIPTION_PARTIAL_PREVIEW_LENGTH
+          ));
+          partialEmissionCount++;
+          lastPartialEmissionLength = accumulated.length;
+        }
+        return;
+      }
+
+      if (typeof payload.text !== 'string') {
+        throw new Error('OpenAI transcription stream returned an invalid completion event.');
+      }
+      if (payload.text.split('\u0000').join('').length > MEDIA_TRANSCRIPTION_MAX_TEXT_LENGTH) {
+        throw new Error('OpenAI transcription stream exceeded the transcript text limit.');
+      }
+      completedText = this.normalizeText(payload.text, MEDIA_TRANSCRIPTION_MAX_TEXT_LENGTH);
+      if (!completedText) {
+        throw new Error('OpenAI transcription returned no transcript text.');
+      }
+      receivedDone = true;
+    };
+    const drainEvents = (flush: boolean): void => {
+      let boundary: RegExpExecArray | null;
+      const boundaryPattern = /\r?\n\r?\n/g;
+      while ((boundary = boundaryPattern.exec(buffer))) {
+        const event = buffer.slice(0, boundary.index);
+        buffer = buffer.slice(boundary.index + boundary[0].length);
+        boundaryPattern.lastIndex = 0;
+        if (event) processEvent(event);
+      }
+      if (flush && buffer.trim()) {
+        processEvent(buffer);
+        buffer = '';
+      }
+      if (buffer.length > MEDIA_TRANSCRIPTION_MAX_SSE_EVENT_LENGTH) {
+        throw new Error('OpenAI transcription stream event exceeded the size limit.');
+      }
+    };
+
+    try {
+      let streamEnded = false;
+      while (!streamEnded) {
+        assertNotAborted();
+        const { done, value } = await reader.read();
+        assertNotAborted();
+        if (done) {
+          streamEnded = true;
+          continue;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        drainEvents(false);
+      }
+      buffer += decoder.decode();
+      drainEvents(true);
+    } finally {
+      signal?.removeEventListener('abort', abortReader);
+      reader.releaseLock();
+    }
+
+    if (!receivedDone) throw new Error('OpenAI transcription stream ended before completion.');
+    return completedText;
   }
 
   private resolveEndpoint(
@@ -267,7 +544,7 @@ export class MediaTranscriptionService {
     return url.toString();
   }
 
-  private normalizeSegments(value: unknown, fallbackText: unknown, durationValue: unknown): MediaTranscriptionSegment[] {
+  private normalizeTimedSegments(value: unknown): MediaTranscriptionSegment[] {
     if (Array.isArray(value)) {
       const segments = value.flatMap((item, index) => {
         const text = this.normalizeText(item?.text, 10000);
@@ -284,11 +561,19 @@ export class MediaTranscriptionService {
       });
       if (segments.length > 0) return segments;
     }
+    return [];
+  }
 
+  private normalizeFallbackSegment(fallbackText: unknown, durationValue: unknown): MediaTranscriptionSegment[] {
     const text = this.normalizeText(fallbackText, 100000);
     if (!text) return [];
-    const duration = this.toFiniteNumber(durationValue) ?? 5;
-    return [{ id: 1, start: 0, end: Math.max(0.05, duration), text }];
+    const duration = this.normalizeFallbackDuration(durationValue);
+    return [{ id: 1, start: 0, end: duration, text }];
+  }
+
+  private normalizeFallbackDuration(value: unknown): number {
+    const duration = this.toFiniteNumber(value) ?? MEDIA_TRANSCRIPTION_DEFAULT_FALLBACK_DURATION_SECONDS;
+    return Math.max(0.05, Math.min(MEDIA_TRANSCRIPTION_MAX_FALLBACK_DURATION_SECONDS, duration));
   }
 
   private normalizeLanguage(value: unknown): string {
@@ -309,6 +594,12 @@ export class MediaTranscriptionService {
     return typeof value === 'string'
       ? value.split('\u0000').join('').trim().slice(0, maximumLength)
       : '';
+  }
+
+  private takeTrailingCodePoints(value: string, maximumCodePoints: number): string {
+    let suffix = value.slice(-maximumCodePoints * 2);
+    if (/^[\uDC00-\uDFFF]/.test(suffix)) suffix = suffix.slice(1);
+    return Array.from(suffix).slice(-maximumCodePoints).join('');
   }
 
   private toFiniteNumber(value: unknown): number | null {

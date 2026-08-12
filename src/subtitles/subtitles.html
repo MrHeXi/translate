@@ -21,7 +21,7 @@
         <div class="source-actions">
           <label class="file-picker">
             <span>Choose media</span>
-            <input id="mediaFile" type="file" accept=".mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm,audio/mpeg,audio/mp4,audio/x-m4a,audio/wav,audio/x-wav,audio/webm,video/mp4,video/webm">
+            <input id="mediaFile" type="file" accept=".flac,.mp3,.mp4,.mpeg,.mpga,.m4a,.ogg,.wav,.webm,audio/flac,audio/mpeg,audio/mp4,audio/ogg,audio/x-m4a,audio/wav,audio/x-wav,audio/webm,video/mp4,video/webm">
           </label>
           <button id="toggleTabCapture" class="secondary-button capture-button" type="button" disabled>Capture current tab</button>
           <button id="cancelTabCapture" class="icon-button icon-button-dark" type="button" title="Cancel tab capture" aria-label="Cancel tab capture" hidden>&#10005;</button>
@@ -36,6 +36,10 @@
         <label>
           Speech service
           <select id="transcriptionProvider"></select>
+        </label>
+        <label>
+          Speech model
+          <select id="transcriptionModel"></select>
         </label>
         <label>
           Spoken language
@@ -69,6 +73,7 @@
           <button id="cancelGeneration" class="secondary-button" type="button" hidden>Cancel</button>
           <button id="generateSubtitles" class="primary-button" type="button" disabled>Generate subtitles</button>
         </div>
+        <p id="partialTranscript" class="partial-transcript" aria-live="polite" hidden></p>
       </section>
 
       <section id="resultSection" class="result-section" hidden>
@@ -84,6 +89,24 @@
             <button id="applyToSourceVideo" class="secondary-button" type="button" hidden disabled>Apply to source video</button>
             <button id="clearSourceVideo" class="icon-button icon-button-dark" type="button" title="Clear source video subtitles" aria-label="Clear source video subtitles" hidden disabled>&#10005;</button>
           </div>
+        </div>
+        <div id="cueEditToolbar" class="cue-edit-toolbar" hidden>
+          <label class="timeline-shift-field" for="timelineShift">
+            <span>Shift all captions (seconds)</span>
+            <input id="timelineShift" type="number" step="0.001" value="0">
+          </label>
+          <button id="applyTimelineShift" class="secondary-button" type="button">Apply shift</button>
+          <div class="timeline-history-actions">
+            <button id="undoTimelineEdit" class="icon-button icon-button-dark" type="button" title="Undo caption edit" aria-label="Undo caption edit" disabled>&#8630;</button>
+            <button id="redoTimelineEdit" class="icon-button icon-button-dark" type="button" title="Redo caption edit" aria-label="Redo caption edit" disabled>&#8631;</button>
+          </div>
+        </div>
+        <div id="timelineOverview" class="timeline-overview" hidden>
+          <div class="timeline-scale" aria-hidden="true">
+            <span>00:00</span>
+            <span id="timelineDuration">00:00</span>
+          </div>
+          <div id="timelineTrack" class="timeline-track" role="group" aria-label="Generated caption timeline"></div>
         </div>
         <div id="cueList" class="cue-list"></div>
       </section>

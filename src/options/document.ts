@@ -1,5 +1,6 @@
 import { DocumentBlock, DocumentTextExtractor } from '../services/DocumentTextExtractor';
 import { createAcademicDocumentHandoff } from '../services/AcademicDocumentHandoff';
+import { createBabelDocWorkflow } from '../services/BabelDocWorkflow';
 import {
   BUNDLED_OCR_LANGUAGES,
   BundledOcrLanguageCode
@@ -92,6 +93,7 @@ class DocumentTranslatorController {
   private exportPdfButton: HTMLButtonElement | null = null;
   private exportTextButton: HTMLButtonElement | null = null;
   private exportResearchNoteButton: HTMLButtonElement | null = null;
+  private exportBabelDocGuideButton: HTMLButtonElement | null = null;
   private saveHistoryButton: HTMLButtonElement | null = null;
   private clearButton: HTMLButtonElement | null = null;
   private historyRetention: HTMLSelectElement | null = null;
@@ -123,6 +125,7 @@ class DocumentTranslatorController {
   private loadedFileName = '';
   private loadedSourceKind: DocumentHistorySourceKind = 'manual';
   private loadedSourceUrl = '';
+  private hasExplicitlyLoadedPdf = false;
   private currentResults: TranslationResult[] = [];
   private pdfSession: PdfDocumentSession | null = null;
   private pdfAnalysis: PdfDocumentAnalysis | null = null;
@@ -154,6 +157,7 @@ class DocumentTranslatorController {
     this.exportPdfButton = document.getElementById('exportPdfFile') as HTMLButtonElement | null;
     this.exportTextButton = document.getElementById('exportTextFile') as HTMLButtonElement | null;
     this.exportResearchNoteButton = document.getElementById('exportResearchNote') as HTMLButtonElement | null;
+    this.exportBabelDocGuideButton = document.getElementById('exportBabelDocGuide') as HTMLButtonElement | null;
     this.saveHistoryButton = document.getElementById('saveDocumentHistory') as HTMLButtonElement | null;
     this.clearButton = document.getElementById('clearDocument') as HTMLButtonElement | null;
     this.historyRetention = document.getElementById('historyRetention') as HTMLSelectElement | null;
@@ -291,6 +295,7 @@ class DocumentTranslatorController {
     this.exportPdfButton?.addEventListener('click', () => void this.exportTranslatedPdf());
     this.exportTextButton?.addEventListener('click', () => this.exportTranslatedText());
     this.exportResearchNoteButton?.addEventListener('click', () => this.exportResearchNote());
+    this.exportBabelDocGuideButton?.addEventListener('click', () => this.exportBabelDocGuide());
     this.saveHistoryButton?.addEventListener('click', () => void this.saveDocumentHistory());
     this.clearButton?.addEventListener('click', () => this.clearDocument());
     this.historyRetention?.addEventListener('change', () => void this.changeHistoryRetention());
@@ -317,6 +322,8 @@ class DocumentTranslatorController {
 
     try {
       this.setBusy(true);
+      this.hasExplicitlyLoadedPdf = false;
+      this.updateBabelDocGuideExportButton(true);
       await this.disposePdfSession();
       this.applySourceUrl();
       const isJsonDocument = this.isJsonDocumentFile(file);
@@ -371,6 +378,7 @@ class DocumentTranslatorController {
         this.loadedRawFileBytes = rawBytes;
         this.loadedFileName = file.name;
         this.loadedSourceKind = this.getDocumentHistorySourceKind(file.name);
+        this.hasExplicitlyLoadedPdf = isPdfDocument && Boolean(rawBytes);
         this.currentResults = [];
         this.sourceText.value = '';
         this.renderResults([]);
@@ -390,6 +398,7 @@ class DocumentTranslatorController {
       this.loadedRawFileBytes = rawBytes;
       this.loadedFileName = file.name;
       this.loadedSourceKind = this.getDocumentHistorySourceKind(file.name);
+      this.hasExplicitlyLoadedPdf = isPdfDocument && Boolean(rawBytes);
       this.currentResults = [];
       this.sourceText.value = text;
       const hasLayout = blocks.some(block => block.layout);
@@ -1102,6 +1111,29 @@ class DocumentTranslatorController {
       this.showMessage(`Exported a bilingual research note with ${handoff.blockCount} blocks`);
     } catch (error) {
       this.showMessage(error instanceof Error ? error.message : 'Could not export the research note.', 'error');
+    }
+  }
+
+  private exportBabelDocGuide(): void {
+    if (
+      !this.hasExplicitlyLoadedPdf
+      || !this.loadedRawFileBytes
+      || !this.isPdfFileName(this.loadedFileName)
+    ) {
+      this.showMessage('Load a PDF before exporting a BabelDOC guide.', 'error');
+      return;
+    }
+
+    try {
+      const workflow = createBabelDocWorkflow({
+        sourceFileName: this.loadedFileName,
+        sourceLanguage: 'auto',
+        targetLanguage: this.targetLanguage?.value || 'zh-CN'
+      });
+      this.downloadTextFile(workflow.content, workflow.filename, 'text/markdown;charset=utf-8');
+      this.showMessage(`Exported a local BabelDOC guide for ${workflow.sourceFileName}`);
+    } catch (error) {
+      this.showMessage(error instanceof Error ? error.message : 'Could not export the BabelDOC guide.', 'error');
     }
   }
 
@@ -1821,6 +1853,7 @@ class DocumentTranslatorController {
       if (!entry) throw new Error('The selected history entry no longer exists.');
 
       await this.disposePdfSession();
+      this.hasExplicitlyLoadedPdf = false;
       if (this.fileInput) this.fileInput.value = '';
       if (this.sourceText) this.sourceText.value = entry.sourceText;
       this.loadedDocumentBlocks = entry.documentBlocks;
@@ -1987,6 +2020,7 @@ class DocumentTranslatorController {
     this.loadedRawFileBytes = null;
     this.loadedFileName = '';
     this.loadedSourceKind = 'manual';
+    this.hasExplicitlyLoadedPdf = false;
     this.currentResults = [];
     this.applySourceUrl();
     this.renderResults([]);
@@ -2030,6 +2064,7 @@ class DocumentTranslatorController {
     this.updatePdfExportButton(isBusy);
     this.updateTextExportButton(isBusy);
     this.updateResearchNoteExportButton(isBusy);
+    this.updateBabelDocGuideExportButton(isBusy);
     if (this.saveHistoryButton) {
       this.saveHistoryButton.disabled = isBusy || this.currentResults.length === 0;
     }
@@ -2095,6 +2130,15 @@ class DocumentTranslatorController {
     if (!this.exportResearchNoteButton) return;
     const hasTranslatedText = this.currentResults.some(result => result.translatedText.trim());
     this.exportResearchNoteButton.disabled = isBusy || !hasTranslatedText;
+  }
+
+  private updateBabelDocGuideExportButton(isBusy: boolean = false): void {
+    if (!this.exportBabelDocGuideButton) return;
+    const hasLoadedPdf = this.hasExplicitlyLoadedPdf
+      && Boolean(this.loadedRawFileBytes)
+      && this.isPdfFileName(this.loadedFileName);
+    this.exportBabelDocGuideButton.hidden = !hasLoadedPdf;
+    this.exportBabelDocGuideButton.disabled = isBusy || !hasLoadedPdf;
   }
 
   private isJsonDocumentFile(file: File): boolean {

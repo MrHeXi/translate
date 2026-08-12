@@ -648,7 +648,12 @@ class BackgroundService {
                 const result = await mediaTranscriptionService.transcribe(
                   activeUpload,
                   providerConfig,
-                  abortController.signal
+                  abortController.signal,
+                  partialText => {
+                    if (!canceled && !disconnected) {
+                      postMessage({ type: 'transcription-partial', text: partialText });
+                    }
+                  }
                 );
                 if (!canceled) postMessage({ type: 'transcription-complete', result });
               } finally {

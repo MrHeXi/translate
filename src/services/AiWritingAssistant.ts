@@ -1,4 +1,13 @@
-export type AiWritingAction = 'polish' | 'rewrite' | 'compose' | 'reply' | 'summarize';
+export type AiWritingAction =
+  | 'polish'
+  | 'rewrite'
+  | 'compose'
+  | 'reply'
+  | 'summarize'
+  | 'proofread'
+  | 'explain'
+  | 'extract'
+  | 'academic';
 export type AiWritingTone = 'neutral' | 'professional' | 'friendly' | 'confident' | 'empathetic';
 export type AiWritingLength = 'shorter' | 'similar' | 'longer';
 
@@ -58,6 +67,38 @@ export const AI_WRITING_ACTIONS: AiWritingActionDefinition[] = [
     resultLabel: 'Summary',
     inputLabel: 'Text to summarize',
     placeholder: 'Enter text to summarize'
+  },
+  {
+    code: 'proofread',
+    label: 'Proofread',
+    buttonLabel: 'Proofread text',
+    resultLabel: 'Proofread text',
+    inputLabel: 'Text to proofread',
+    placeholder: 'Enter text to check without changing its voice'
+  },
+  {
+    code: 'explain',
+    label: 'Explain',
+    buttonLabel: 'Explain text',
+    resultLabel: 'Explanation',
+    inputLabel: 'Text to explain',
+    placeholder: 'Enter a passage or concept to explain'
+  },
+  {
+    code: 'extract',
+    label: 'Key points',
+    buttonLabel: 'Extract key points',
+    resultLabel: 'Key points',
+    inputLabel: 'Text to analyze',
+    placeholder: 'Enter text containing facts, decisions, or actions'
+  },
+  {
+    code: 'academic',
+    label: 'Academic',
+    buttonLabel: 'Rewrite academically',
+    resultLabel: 'Academic rewrite',
+    inputLabel: 'Academic text',
+    placeholder: 'Enter text to rewrite in a precise academic style'
   }
 ];
 
@@ -140,6 +181,14 @@ const getActionInstruction = (action: AiWritingAction): string => {
       return 'Draft a direct reply to the supplied message. Address its important points without pretending the user has taken actions or made commitments.';
     case 'summarize':
       return 'Summarize the supplied text accurately, preserving its central facts, qualifications, names, and numbers.';
+    case 'proofread':
+      return 'Correct objective grammar, spelling, punctuation, and consistency errors while preserving the author\'s wording, voice, meaning, formatting, citations, and notation wherever no correction is required.';
+    case 'explain':
+      return 'Explain the supplied passage or concept in accessible language. Distinguish statements supported by the input from necessary interpretation, preserve uncertainty, and do not introduce unsupported claims.';
+    case 'extract':
+      return 'Extract only the important facts, decisions, action items, open questions, names, dates, and numbers supported by the input. Use a concise bullet list and omit categories with no supported content.';
+    case 'academic':
+      return 'Rewrite in precise academic prose while preserving the original claims, degree of certainty, citations, quotations, equations, variables, technical terms, names, numbers, links, and paragraph structure. Do not fabricate evidence or references.';
   }
 };
 

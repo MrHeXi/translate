@@ -93,6 +93,16 @@ interface FieldRestorationRule {
 
 const PLACEHOLDER_PATTERN = /\[\[LEXIBRIDGE_MASK_[A-Z0-9]+_[A-Z0-9]+\]\]/g;
 const FORMAT_CHARACTERS_PATTERN = /[\u200B-\u200D\u2060\uFEFF]/g;
+const PRIVATE_KEY_PEM_PATTERN = /(^|[\r\n])(-----BEGIN (PRIVATE KEY|ENCRYPTED PRIVATE KEY|RSA PRIVATE KEY|DSA PRIVATE KEY|EC PRIVATE KEY|OPENSSH PRIVATE KEY)-----\r?\n((?:[A-Za-z0-9+/=]+\r?\n)*[A-Za-z0-9+/=]+)\r?\n-----END (PRIVATE KEY|ENCRYPTED PRIVATE KEY|RSA PRIVATE KEY|DSA PRIVATE KEY|EC PRIVATE KEY|OPENSSH PRIVATE KEY)-----)(?=$|[\r\n])/g;
+const AWS_ACCESS_KEY_ID_PATTERN = /(^|[^A-Za-z0-9])((?:AKIA|ASIA)[A-Z0-9]{16})(?![A-Za-z0-9])/g;
+const GITHUB_TOKEN_PATTERN = /(^|[^A-Za-z0-9_.-])((?:ghr_[A-Za-z0-9_]{76}|gh[puo]_[A-Za-z0-9_]{36}|ghs_[A-Za-z0-9._-]{36,1024}|github_pat_[A-Za-z0-9_]{82}))(?![A-Za-z0-9_.-])/g;
+const OPENAI_SCOPED_KEY_PATTERN = /(^|[\s"'`=([{,:])((?:sk-(?:proj|svcacct|admin)-)[A-Za-z0-9_-]{40,200})(?=$|[\s"'`,.;:)\]}])/g;
+const GITLAB_TOKEN_PATTERN = /(^|[^A-Za-z0-9_-])(glpat-[A-Za-z0-9_-]{20,128})(?![A-Za-z0-9_-])/g;
+const SLACK_TOKEN_PATTERN = /(^|[^A-Za-z0-9_-])((?:xox[bp]-[A-Za-z0-9-]{20,200}|xapp-[A-Za-z0-9-]{20,250}))(?![A-Za-z0-9_-])/g;
+const STRIPE_SECRET_KEY_PATTERN = /(^|[^A-Za-z0-9_])([sr]k_(?:live|test)_[A-Za-z0-9]{24,128})(?![A-Za-z0-9_])/g;
+const GOOGLE_API_KEY_PATTERN = /(^|[^A-Za-z0-9_-])(AIza[A-Za-z0-9_-]{35})(?![A-Za-z0-9_-])/g;
+const DATABASE_URI_PASSWORD_PATTERN = /(?:mongodb(?:\+srv)?|postgres(?:ql)?|mysqlx?):\/\/[^:/?#@\s]+:([^@/?#\s]+)@/gi;
+const AZURE_STORAGE_CONNECTION_PATTERN = /(^|[\s"'`])(DefaultEndpointsProtocol=(?:https|http);AccountName=([A-Za-z0-9]{3,24});AccountKey=([A-Za-z0-9+/]{86}==))(?=;|$|[\s"'`])/gi;
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
 const EMAIL_PATTERN = /(^|[^A-Z0-9.!#$%&'*+/=?^_`{|}~-])([A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+)/gi;
 const CARD_PATTERN = /(^|\D)((?:\d[ -]?){12,18}\d)(?!\d)/g;
@@ -100,6 +110,7 @@ const IPV4_PATTERN = /(^|[^\d.])((?:\d{1,3}\.){3}\d{1,3})(?![\d.])/g;
 const IPV6_PATTERN = /(^|[^A-F0-9:])((?:[A-F0-9]{0,4}:){2,7}[A-F0-9:]{0,4})(?![A-F0-9:])/gi;
 const JWT_PATTERN = /(^|[^A-Z0-9_-])([A-Z0-9_-]+(?:\.[A-Z0-9_-]+){2})(?![A-Z0-9_-])/gi;
 const PHONE_PATTERN = /(^|[^\d+])((?:\+\d{1,3}[ \t.-]?)?(?:\(\d{2,4}\)|\d{2,4})(?:[ \t.-]?\d{2,4}){2,4})(?!\d)/g;
+const CHINESE_RESIDENT_ID_PATTERN = /(^|\D)([1-9]\d{5}(?:18|19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx])(?![\dXx])/g;
 const IBAN_START_PATTERN = /\b[A-Z]{2}\d{2}/gi;
 const SENSITIVE_QUERY_KEYS = new Set([
   'password',
@@ -133,6 +144,14 @@ const AMBIGUITY_REASON_PRIORITY: readonly SensitiveDataRestorationAmbiguityReaso
   'duplicate-placeholder',
   'missing-placeholder'
 ];
+const CREDENTIAL_PLACEHOLDER_PATTERN = /(?:EXAMPLE|SAMPLE|PLACEHOLDER|REDACTED|REPLACE[_-]?ME|CHANGE[_-]?ME|YOUR[_-]?(?:API[_-]?)?(?:KEY|TOKEN|SECRET|PASSWORD)|PASSWORD|DUMMY|FAKE)/i;
+const COMMON_DATABASE_PLACEHOLDER_PATTERN = /^(?:test|admin|root|guest|demo)$/i;
+
+const CHINESE_RESIDENT_ID_REGION_CODES = new Set([
+  '11', '12', '13', '14', '15', '21', '22', '23', '31', '32', '33', '34',
+  '35', '36', '37', '41', '42', '43', '44', '45', '46', '50', '51', '52',
+  '53', '54', '61', '62', '63', '64', '65', '71', '81', '82'
+]);
 
 const IBAN_LENGTHS: Readonly<Record<string, number>> = Object.freeze({
   AD: 24, AE: 23, AL: 28, AT: 20, AZ: 28, BA: 20, BE: 16, BG: 22,
@@ -300,6 +319,194 @@ function isLuhnValid(value: string): boolean {
   return sum % 10 === 0;
 }
 
+function decodeStrictBase64(value: string): Uint8Array | null {
+  if (value.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return null;
+  try {
+    const binary = atob(value);
+    return Uint8Array.from(binary, character => character.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
+function isCompleteDerSequence(bytes: Uint8Array): boolean {
+  if (bytes.length < 2 || bytes[0] !== 0x30) return false;
+
+  const firstLengthByte = bytes[1];
+  if ((firstLengthByte & 0x80) === 0) {
+    return firstLengthByte + 2 === bytes.length;
+  }
+
+  const lengthByteCount = firstLengthByte & 0x7f;
+  if (lengthByteCount < 1 || lengthByteCount > 3 || bytes.length < 2 + lengthByteCount) return false;
+  if (bytes[2] === 0) return false;
+
+  let contentLength = 0;
+  for (let index = 0; index < lengthByteCount; index += 1) {
+    contentLength = contentLength * 256 + bytes[2 + index];
+  }
+  return contentLength >= 128 && 2 + lengthByteCount + contentLength === bytes.length;
+}
+
+function isValidPrivateKeyPem(label: string, body: string, endLabel: string): boolean {
+  if (label !== endLabel) return false;
+  const lines = body.split(/\r?\n/);
+  if (lines.length === 0 || lines.some((line, index) => {
+    const minimumLength = index === lines.length - 1 ? 4 : 16;
+    return line.length < minimumLength || line.length > 76 || !/^[A-Za-z0-9+/]+={0,2}$/.test(line)
+      || (index < lines.length - 1 && line.includes('='));
+  })) {
+    return false;
+  }
+
+  const compact = lines.join('');
+  if (compact.length < 64 || compact.length > 44_000) return false;
+  const bytes = decodeStrictBase64(compact);
+  if (!bytes || bytes.length < 48 || bytes.length > 33_000) return false;
+
+  if (label === 'OPENSSH PRIVATE KEY') {
+    const magic = 'openssh-key-v1\0';
+    return bytes.length >= magic.length
+      && Array.from(bytes.slice(0, magic.length))
+        .every((byte, index) => byte === magic.charCodeAt(index));
+  }
+  return isCompleteDerSequence(bytes);
+}
+
+function credentialEntropy(value: string): number {
+  const counts = new Map<string, number>();
+  for (const character of value) counts.set(character, (counts.get(character) || 0) + 1);
+  let entropy = 0;
+  for (const count of counts.values()) {
+    const probability = count / value.length;
+    entropy -= probability * Math.log2(probability);
+  }
+  return entropy;
+}
+
+function hasSufficientCredentialEntropy(
+  value: string,
+  minimumLength: number,
+  minimumDistinctCharacters: number,
+  minimumEntropy: number
+): boolean {
+  if (value.length < minimumLength || CREDENTIAL_PLACEHOLDER_PATTERN.test(value)) return false;
+  if (/(.)\1{7,}/.test(value) || /(?:0123456789|1234567890|ABCDEFGHIJKLMNOPQRSTUVWXYZ)/i.test(value)) {
+    return false;
+  }
+  return new Set(value).size >= minimumDistinctCharacters
+    && credentialEntropy(value) >= minimumEntropy;
+}
+
+function isValidAwsAccessKeyId(value: string): boolean {
+  return /^(?:AKIA|ASIA)[A-Z0-9]{16}$/.test(value)
+    && hasSufficientCredentialEntropy(value.slice(4), 16, 8, 2.75);
+}
+
+function isValidGitHubToken(value: string): boolean {
+  if (value.startsWith('github_pat_')) {
+    const body = value.slice('github_pat_'.length);
+    return /^[A-Za-z0-9]{22}_[A-Za-z0-9]{59}$/.test(body)
+      && hasSufficientCredentialEntropy(body.replace('_', ''), 81, 14, 3.5);
+  }
+
+  const body = value.slice(4);
+  if (value.startsWith('ghs_')) {
+    const dotCount = Array.from(body).filter(character => character === '.').length;
+    return body.length >= 36
+      && body.length <= 1024
+      && (dotCount === 0 || dotCount === 2)
+      && hasSufficientCredentialEntropy(
+        body.replace(/[._-]/g, ''),
+        32,
+        12,
+        3.5
+      );
+  }
+  const expectedLength = value.startsWith('ghr_') ? 76 : 36;
+  return body.length === expectedLength
+    && hasSufficientCredentialEntropy(body, expectedLength, 12, 3.5);
+}
+
+function isValidOpenAiScopedKey(value: string): boolean {
+  const body = value.replace(/^sk-(?:proj|svcacct|admin)-/, '');
+  return body !== value
+    && hasSufficientCredentialEntropy(body, 40, 16, 3.75);
+}
+
+function isValidGitLabToken(value: string): boolean {
+  return value.startsWith('glpat-')
+    && hasSufficientCredentialEntropy(value.slice(6), 20, 10, 3.25);
+}
+
+function isValidSlackToken(value: string): boolean {
+  const segments = value.split('-').slice(1);
+  const secretMaterial = segments
+    .filter(segment => !/^\d+$/.test(segment))
+    .join('');
+  return segments.length >= 1
+    && hasSufficientCredentialEntropy(secretMaterial, 20, 8, 2.75);
+}
+
+function isValidStripeSecretKey(value: string): boolean {
+  const body = value.replace(/^[sr]k_(?:live|test)_/, '');
+  return body !== value
+    && hasSufficientCredentialEntropy(body, 24, 12, 3.5);
+}
+
+function isValidGoogleApiKey(value: string): boolean {
+  return value.startsWith('AIza')
+    && hasSufficientCredentialEntropy(value.slice(4), 35, 14, 3.5);
+}
+
+function isValidDatabaseUriPassword(value: string): boolean {
+  if (value.length > 1024 || CREDENTIAL_PLACEHOLDER_PATTERN.test(value)) return false;
+  if (/%(?![A-Fa-f0-9]{2})/.test(value)) return false;
+  try {
+    const decoded = decodeURIComponent(value);
+    return decoded.length > 0
+      && !Array.from(decoded).some(character => {
+        const codePoint = character.codePointAt(0) as number;
+        return codePoint <= 0x1f || codePoint === 0x7f;
+      })
+      && !CREDENTIAL_PLACEHOLDER_PATTERN.test(decoded)
+      && !COMMON_DATABASE_PLACEHOLDER_PATTERN.test(decoded);
+  } catch {
+    return false;
+  }
+}
+
+function isValidAzureStorageAccountKey(value: string): boolean {
+  const bytes = decodeStrictBase64(value);
+  return bytes?.length === 64
+    && hasSufficientCredentialEntropy(value.slice(0, -2), 86, 20, 4.5);
+}
+
+function isValidChineseResidentId(value: string): boolean {
+  const normalized = value.toUpperCase();
+  if (!/^[1-9]\d{16}[\dX]$/.test(normalized)
+    || !CHINESE_RESIDENT_ID_REGION_CODES.has(normalized.slice(0, 2))
+    || normalized.slice(14, 17) === '000') {
+    return false;
+  }
+
+  const year = Number(normalized.slice(6, 10));
+  const month = Number(normalized.slice(10, 12));
+  const day = Number(normalized.slice(12, 14));
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    return false;
+  }
+
+  const weights = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2];
+  const checkCharacters = '10X98765432';
+  const weightedSum = weights.reduce(
+    (sum, weight, index) => sum + Number(normalized[index]) * weight,
+    0
+  );
+  return normalized[17] === checkCharacters[weightedSum % 11];
+}
+
 function isValidIpv4(value: string): boolean {
   const octets = value.split('.');
   return octets.length === 4 && octets.every(octet => {
@@ -409,6 +616,73 @@ function addRegexMatches(
   }
 }
 
+function addPrivateKeyPemMatches(text: string, matches: SensitiveMatch[]): void {
+  PRIVATE_KEY_PEM_PATTERN.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = PRIVATE_KEY_PEM_PATTERN.exec(text)) !== null) {
+    const block = match[2];
+    if (block && isValidPrivateKeyPem(match[3], match[4], match[5])) {
+      const start = match.index + match[0].indexOf(block);
+      matches.push({ start, end: start + block.length, secret: block, priority: 130 });
+    }
+  }
+}
+
+function addEmailMatches(text: string, matches: SensitiveMatch[]): void {
+  EMAIL_PATTERN.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = EMAIL_PATTERN.exec(text)) !== null) {
+    const value = match[2];
+    if (!value) continue;
+    const start = match.index + match[0].indexOf(value);
+    const authorityPrefix = text.slice(Math.max(0, start - 2048), start);
+    const isDatabaseUserInfo = /(?:mongodb(?:\+srv)?|postgres(?:ql)?|mysqlx?):\/\/[^/\s?#@]*$/i
+      .test(authorityPrefix)
+      || (value.startsWith('//') && /(?:mongodb(?:\+srv)?|postgres(?:ql)?|mysqlx?):$/i.test(authorityPrefix));
+    if (!isDatabaseUserInfo) {
+      matches.push({ start, end: start + value.length, secret: value, priority: 70 });
+    }
+  }
+}
+
+function addAzureStorageAccountKeyMatches(text: string, matches: SensitiveMatch[]): void {
+  AZURE_STORAGE_CONNECTION_PATTERN.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = AZURE_STORAGE_CONNECTION_PATTERN.exec(text)) !== null) {
+    const accountName = match[3];
+    const accountKey = match[4];
+    if (accountName && accountKey
+      && /^[a-z0-9]{3,24}$/.test(accountName)
+      && isValidAzureStorageAccountKey(accountKey)) {
+      const start = match.index + match[0].indexOf(accountKey);
+      matches.push({
+        start,
+        end: start + accountKey.length,
+        secret: accountKey,
+        priority: 125
+      });
+    }
+  }
+}
+
+function addDatabaseUriPasswordMatches(text: string, matches: SensitiveMatch[]): void {
+  DATABASE_URI_PASSWORD_PATTERN.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = DATABASE_URI_PASSWORD_PATTERN.exec(text)) !== null) {
+    const password = match[1];
+    if (password && isValidDatabaseUriPassword(password)) {
+      const passwordOffset = match[0].lastIndexOf(password);
+      const start = match.index + passwordOffset;
+      matches.push({
+        start,
+        end: start + password.length,
+        secret: password,
+        priority: 125
+      });
+    }
+  }
+}
+
 function decodeQueryKey(value: string): string {
   try {
     return decodeURIComponent(value.replace(/\+/g, ' ')).toLowerCase().replace(/\[\]$/, '');
@@ -490,13 +764,24 @@ function addIbanMatches(text: string, matches: SensitiveMatch[]): void {
 
 function findSensitiveMatches(text: string): SensitiveMatch[] {
   const candidates: SensitiveMatch[] = [];
+  addPrivateKeyPemMatches(text, candidates);
+  addAzureStorageAccountKeyMatches(text, candidates);
+  addRegexMatches(text, AWS_ACCESS_KEY_ID_PATTERN, 2, 115, candidates, isValidAwsAccessKeyId);
+  addRegexMatches(text, GITHUB_TOKEN_PATTERN, 2, 120, candidates, isValidGitHubToken);
+  addRegexMatches(text, OPENAI_SCOPED_KEY_PATTERN, 2, 120, candidates, isValidOpenAiScopedKey);
+  addRegexMatches(text, GITLAB_TOKEN_PATTERN, 2, 120, candidates, isValidGitLabToken);
+  addRegexMatches(text, SLACK_TOKEN_PATTERN, 2, 120, candidates, isValidSlackToken);
+  addRegexMatches(text, STRIPE_SECRET_KEY_PATTERN, 2, 120, candidates, isValidStripeSecretKey);
+  addRegexMatches(text, GOOGLE_API_KEY_PATTERN, 2, 120, candidates, isValidGoogleApiKey);
+  addDatabaseUriPasswordMatches(text, candidates);
   addSensitiveUrlQueryMatches(text, candidates);
-  addRegexMatches(text, EMAIL_PATTERN, 2, 70, candidates);
+  addEmailMatches(text, candidates);
   addRegexMatches(text, CARD_PATTERN, 2, 90, candidates, isLuhnValid);
   addRegexMatches(text, IPV4_PATTERN, 2, 75, candidates, isValidIpv4);
   addRegexMatches(text, IPV6_PATTERN, 2, 75, candidates, isValidIpv6);
   addRegexMatches(text, JWT_PATTERN, 2, 95, candidates, isValidJwt);
   addRegexMatches(text, PHONE_PATTERN, 2, 60, candidates, isValidPhone);
+  addRegexMatches(text, CHINESE_RESIDENT_ID_PATTERN, 2, 110, candidates, isValidChineseResidentId);
   addIbanMatches(text, candidates);
 
   candidates.sort((left, right) => left.start - right.start
