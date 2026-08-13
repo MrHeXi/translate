@@ -14,7 +14,7 @@ It is best for:
 - Translating pasted or uploaded text documents, HTML files, JSON files, DOCX files, EPUB files, bounded MOBI/AZW3 eBooks, subtitle files, and PDFs with local page rendering.
 - Queuing multiple local documents for an explicit batch run with bounded concurrency, cancellation, failed-file retry, and deterministic ZIP download.
 - Translating video captions when the page exposes subtitle/caption tracks or common DOM-rendered captions.
-- Generating timed subtitles from a user-selected local audio or video file through a configured OpenAI or Groq transcription service.
+- Generating timed subtitles from a user-selected local audio or video file through a separately configured OpenAI, Groq, or Deepgram transcription service.
 - Capturing audio from the source tab in Chrome only after an explicit click, then generating subtitles after the user stops capture. Firefox keeps local-media subtitle generation but disables unsupported current-tab capture.
 - Translating live caption text already visible in a page, with explicit local export and bounded cross-session history.
 - Translating text from selected or currently visible images, SVGs, and canvases with browser OCR or the bundled offline OCR fallback.
@@ -106,7 +106,7 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 
 - Start or stop video subtitle translation manually from the popup.
 - Use the versioned YouTube adapter on standard videos, Live pages, and Shorts; it prioritizes the active player and stops when YouTube SPA navigation changes to another video, requiring another explicit Start.
-- Use dedicated, contract-tested adapters for Netflix, Vimeo, Bilibili, Udemy, Coursera, Khan Academy, Nebula, and Bloomberg, with exact-domain matching, stable content navigation keys, site-first player/caption selectors, and generic fallbacks.
+- Use dedicated, contract-tested adapters for Netflix, Vimeo, Bilibili, Udemy, Coursera, Khan Academy, Nebula, Bloomberg, Twitch, Dailymotion, TED, and Prime Video, with exact-domain matching, stable content navigation keys, site-first player/caption selectors, and generic fallbacks.
 - Settle incremental YouTube Live DOM captions before translation, abort an in-flight partial request when the cue grows, and coalesce translated growth into one final exported cue.
 - Translate active caption or subtitle cues when the current video exposes browser text tracks or common DOM-rendered captions.
 - Render a bilingual subtitle overlay without recording audio or blocking playback.
@@ -116,26 +116,26 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - On YouTube standard, Live, or Shorts pages, use the contextual Generate button to open the generator without starting capture, then explicitly click Capture current tab and Stop and generate.
 - From another regular media page, explicitly click Capture current tab, keep the generator open, and click Stop and generate when enough audio has played.
 - Generate a bounded waveform locally only after clicking Generate waveform; the same control becomes Stop waveform while decoding. Choose 23.976, 24, 25, 29.97, 30, 50, 59.94, or 60 fps to snap generated caption timing locally without a provider request.
-- Choose a provider-specific speech model. OpenAI Whisper 1 and Groq Whisper models return provider-timed segments; OpenAI GPT-4o Transcribe models can display bounded SSE partial text after submission and produce one explicitly labeled, editable fallback-timing cue because that stream does not provide segment timestamps.
-- Generate captions through a configured OpenAI or Groq transcription service, optionally translate them with any configured translation provider, and export bilingual SRT or VTT.
+- Choose a provider-specific speech model. OpenAI Whisper 1, Groq Whisper, and Deepgram Nova models return provider-timed segments; OpenAI GPT-4o Transcribe models can display bounded SSE partial text after submission and produce one explicitly labeled, editable fallback-timing cue because that stream does not provide segment timestamps.
+- Generate captions through a configured OpenAI, Groq, or Deepgram speech service, optionally translate them with any configured translation provider, and export bilingual SRT or VTT. Speech credentials are stored separately in local extension storage, with backward-compatible OpenAI/Groq inheritance until a dedicated speech configuration is saved.
 - Edit each generated cue's start time, end time, original text, and translated text before export. A proportional local timeline highlights overlaps and focuses a cue without playing media or contacting a provider. Shift the whole timeline by a bounded offset, split at the original-text cursor, merge adjacent cues without silent truncation, delete cues locally, and undo or redo up to 50 in-memory edit snapshots. Current-tab captures begin at the source video's playback position when the page exposes it.
 - Click Apply to source video to load the edited bilingual cues into the originating page and synchronize them with its active video. Apply never starts playback, and Clear source video subtitles removes the overlay and listeners immediately.
 - Keep selected local media idle until Generate subtitles is clicked; current-tab audio remains local until Stop and generate. Stream submitted media to the background in bounded chunks and clear buffers after completion, cancellation, provider errors, or disconnection.
 - Use the declared `tabCapture` permission only after the explicit capture button; cancel also aborts active per-cue translation, while page close, stream failure, or the 25 MB limit stops and discards the temporary recording. This workflow requires Chrome 116 or newer.
-- Video translation still requires captions exposed by the current site. Real-account smoke testing for the dedicated adapters, adapters for additional documented sites, more speech providers, files above provider limits, and continuous partial transcription while capture is still running remain later work.
+- Video translation still requires captions exposed by the current site. Real-account smoke testing for the dedicated adapters, adapters for additional documented sites, files above provider limits, and continuous partial transcription while capture is still running remain later work.
 
 ### Live Caption Translation
 
 - Start or stop live caption translation manually from the popup.
 - Translate caption text that is already present in the page DOM, such as browser or meeting-page live captions.
-- Preserve common meeting speaker labels while translating Google Meet, Zoom, Microsoft Teams, and Webex-style caption containers.
+- Preserve common meeting speaker labels while translating Google Meet, Zoom, Microsoft Teams, Webex, Slack Huddles, Jitsi Meet, and BigBlueButton-style caption containers.
 - Recognize YouTube Live caption segments in Live captions mode, reject unrelated ARIA status regions, and retain semantic generic caption/subtitle containers.
 - Keep Video subtitles and Live captions mutually exclusive: explicitly starting one stops the other immediately.
 - Capture timestamped bilingual cues only while Live captions is enabled, coalescing incremental word-by-word caption updates.
 - Export the current tab's in-memory transcript as TXT, SRT, VTT, or structured JSON, save it explicitly to bounded local history, or clear it from the popup.
 - Browse saved sessions newest-first, preview bilingual cues, export TXT/SRT/VTT/JSON, delete individual sessions, clear all, and retain 10, 25, or 50 sessions without provider requests.
 - Keep transcript capture local without recording audio, joining calls, or transcribing speech; page load, Stop, popup close, and page close never save automatically.
-- Broader site-specific meeting adapters remain planned for later batches.
+- Broader evidence-backed site-specific meeting adapters remain planned for later batches.
 
 ### Image Text Translation
 
@@ -283,14 +283,14 @@ In Main content scope, LexiBridge prefers semantic `article`, `main`, and `[role
 
 1. Open the extension popup and click Generate from media.
 2. Choose a supported local audio or video file up to 25 MB.
-3. Choose a configured OpenAI or Groq speech service, a provider-specific speech model, spoken language, and optional vocabulary context.
+3. Choose a configured OpenAI, Groq, or Deepgram speech service, a provider-specific speech model, spoken language, and optional vocabulary context.
 4. Choose whether to translate the generated captions, then click Generate subtitles.
 5. Export the generated captions as bilingual SRT or VTT.
 
 ### Generate Subtitles From Current Tab Audio
 
 1. Open the extension popup while the source video or audio page is active and click Generate from media.
-2. Choose a configured OpenAI or Groq speech service and optional translation controls.
+2. Choose a configured OpenAI, Groq, or Deepgram speech service and optional translation controls.
 3. Click Capture current tab; the installed `tabCapture` permission is not used before this click.
 4. Keep the subtitle generator open while the source plays, then click Stop and generate.
 5. Export the generated captions as bilingual SRT or VTT.

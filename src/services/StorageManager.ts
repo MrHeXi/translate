@@ -31,6 +31,11 @@ import {
   PromptTemplate,
   validatePromptTemplate
 } from './PromptTemplateService';
+import {
+  getMediaTranscriptionProvider,
+  MEDIA_TRANSCRIPTION_PROVIDERS,
+  MediaTranscriptionProviderId
+} from './MediaTranscriptionService';
 
 export type {
   PageTranslationDisplayMode,
@@ -87,6 +92,14 @@ export interface TranslationProviderConfigSummary {
   languagesDiscoveredAt?: string;
 }
 
+export interface MediaTranscriptionProviderConfigSummary {
+  providerId: MediaTranscriptionProviderId;
+  configured: boolean;
+  apiKeyHint: string;
+  endpoint: string;
+  inheritedFromTranslationProvider?: boolean;
+}
+
 export interface UserData {
   settings: UserSettings;
   vocabulary: any[];
@@ -126,6 +139,7 @@ const USER_SETTINGS_FIELDS: ReadonlyArray<keyof UserSettings> = [
 
 export class StorageManager {
   private readonly providerConfigStorageKey = 'translationProviderConfigs';
+  private readonly mediaTranscriptionProviderConfigStorageKey = 'mediaTranscriptionProviderConfigsV1';
   private readonly aiExpertDefinitionsStorageKey = 'aiExpertDefinitionsV1';
   private readonly aiExpertDisabledIdsStorageKey = 'aiExpertDisabledIdsV1';
   private readonly promptTemplatesStorageKey = 'aiPromptTemplatesV1';
@@ -407,6 +421,85 @@ export class StorageManager {
       delete safeConfig.languageCapabilities;
     }
     return safeConfig;
+  }
+
+  async getMediaTranscriptionProviderConfig(
+    providerId: string
+  ): Promise<TranslationProviderRuntimeConfig | undefined> {
+    const provider = getMediaTranscriptionProvider(providerId);
+    if (!provider) return undefined;
+    const configs = await this.loadMediaTranscriptionProviderConfigs();
+    const config = configs[provider.id];
+    if (config?.apiKey?.trim()) return { ...config };
+
+    if (provider.id === 'openai' || provider.id === 'groq') {
+      return this.getTranslationProviderConfig(provider.id);
+    }
+    return undefined;
+  }
+
+  async getMediaTranscriptionProviderConfigSummaries(): Promise<MediaTranscriptionProviderConfigSummary[]> {
+    const [configs, translationConfigs] = await Promise.all([
+      this.loadMediaTranscriptionProviderConfigs(),
+      this.loadTranslationProviderConfigs()
+    ]);
+    return MEDIA_TRANSCRIPTION_PROVIDERS.map(provider => {
+      const dedicated = configs[provider.id];
+      const inherited = !dedicated?.apiKey?.trim()
+        && (provider.id === 'openai' || provider.id === 'groq')
+        ? translationConfigs[provider.id]
+        : undefined;
+      const config = dedicated?.apiKey?.trim() ? dedicated : inherited;
+      return {
+        providerId: provider.id,
+        configured: Boolean(config?.apiKey?.trim()),
+        apiKeyHint: this.maskCredential(config?.apiKey || ''),
+        endpoint: config?.endpoint?.trim() || provider.defaultEndpoint,
+        ...(inherited ? { inheritedFromTranslationProvider: true } : {})
+      };
+    });
+  }
+
+  async saveMediaTranscriptionProviderConfig(
+    providerId: string,
+    config: TranslationProviderRuntimeConfig
+  ): Promise<MediaTranscriptionProviderConfigSummary> {
+    const provider = getMediaTranscriptionProvider(providerId);
+    if (!provider) throw new Error('Unknown media transcription provider');
+    const configs = await this.loadMediaTranscriptionProviderConfigs();
+    const current = configs[provider.id] || {};
+    let apiKey = config.apiKey?.trim() || current.apiKey?.trim() || '';
+    if (!apiKey && (provider.id === 'openai' || provider.id === 'groq')) {
+      const inherited = await this.getTranslationProviderConfig(provider.id);
+      apiKey = inherited?.apiKey?.trim() || '';
+    }
+    if (!apiKey) throw new Error(`${provider.label} API key is required`);
+    const endpoint = this.normalizeMediaTranscriptionEndpoint(
+      config.endpoint?.trim() || current.endpoint?.trim() || provider.defaultEndpoint,
+      provider.id,
+      provider.label
+    );
+    const saved: TranslationProviderRuntimeConfig = { apiKey, endpoint };
+    configs[provider.id] = saved;
+    await chrome.storage.local.set({
+      [this.mediaTranscriptionProviderConfigStorageKey]: configs
+    });
+    return {
+      providerId: provider.id,
+      configured: true,
+      apiKeyHint: this.maskCredential(apiKey),
+      endpoint
+    };
+  }
+
+  async removeMediaTranscriptionProviderConfig(providerId: string): Promise<void> {
+    const provider = getMediaTranscriptionProvider(providerId);
+    if (!provider) throw new Error('Unknown media transcription provider');
+    const configs = await this.loadMediaTranscriptionProviderConfigs();
+    delete configs[provider.id];
+    await chrome.storage.local.set({
+      [this.mediaTranscriptionProviderConfigStorageKey]: configs
+    });
   }
 
   async getTranslationProviderConfigSummaries(): Promise<TranslationProviderConfigSummary[]> {
@@ -697,6 +790,42 @@ export class StorageManager {
     const result = await chrome.storage.local.get(this.providerConfigStorageKey);
     const configs = result[this.providerConfigStorageKey];
     return configs && typeof configs === 'object' ? { ...configs } : {};
+  }
+
+  private async loadMediaTranscriptionProviderConfigs(): Promise<Record<string, TranslationProviderRuntimeConfig>> {
+    const result = await chrome.storage.local.get(this.mediaTranscriptionProviderConfigStorageKey);
+    const configs = result[this.mediaTranscriptionProviderConfigStorageKey];
+    return configs && typeof configs === 'object' ? { ...configs } : {};
+  }
+
+  private normalizeMediaTranscriptionEndpoint(
+    endpoint: string,
+    providerId: MediaTranscriptionProviderId,
+    providerLabel: string
+  ): string {
+    let url: URL;
+    try {
+      url = new URL(endpoint);
+    } catch {
+      throw new Error(`${providerLabel} endpoint is invalid`);
+    }
+    const localHttp = url.protocol === 'http:'
+      && (url.hostname === 'localhost' || url.hostname === '127.0.0.1');
+    if (url.protocol !== 'https:' && !localHttp) {
+      throw new Error(`${providerLabel} endpoint must use HTTPS or localhost HTTP`);
+    }
+    if (url.username || url.password) {
+      throw new Error(`${providerLabel} endpoint must not contain URL credentials`);
+    }
+    if (providerId === 'deepgram') {
+      if (!/\/v1\/listen\/?$/.test(url.pathname)) {
+        throw new Error(`${providerLabel} endpoint must end in /v1/listen`);
+      }
+      url.pathname = url.pathname.replace(/\/$/, '');
+      url.search = '';
+    }
+    url.hash = '';
+    return url.toString();
   }
 
   private async loadAiExpertRegistry(): Promise<AiExpertRegistry> {

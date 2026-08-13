@@ -62,6 +62,16 @@ describe('options UI settings contract', () => {
         <p id="providerConfigMessage"></p>
         <button id="saveProviderConfig" type="button"></button>
       </section>
+      <select id="mediaTranscriptionProvider"></select>
+      <section id="mediaTranscriptionConfigPanel">
+        <h4 id="mediaTranscriptionConfigTitle"></h4>
+        <p id="mediaTranscriptionConfigStatus"></p>
+        <input id="mediaTranscriptionApiKey" type="password">
+        <input id="mediaTranscriptionEndpoint" type="url">
+        <p id="mediaTranscriptionConfigMessage"></p>
+        <button id="saveMediaTranscriptionConfig" type="button"></button>
+        <button id="removeMediaTranscriptionConfig" type="button" disabled></button>
+      </section>
       <select id="pageTranslationDisplayMode">
         <option value="bilingual" selected>Bilingual</option>
         <option value="translation-only">Translation only</option>
@@ -1371,6 +1381,91 @@ describe('options UI settings contract', () => {
     await flushPromises();
     expect(sendMessage.mock.calls.find(([message]) => message.action === 'updateSettings')?.[0].data)
       .toEqual(expect.objectContaining({ translationProvider: 'ollama' }));
+  });
+
+  it('keeps speech credentials separate and saves Deepgram only after an explicit click', async () => {
+    const savedSummary = {
+      providerId: 'deepgram',
+      configured: true,
+      apiKeyHint: 'deep...7890',
+      endpoint: 'https://api.deepgram.com/v1/listen'
+    };
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getSettings') {
+        callback({ success: true, data: createSettings() });
+        return;
+      }
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({ success: true, data: [] });
+        return;
+      }
+      if (message.action === 'getMediaTranscriptionProviderConfigs') {
+        callback({
+          success: true,
+          data: [{
+            providerId: 'deepgram',
+            configured: false,
+            apiKeyHint: '',
+            endpoint: 'https://api.deepgram.com/v1/listen'
+          }]
+        });
+        return;
+      }
+      if (message.action === 'updateMediaTranscriptionProviderConfig') {
+        callback({ success: true, data: savedSummary });
+        return;
+      }
+      if (message.action === 'getLearningStats') {
+        callback({ success: true, data: createStats() });
+        return;
+      }
+      if (message.action === 'getDictionaryProgress') {
+        callback({ success: true, data: {} });
+        return;
+      }
+      callback({ success: true });
+    });
+    const request = jest.fn((_permissions, callback) => callback(true));
+    (global as any).chrome = {
+      runtime: { sendMessage, lastError: null },
+      permissions: { request }
+    };
+
+    require('../options');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    const provider = document.getElementById('mediaTranscriptionProvider') as HTMLSelectElement;
+    provider.value = 'deepgram';
+    provider.dispatchEvent(new Event('change'));
+    expect((document.getElementById('mediaTranscriptionEndpoint') as HTMLInputElement).value)
+      .toBe('https://api.deepgram.com/v1/listen');
+    expect(sendMessage.mock.calls.some(([message]) => (
+      message.action === 'updateMediaTranscriptionProviderConfig'
+    ))).toBe(false);
+
+    (document.getElementById('mediaTranscriptionApiKey') as HTMLInputElement).value =
+      'deepgram-secret-7890';
+    document.getElementById('saveMediaTranscriptionConfig')!.click();
+    await flushPromises();
+
+    expect(request).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith({
+      action: 'updateMediaTranscriptionProviderConfig',
+      data: {
+        providerId: 'deepgram',
+        config: {
+          apiKey: 'deepgram-secret-7890',
+          endpoint: 'https://api.deepgram.com/v1/listen'
+        }
+      }
+    }, expect.any(Function));
+    expect((document.getElementById('mediaTranscriptionApiKey') as HTMLInputElement).value).toBe('');
+    expect(document.getElementById('mediaTranscriptionConfigStatus')?.textContent)
+      .toBe('Configured');
+    expect(document.getElementById('mediaTranscriptionConfigMessage')?.textContent)
+      .toContain('saved locally');
+    expect(sendMessage.mock.calls.some(([message]) => message.action === 'translate')).toBe(false);
   });
 
   it('removes a saved provider configuration through the background message channel', async () => {

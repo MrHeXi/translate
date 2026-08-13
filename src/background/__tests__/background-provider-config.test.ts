@@ -127,14 +127,23 @@ describe('BackgroundService provider configuration messages', () => {
       installPromptTemplate: jest.fn().mockResolvedValue(promptTemplates[0]),
       removePromptTemplate: jest.fn().mockResolvedValue(true),
       getTranslationProviderConfig: jest.fn().mockResolvedValue(providerConfig),
+      getMediaTranscriptionProviderConfig: jest.fn().mockResolvedValue(providerConfig),
       getTranslationProviderConfigSummaries: jest.fn().mockResolvedValue([providerSummary]),
+      getMediaTranscriptionProviderConfigSummaries: jest.fn().mockResolvedValue([]),
       saveTranslationProviderConfig: jest.fn().mockResolvedValue(providerSummary),
+      saveMediaTranscriptionProviderConfig: jest.fn().mockResolvedValue({
+        providerId: 'deepgram',
+        configured: true,
+        apiKeyHint: 'deep...cret',
+        endpoint: 'https://api.deepgram.com/v1/listen'
+      }),
       saveTranslationProviderLanguageCapabilities: jest.fn().mockResolvedValue({
         ...providerSummary,
         supportedTargetLanguages: ['fr'],
         languagesDiscoveredAt: '2026-08-10T00:00:00.000Z'
       }),
-      removeTranslationProviderConfig: jest.fn().mockResolvedValue(undefined)
+      removeTranslationProviderConfig: jest.fn().mockResolvedValue(undefined),
+      removeMediaTranscriptionProviderConfig: jest.fn().mockResolvedValue(undefined)
     };
     const mockReviewService = {};
     const mockPerformanceManager = {
@@ -748,6 +757,9 @@ describe('BackgroundService provider configuration messages', () => {
     expect(getResponse).toEqual({ success: true, data: [providerSummary] });
     expect(JSON.stringify(getResponse)).not.toContain('server-side-secret');
 
+    const getSpeechResponse = await send({ action: 'getMediaTranscriptionProviderConfigs' });
+    expect(getSpeechResponse).toEqual({ success: true, data: [] });
+
     const updateResponse = await send({
       action: 'updateTranslationProviderConfig',
       data: { providerId: 'openai', config: providerConfig }
@@ -755,12 +767,39 @@ describe('BackgroundService provider configuration messages', () => {
     expect(mockStorageManager.saveTranslationProviderConfig).toHaveBeenCalledWith('openai', providerConfig);
     expect(updateResponse).toEqual({ success: true, data: providerSummary });
 
+    const speechConfig = {
+      apiKey: 'deepgram-secret',
+      endpoint: 'https://api.deepgram.com/v1/listen'
+    };
+    const updateSpeechResponse = await send({
+      action: 'updateMediaTranscriptionProviderConfig',
+      data: { providerId: 'deepgram', config: speechConfig }
+    });
+    expect(mockStorageManager.saveMediaTranscriptionProviderConfig)
+      .toHaveBeenCalledWith('deepgram', speechConfig);
+    expect(updateSpeechResponse).toEqual({
+      success: true,
+      data: {
+        providerId: 'deepgram',
+        configured: true,
+        apiKeyHint: 'deep...cret',
+        endpoint: 'https://api.deepgram.com/v1/listen'
+      }
+    });
+
     const removeResponse = await send({
       action: 'removeTranslationProviderConfig',
       data: { providerId: 'openai' }
     });
     expect(mockStorageManager.removeTranslationProviderConfig).toHaveBeenCalledWith('openai');
     expect(removeResponse).toEqual({ success: true });
+
+    const removeSpeechResponse = await send({
+      action: 'removeMediaTranscriptionProviderConfig',
+      data: { providerId: 'deepgram' }
+    });
+    expect(mockStorageManager.removeMediaTranscriptionProviderConfig).toHaveBeenCalledWith('deepgram');
+    expect(removeSpeechResponse).toEqual({ success: true });
     expect(mockTranslationService.clearCache).toHaveBeenCalledTimes(2);
     expect(discover).not.toHaveBeenCalled();
 

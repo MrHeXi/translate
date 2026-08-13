@@ -45,7 +45,10 @@ describe('LiveCaptionTranslator', () => {
       cueCount: 1,
       message: 'Live caption translation started'
     });
-    expect(translateText).toHaveBeenCalledWith('Speaker says hello to everyone.');
+    expect(translateText).toHaveBeenCalledWith(
+      'Speaker says hello to everyone.',
+      expect.any(AbortSignal)
+    );
     expect(overlay?.textContent).toContain('Speaker says hello to everyone.');
     expect(overlay?.textContent).toContain('Translated: Speaker says hello to everyone.');
   });
@@ -86,6 +89,18 @@ describe('LiveCaptionTranslator', () => {
     [
       'Webex',
       '<div class="closed-caption-content"><span class="speaker-name">Noah</span><span class="caption-content">The recording is not enabled.</span></div>'
+    ],
+    [
+      'Slack Huddles',
+      '<div data-qa="huddle_captions_container"><span data-qa="huddle_caption_speaker">Riley</span><span data-qa="huddle_caption_text">Let us review the launch plan.</span></div>'
+    ],
+    [
+      'Jitsi Meet',
+      '<div data-testid="transcription-subtitles"><span>Jordan: The transcript is ready.</span></div>'
+    ],
+    [
+      'BigBlueButton',
+      '<div data-test="audio-captions-container"><span>Casey: Please open the shared notes.</span></div>'
     ]
   ])('preserves the speaker label while translating %s caption text', async (_source, markup) => {
     document.body.innerHTML = markup;
@@ -96,9 +111,26 @@ describe('LiveCaptionTranslator', () => {
 
     const overlay = document.getElementById('lexibridge-live-caption-overlay');
     expect(translateText).toHaveBeenCalledTimes(1);
-    expect(translateText).toHaveBeenCalledWith(expect.not.stringMatching(/Mina|Jon|Ava|Noah/));
-    expect(overlay?.textContent).toMatch(/Mina:|Jon:|Ava:|Noah:/);
+    expect(translateText).toHaveBeenCalledWith(
+      expect.not.stringMatching(/Mina|Jon|Ava|Noah/),
+      expect.any(AbortSignal)
+    );
+    expect(overlay?.textContent).toMatch(/Mina:|Jon:|Ava:|Noah:|Riley:|Jordan:|Casey:/);
     expect(overlay?.textContent).toContain('Translated:');
+  });
+
+  it('does not request captions from new product containers before explicit Start', async () => {
+    document.body.innerHTML = `
+      <div data-qa="huddle_captions_container">Riley: Slack huddle text.</div>
+      <div data-testid="transcription-subtitles">Jordan: Jitsi text.</div>
+      <div data-test="audio-captions-container">Casey: BigBlueButton text.</div>
+    `;
+    const translateText = jest.fn(async (text: string) => `Translated: ${text}`);
+
+    await flushPromises();
+
+    expect(translateText).not.toHaveBeenCalled();
+    expect(document.getElementById('lexibridge-live-caption-overlay')).toBeNull();
   });
 
   it('translates YouTube Live caption segments from their dedicated caption container', async () => {
@@ -113,7 +145,10 @@ describe('LiveCaptionTranslator', () => {
     await flushPromises();
 
     const exported = JSON.parse(translator.exportTranscript('json').content);
-    expect(translateText).toHaveBeenCalledWith('The stream starts in five minutes.');
+    expect(translateText).toHaveBeenCalledWith(
+      'The stream starts in five minutes.',
+      expect.any(AbortSignal)
+    );
     expect(exported.cues[0]).toEqual(expect.objectContaining({
       source: 'YouTube Live',
       originalText: 'The stream starts in five minutes.'
@@ -145,7 +180,10 @@ describe('LiveCaptionTranslator', () => {
     await flushPromises();
 
     expect(state.hasCaption).toBe(true);
-    expect(translateText).toHaveBeenCalledWith('A generic caption remains supported.');
+    expect(translateText).toHaveBeenCalledWith(
+      'A generic caption remains supported.',
+      expect.any(AbortSignal)
+    );
     expect(JSON.parse(translator.exportTranscript('json').content).cues[0])
       .toEqual(expect.objectContaining({ source: 'Generic live caption' }));
   });
@@ -275,6 +313,34 @@ describe('LiveCaptionTranslator', () => {
     expect(document.getElementById('lexibridge-live-caption-overlay')).toBeNull();
   });
 
+  it('aborts in-flight translation and disconnects the observer on Stop', async () => {
+    document.body.innerHTML = '<div data-qa="huddle_captions_container">Riley: Pending huddle caption.</div>';
+    let resolveTranslation!: (value: string) => void;
+    let receivedSignal!: AbortSignal;
+    const pendingTranslation = new Promise<string>(resolve => {
+      resolveTranslation = resolve;
+    });
+    const translateText = jest.fn((text: string, signal?: AbortSignal) => {
+      receivedSignal = signal!;
+      return pendingTranslation.then(() => `Translated: ${text}`);
+    });
+    const disconnect = jest.spyOn(MutationObserver.prototype, 'disconnect');
+
+    translator.enable(translateText);
+    await flushPromises();
+    expect(translateText).toHaveBeenCalledWith('Pending huddle caption.', expect.any(AbortSignal));
+    expect(receivedSignal.aborted).toBe(false);
+
+    translator.disable();
+    expect(receivedSignal.aborted).toBe(true);
+    expect(disconnect).toHaveBeenCalled();
+
+    resolveTranslation('late result');
+    await flushPromises();
+    expect(translator.exportTranscript('json').content).not.toContain('late result');
+    disconnect.mockRestore();
+  });
+
   it('bounds in-memory transcript cues and reports omitted history', () => {
     const internal = translator as any;
     internal.sessionStartedAt = 0;
@@ -326,8 +392,8 @@ describe('LiveCaptionTranslator', () => {
     await flushPromises();
 
     const overlay = document.getElementById('lexibridge-live-caption-overlay');
-    expect(translateText).toHaveBeenCalledWith('First caption line.');
-    expect(translateText).toHaveBeenCalledWith('Second caption line.');
+    expect(translateText).toHaveBeenCalledWith('First caption line.', expect.any(AbortSignal));
+    expect(translateText).toHaveBeenCalledWith('Second caption line.', expect.any(AbortSignal));
     expect(overlay?.textContent).toContain('Second caption line.');
     expect(overlay?.textContent).toContain('Translated: Second caption line.');
   });

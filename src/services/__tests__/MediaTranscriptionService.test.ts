@@ -2,6 +2,7 @@ import { TextDecoder as NodeTextDecoder, TextEncoder as NodeTextEncoder } from '
 
 import {
   MEDIA_TRANSCRIPTION_MAX_BYTES,
+  MEDIA_TRANSCRIPTION_MAX_SEGMENTS,
   MEDIA_TRANSCRIPTION_MAX_SSE_EVENTS,
   MEDIA_TRANSCRIPTION_MAX_TEXT_LENGTH,
   MEDIA_TRANSCRIPTION_MODELS,
@@ -74,7 +75,7 @@ describe('MediaTranscriptionService', () => {
   });
 
   it('declares bounded timed-segment and cancellation capabilities for every provider', () => {
-    expect(MEDIA_TRANSCRIPTION_PROVIDERS).toHaveLength(2);
+    expect(MEDIA_TRANSCRIPTION_PROVIDERS).toHaveLength(3);
     MEDIA_TRANSCRIPTION_PROVIDERS.forEach(provider => {
       expect(provider).toEqual(expect.objectContaining({
         maxBytes: MEDIA_TRANSCRIPTION_MAX_BYTES,
@@ -91,13 +92,40 @@ describe('MediaTranscriptionService', () => {
       ['openai', 'gpt-4o-transcribe'],
       ['openai', 'gpt-4o-mini-transcribe'],
       ['groq', 'whisper-large-v3-turbo'],
-      ['groq', 'whisper-large-v3']
+      ['groq', 'whisper-large-v3'],
+      ['deepgram', 'nova-3'],
+      ['deepgram', 'nova-2']
     ]);
     expect(getMediaTranscriptionModels('openai').map(model => model.id)).toEqual([
       'whisper-1',
       'gpt-4o-transcribe',
       'gpt-4o-mini-transcribe'
     ]);
+    expect(getMediaTranscriptionModels('deepgram').map(model => model.id)).toEqual([
+      'nova-3',
+      'nova-2'
+    ]);
+  });
+
+  it('does not request media while the module, service, or upload is initialized', () => {
+    const fetchMock = jest.fn();
+    (global as any).fetch = fetchMock;
+
+    jest.isolateModules(() => {
+      const isolated = require('../MediaTranscriptionService') as typeof import('../MediaTranscriptionService');
+      const upload = new isolated.MediaTranscriptionUpload({
+        providerId: 'deepgram',
+        transcriptionModel: 'nova-3',
+        fileName: 'quiet.wav',
+        mimeType: 'audio/wav',
+        totalBytes: 2
+      });
+      upload.appendBase64Chunk(0, encodeBase64([1, 2]));
+      upload.createBlob();
+      new isolated.MediaTranscriptionService();
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('accepts ordered chunks, enforces the declared size, and clears buffered media', () => {
@@ -226,6 +254,124 @@ describe('MediaTranscriptionService', () => {
     expect(form.get('stream')).toBeNull();
   });
 
+  it('posts a raw media Blob to Deepgram v1/listen and normalizes utterances', async () => {
+    const fetchMock = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        metadata: { duration: 3.4 },
+        results: {
+          channels: [{
+            detected_language: 'en-US',
+            alternatives: [{
+              transcript: 'Hello Deepgram.',
+              words: [
+                { start: 0.1, end: 0.5, word: 'hello', punctuated_word: 'Hello' },
+                { start: 0.6, end: 1.2, word: 'deepgram', punctuated_word: 'Deepgram.' }
+              ]
+            }]
+          }],
+          utterances: [
+            { start: 0.1, end: 1.2, transcript: ' Hello Deepgram. ' },
+            {
+              start: 2,
+              end: 3.4,
+              transcript: '',
+              words: [
+                { start: 2, end: 2.4, word: 'second', punctuated_word: 'Second' },
+                { start: 2.5, end: 3.4, word: 'line', punctuated_word: 'line.' }
+              ]
+            }
+          ]
+        }
+      })
+    }));
+    (global as any).fetch = fetchMock;
+    const controller = new AbortController();
+
+    const result = await new MediaTranscriptionService().transcribe(createUpload([1, 2, 3], {
+      providerId: 'deepgram',
+      transcriptionModel: 'nova-3',
+      fileName: 'voice.wav',
+      mimeType: 'audio/wav',
+      language: 'auto'
+    }), {
+      apiKey: 'deepgram-secret',
+      endpoint: 'https://speech.example.com/v1/listen?discard=me#fragment'
+    }, controller.signal);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [rawUrl, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const url = new URL(rawUrl);
+    expect(`${url.origin}${url.pathname}`).toBe('https://speech.example.com/v1/listen');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      model: 'nova-3',
+      smart_format: 'true',
+      utterances: 'true',
+      detect_language: 'true'
+    });
+    expect((init.headers as Record<string, string>)).toEqual({
+      Authorization: 'Token deepgram-secret',
+      'Content-Type': 'audio/wav'
+    });
+    expect(init.body).toBeInstanceOf(Blob);
+    expect(init.body).not.toBeInstanceOf(FormData);
+    expect(init.body).toEqual(expect.objectContaining({ size: 3, type: 'audio/wav' }));
+    expect(init.signal).toBe(controller.signal);
+    expect(result).toEqual({
+      text: 'Hello Deepgram. Second line.',
+      language: 'en-US',
+      duration: 3.4,
+      segments: [
+        { id: 1, start: 0.1, end: 1.2, text: 'Hello Deepgram.' },
+        { id: 2, start: 2, end: 3.4, text: 'Second line.' }
+      ],
+      timingMode: 'provider-segments'
+    });
+  });
+
+  it('falls back to bounded Deepgram words when utterances are absent', async () => {
+    (global as any).fetch = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        metadata: { duration: 1.1 },
+        results: {
+          channels: [{
+            alternatives: [{
+              transcript: 'Ni hao',
+              words: [
+                { start: 0, end: 0.4, word: 'ni', punctuated_word: 'Ni' },
+                { start: 0.5, end: 1.1, word: 'hao' }
+              ]
+            }]
+          }]
+        }
+      })
+    }));
+
+    const result = await new MediaTranscriptionService().transcribe(createUpload([1], {
+      providerId: 'deepgram',
+      transcriptionModel: 'nova-2',
+      language: 'zh-CN'
+    }), { apiKey: 'secret' });
+
+    const url = new URL((global.fetch as jest.Mock).mock.calls[0][0]);
+    expect(url.searchParams.get('model')).toBe('nova-2');
+    expect(url.searchParams.get('language')).toBe('zh-CN');
+    expect(url.searchParams.has('detect_language')).toBe(false);
+    expect(result).toEqual({
+      text: 'Ni hao',
+      language: 'zh',
+      duration: 1.1,
+      segments: [
+        { id: 1, start: 0, end: 0.4, text: 'Ni' },
+        { id: 2, start: 0.5, end: 1.1, text: 'hao' }
+      ],
+      timingMode: 'provider-segments'
+    });
+  });
+
   it('parses OpenAI SSE across byte boundaries and reports bounded accumulated partial text', async () => {
     const stream = [
       'event: transcript.text.delta\r\n',
@@ -320,6 +466,132 @@ describe('MediaTranscriptionService', () => {
     }), { apiKey: 'secret' })).rejects.toThrow('Rate limit reached.');
   });
 
+  it('preserves Deepgram cancellation before and during the explicit request', async () => {
+    const fetchMock = jest.fn((_input: RequestInfo | URL, init?: RequestInit) => (
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          const error = new Error('aborted');
+          error.name = 'AbortError';
+          reject(error);
+        }, { once: true });
+      })
+    ));
+    (global as any).fetch = fetchMock;
+    const service = new MediaTranscriptionService();
+    const canceled = new AbortController();
+    canceled.abort();
+
+    await expect(service.transcribe(createUpload([1], {
+      providerId: 'deepgram',
+      transcriptionModel: 'nova-3'
+    }), { apiKey: 'secret' }, canceled.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const active = new AbortController();
+    const request = service.transcribe(createUpload([1], {
+      providerId: 'deepgram',
+      transcriptionModel: 'nova-3'
+    }), { apiKey: 'secret' }, active.signal);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    active.abort();
+    await expect(request).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('surfaces bounded Deepgram HTTP and JSON errors', async () => {
+    (global as any).fetch = jest.fn(async () => ({
+      ok: false,
+      status: 400,
+      json: async () => ({ err_msg: 'Unsupported language.' })
+    }));
+    const service = new MediaTranscriptionService();
+    await expect(service.transcribe(createUpload([1], {
+      providerId: 'deepgram',
+      transcriptionModel: 'nova-3'
+    }), { apiKey: 'secret' })).rejects.toThrow('Unsupported language.');
+
+    (global as any).fetch = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => { throw new Error('broken'); }
+    }));
+    await expect(service.transcribe(createUpload([1], {
+      providerId: 'deepgram',
+      transcriptionModel: 'nova-3'
+    }), { apiKey: 'secret' })).rejects.toThrow('returned invalid JSON');
+  });
+
+  it.each([
+    {
+      name: 'empty channels',
+      data: { results: { channels: [] } },
+      error: 'channel result'
+    },
+    {
+      name: 'missing alternatives',
+      data: { results: { channels: [{}] } },
+      error: 'malformed channel'
+    },
+    {
+      name: 'empty alternatives',
+      data: { results: { channels: [{ alternatives: [] }] } },
+      error: 'alternatives result'
+    },
+    {
+      name: 'empty transcript',
+      data: {
+        results: {
+          channels: [{ alternatives: [{ transcript: '', words: [] }] }],
+          utterances: [{ start: 0, end: 1, transcript: '' }]
+        }
+      },
+      error: 'malformed transcript segment'
+    },
+    {
+      name: 'reversed timestamps',
+      data: {
+        results: {
+          channels: [{ alternatives: [{ transcript: 'bad', words: [] }] }],
+          utterances: [{ start: 2, end: 1, transcript: 'bad' }]
+        }
+      },
+      error: 'malformed transcript segment'
+    },
+    {
+      name: 'non-finite timestamps',
+      data: {
+        results: {
+          channels: [{ alternatives: [{ transcript: 'bad', words: [] }] }],
+          utterances: [{ start: 0, end: Number.POSITIVE_INFINITY, transcript: 'bad' }]
+        }
+      },
+      error: 'malformed transcript segment'
+    },
+    {
+      name: 'too many utterances',
+      data: {
+        results: {
+          channels: [{ alternatives: [{ transcript: 'large', words: [] }] }],
+          utterances: Array.from({ length: MEDIA_TRANSCRIPTION_MAX_SEGMENTS + 1 }, (_, index) => ({
+            start: index,
+            end: index + 0.5,
+            transcript: 'word'
+          }))
+        }
+      },
+      error: 'too many transcript segments'
+    }
+  ])('rejects Deepgram $name results', async ({ data, error }) => {
+    (global as any).fetch = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => data
+    }));
+    await expect(new MediaTranscriptionService().transcribe(createUpload([1], {
+      providerId: 'deepgram',
+      transcriptionModel: 'nova-3'
+    }), { apiKey: 'secret' })).rejects.toThrow(error);
+  });
+
   it('rejects streaming text above the transcript limit before emitting completion', async () => {
     const stream = `data: ${JSON.stringify({
       type: 'transcript.text.delta',
@@ -376,6 +648,27 @@ describe('MediaTranscriptionService', () => {
     await expect(service.transcribe(createUpload(), {
       apiKey: 'secret',
       endpoint: 'http://remote.example.com/v1/chat/completions'
+    })).rejects.toThrow('must use HTTPS');
+    await expect(service.transcribe(createUpload([1], {
+      providerId: 'deepgram',
+      transcriptionModel: 'nova-3'
+    }), {
+      apiKey: 'secret',
+      endpoint: 'https://user:password@api.deepgram.com/v1/listen'
+    })).rejects.toThrow('must not contain URL credentials');
+    await expect(service.transcribe(createUpload([1], {
+      providerId: 'deepgram',
+      transcriptionModel: 'nova-3'
+    }), {
+      apiKey: 'secret',
+      endpoint: 'https://api.deepgram.com/v1/projects'
+    })).rejects.toThrow('must end in /v1/listen');
+    await expect(service.transcribe(createUpload([1], {
+      providerId: 'deepgram',
+      transcriptionModel: 'nova-3'
+    }), {
+      apiKey: 'secret',
+      endpoint: 'http://api.deepgram.com/v1/listen'
     })).rejects.toThrow('must use HTTPS');
     await expect(service.transcribe(createUpload(), {
       endpoint: 'https://api.openai.com/v1/chat/completions'

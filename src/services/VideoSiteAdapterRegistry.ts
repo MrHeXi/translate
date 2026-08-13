@@ -187,7 +187,178 @@ function resolveBloombergIdentity(url: URL): string {
   return pathIdentity('bloomberg', url);
 }
 
+function resolveTwitchIdentity(url: URL): string {
+  const segments = pathSegments(url);
+  const firstSegment = segments[0] || '';
+  const firstSegmentLower = firstSegment.toLowerCase();
+
+  if (url.hostname.toLowerCase() === 'clips.twitch.tv' && firstSegment) {
+    return `twitch:clip:${firstSegment}`;
+  }
+  if (firstSegmentLower === 'videos' && segments[1]) {
+    return `twitch:video:${segments[1]}`;
+  }
+  if (segments[1]?.toLowerCase() === 'clip' && segments[2]) {
+    return `twitch:clip:${segments[2]}`;
+  }
+  if (segments.length === 1 && firstSegment) {
+    return `twitch:channel:${firstSegmentLower}`;
+  }
+  return pathIdentity('twitch', url);
+}
+
+function resolveDailymotionIdentity(url: URL): string {
+  const segments = pathSegments(url);
+  const queryVideoId = url.searchParams.get('video') || '';
+  if (queryVideoId) {
+    return `dailymotion:video:${queryVideoId}`;
+  }
+
+  const videoId = segmentAfter(segments, 'video');
+  if (videoId) {
+    return `dailymotion:video:${videoId}`;
+  }
+
+  const channelId = segmentAfter(segments, 'channel') || segmentAfter(segments, 'user');
+  if (channelId) {
+    return `dailymotion:channel:${channelId.toLowerCase()}`;
+  }
+  return pathIdentity('dailymotion', url);
+}
+
+function resolveTedIdentity(url: URL): string {
+  const segments = pathSegments(url);
+  const talkId = segmentAfter(segments, 'talks');
+  if (talkId) {
+    return `ted:video:${talkId}`;
+  }
+
+  const speakerId = segmentAfter(segments, 'speakers');
+  if (speakerId) {
+    return `ted:channel:${speakerId}`;
+  }
+  return pathIdentity('ted', url);
+}
+
+function resolvePrimeVideoIdentity(url: URL): string {
+  const segments = pathSegments(url);
+  const detailId = segmentAfter(segments, 'detail');
+  if (detailId) {
+    return `prime-video:video:${detailId}`;
+  }
+
+  const storefrontId = segmentAfter(segments, 'storefront');
+  if (storefrontId) {
+    return `prime-video:channel:${storefrontId}`;
+  }
+  return pathIdentity('prime-video', url);
+}
+
 const DEDICATED_VIDEO_SITE_ADAPTERS: DedicatedVideoSiteAdapter[] = [
+  {
+    adapterId: 'twitch',
+    siteLabel: 'Twitch',
+    domains: ['twitch.tv'],
+    resolveIdentity: resolveTwitchIdentity,
+    videoSelectors: withGenericFallback([
+      '[data-a-target="video-player"] video',
+      '[data-test-selector="video-player__video"]',
+      '.video-player video',
+    ], GENERIC_VIDEO_SELECTORS),
+    playerSelectors: withGenericFallback([
+      '[data-a-target="video-player"]',
+      '[data-test-selector="video-player"]',
+      '.video-player',
+    ], GENERIC_PLAYER_SELECTORS),
+    captionRootSelectors: withGenericFallback([
+      '[data-a-target="video-player"] [data-a-target*="caption"]',
+      '[data-a-target="video-player"] [class*="captions"]',
+      '.video-player [class*="captions"]',
+    ], GENERIC_CAPTION_ROOT_SELECTORS),
+    captionSegmentSelectors: withGenericFallback([
+      '[data-a-target="video-player"] [data-a-target*="caption"] span',
+      '[data-a-target="video-player"] [class*="captions"] span',
+      '.video-player [class*="captions"] span',
+    ], GENERIC_CAPTION_SEGMENT_SELECTORS),
+  },
+  {
+    adapterId: 'dailymotion',
+    siteLabel: 'Dailymotion',
+    domains: ['dailymotion.com'],
+    resolveIdentity: resolveDailymotionIdentity,
+    videoSelectors: withGenericFallback([
+      '[data-testid="video-player"] video',
+      '.dmp_Player video',
+      '#player video',
+    ], GENERIC_VIDEO_SELECTORS),
+    playerSelectors: withGenericFallback([
+      '[data-testid="video-player"]',
+      '.dmp_Player',
+      '#player',
+    ], GENERIC_PLAYER_SELECTORS),
+    captionRootSelectors: withGenericFallback([
+      '[data-testid="video-player"] .dmp_Captions',
+      '.dmp_Player .dmp_Captions',
+      '#player [class*="Captions"]',
+    ], GENERIC_CAPTION_ROOT_SELECTORS),
+    captionSegmentSelectors: withGenericFallback([
+      '[data-testid="video-player"] .dmp_Captions span',
+      '.dmp_Player .dmp_Captions span',
+      '#player [class*="Captions"] span',
+    ], GENERIC_CAPTION_SEGMENT_SELECTORS),
+  },
+  {
+    adapterId: 'ted',
+    siteLabel: 'TED',
+    domains: ['ted.com'],
+    resolveIdentity: resolveTedIdentity,
+    videoSelectors: withGenericFallback([
+      '[data-testid="video-player"] video',
+      '[data-testid="talk-player"] video',
+      '.video-player video',
+    ], GENERIC_VIDEO_SELECTORS),
+    playerSelectors: withGenericFallback([
+      '[data-testid="video-player"]',
+      '[data-testid="talk-player"]',
+      '.video-player',
+    ], GENERIC_PLAYER_SELECTORS),
+    captionRootSelectors: withGenericFallback([
+      '[data-testid="video-player"] [data-testid*="caption"]',
+      '[data-testid="talk-player"] [class*="captions"]',
+      '.video-player [class*="captions"]',
+    ], GENERIC_CAPTION_ROOT_SELECTORS),
+    captionSegmentSelectors: withGenericFallback([
+      '[data-testid="video-player"] [data-testid*="caption"] span',
+      '[data-testid="talk-player"] [class*="captions"] span',
+      '.video-player [class*="captions"] span',
+    ], GENERIC_CAPTION_SEGMENT_SELECTORS),
+  },
+  {
+    adapterId: 'prime-video',
+    siteLabel: 'Prime Video',
+    domains: ['primevideo.com'],
+    resolveIdentity: resolvePrimeVideoIdentity,
+    videoSelectors: withGenericFallback([
+      '.webPlayerSDKContainer video',
+      '[data-testid="video-player"] video',
+      '[class*="webPlayer"] video',
+    ], GENERIC_VIDEO_SELECTORS),
+    playerSelectors: withGenericFallback([
+      '.webPlayerSDKContainer',
+      '[data-testid="video-player"]',
+      '[class*="webPlayer"]',
+    ], GENERIC_PLAYER_SELECTORS),
+    captionRootSelectors: withGenericFallback([
+      '.webPlayerSDKContainer .atvwebplayersdk-captions-overlay',
+      '.atvwebplayersdk-captions-overlay',
+      '[class*="webPlayer"] [class*="captionsOverlay"]',
+    ], GENERIC_CAPTION_ROOT_SELECTORS),
+    captionSegmentSelectors: withGenericFallback([
+      '.webPlayerSDKContainer .atvwebplayersdk-captions-text',
+      '.atvwebplayersdk-captions-text',
+      '[class*="webPlayer"] [class*="captionsOverlay"] span',
+    ], GENERIC_CAPTION_SEGMENT_SELECTORS),
+  },
   {
     adapterId: 'netflix',
     siteLabel: 'Netflix',

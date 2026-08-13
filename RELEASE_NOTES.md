@@ -34,11 +34,12 @@ Initial productized release candidate for local Chrome/Firefox testing and brows
 - Local standalone-formula detection that preserves likely mathematical expressions, excludes them from direct translation and neighboring AI context, and does not paint over them in translated previews or PDF exports.
 - Video subtitle translation for pages that expose caption/subtitle text tracks or common DOM-rendered caption containers.
 - Versioned YouTube Adapter v1 for standard videos, Live pages, Shorts, and `youtu.be`, with active-player-scoped captions, route checks before every cue request/result, same-text timed-cue preservation, bounded export retention, and immediate Stop instead of automatic translation after SPA video navigation.
-- Dedicated contract-tested video adapters for Netflix, Vimeo, Bilibili, Udemy, Coursera, Khan Academy, Nebula, and Bloomberg, with exact-domain matching, stable content identities, site-first selectors, generic fallbacks, and no resolver-side DOM writes.
+- Dedicated contract-tested video adapters for Netflix, Vimeo, Bilibili, Udemy, Coursera, Khan Academy, Nebula, Bloomberg, Twitch, Dailymotion, TED, and Prime Video, with exact-domain matching, stable content identities, site-first selectors, generic fallbacks, and no resolver-side DOM writes.
 - YouTube Live DOM captions now settle before a provider request, cancel an in-flight partial request when the cue grows, and merge translated incremental growth into one final exported cue.
 - Video subtitles and Live captions remain text-only modes and never start tab recording.
 - SRT export for translated video subtitle cues from the current session.
-- User-invoked AI subtitle generation for selected local audio/video files up to 25 MB through configured OpenAI or Groq transcription endpoints.
+- User-invoked AI subtitle generation for selected local audio/video files up to 25 MB through separately configured OpenAI, Groq, or Deepgram transcription endpoints.
+- Dedicated local speech-provider credentials and masked settings summaries, with Deepgram Nova-3/Nova-2 raw-media requests, strict timed-result validation, cancellation, and no upload before Generate subtitles or Stop and generate.
 - Provider-specific speech-model selection: OpenAI Whisper 1 and Groq Whisper models retain provider-timed segments, while OpenAI GPT-4o Transcribe and GPT-4o mini Transcribe support bounded SSE partial text after explicit submission and visibly labeled editable fallback timing.
 - Local transcription input support now includes FLAC and OGG alongside MP3, MP4, MPEG/MPGA, M4A, WAV, and WebM.
 - Explicit Chrome current-tab audio capture from the Capture current tab control while the subtitle generator remains open, using the required permission only after that click, preserving local playback, sending no provider request before Stop and generate, and cleaning up on cancel, page close, failure, or the 25 MB limit. Firefox omits the unsupported permission, disables that button, and keeps explicit local-media transcription available.
@@ -47,7 +48,7 @@ Initial productized release candidate for local Chrome/Firefox testing and brows
 - Contextual YouTube subtitle-generation entry points that only open the generator; capture still requires its own click, records the source playback offset at recorder start when available, exposes bounded editable cue text/start/end controls, uses indeterminate provider progress, and cancels globally namespaced per-cue translation requests.
 - Local generated-caption timeline editing with a proportional overlap-aware cue track, bounded global time shifts, Unicode-safe text-cursor splitting, adjacent-cue merging that refuses text-loss overflow, automatic renumbering, cue deletion, and a bounded 50-snapshot Undo/Redo history; these edits never play media, open a transcription connection, or send a translation request.
 - Explicit Apply to source video and Clear source video subtitles controls for generated bilingual cues. Applying is user-triggered, never starts playback, replaces prior generated-caption bindings, stays mutually exclusive with live subtitle translation, and clears on video or route changes.
-- Live caption translation for caption text already visible in the page DOM, with Google Meet, Zoom, Microsoft Teams, and Webex-style speaker label handling.
+- Live caption translation for caption text already visible in the page DOM, with Google Meet, Zoom, Microsoft Teams, Webex, Slack Huddles, Jitsi Meet, and BigBlueButton-style speaker label handling; Stop aborts pending caption translations.
 - YouTube Live caption-container support in Live captions mode, semantic filtering that rejects unrelated ARIA status regions, and immediate two-way mutual exclusion between Video subtitles and Live captions.
 - Timestamped bilingual live-caption transcripts with incremental-caption coalescing, in-memory session retention after Stop, explicit Clear, and local TXT/SRT/VTT/JSON export.
 - Explicit live-caption transcript Save with bounded `chrome.storage.local` history, sanitized source origins, private-tab rejection, newest-first preview, local TXT/SRT/VTT/JSON export, per-session Delete, Clear all, and 10/25/50 retention controls; loading a page or stopping captions never saves automatically.
@@ -97,15 +98,15 @@ Initial productized release candidate for local Chrome/Firefox testing and brows
 
 ### Verification
 
-Verified on 2026-08-12:
+Verified on 2026-08-13:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand`: passed, 81 test suites and 905 tests.
+- `jest --runInBand`: passed, 81 test suites and 951 tests.
 - `npm run package`: passed for Chrome and Firefox Desktop.
 - `web-ext lint --source-dir dist-firefox`: passed with 0 errors, 0 notices, and 31 warnings retained for AMO review.
-- Chrome build metadata: source `F162008E7CB88E4EF7832075EA6E769E8B93F4EDEF0F2B7291D9B62E50A39FD0`, manifest `E105181215EF2F2030818523211C187353EEC836130ADC7FCA04DF312168887C`, payload `8948DB47832FE8E3F060F0BE2069CED75B5D416EF2F6CA90E4E1BB11967DF237`.
-- Firefox build metadata: source `63F79A2D5BA4D4ED7FAE5BCC0CF46574197DB80C2B5B9F0A765D568C3B2A01A8`, manifest `F280485846217ACDC7E58E0719AE800943FD2C3A07262789D8FE975D8A2D1C55`, payload `9630E2C4F96D58991FBD002DFA8872890819E519321831BFA8BF8471D02FD26E`.
+- Chrome build metadata: source `0D8F3EFC068FC9C9BAEBE58582B8681BF7B31824A514B7D265A0973F6B0AD99E`, manifest `41AFFA9B654EA31CE6CCF26FFC450286B4FF686C2CBE42AA6E33359CF89CEEDA`, payload `975399D6BCB15039983AA608E89776B5D7196F5EDDDDA18F5A4A2B95C1F00B22`.
+- Firefox build metadata: source `C865FC875F66FD68F97B488878BFA1AD8B573241767D5C29FB9CAA2C243CA737`, manifest `8CB3DE4816758B2344DD9E3696CE32789FF1A2E02929F326A8D5301A5E0D5D22`, payload `91743EF23B09A2E022B67EC6B01B806BCC003365A3A0E060254DD269A73F366D`.
 - Both production directories contain exactly 246 files; forbidden tests, TypeScript declarations/sources, and source maps are absent, and every non-manifest/non-metadata file is byte-identical across targets.
 - Both ZIPs were generated twice from sorted forward-slash paths with fixed timestamps, compared byte-for-byte, CRC-checked, and reloaded to match every production file.
 
@@ -121,11 +122,11 @@ Expected build warnings:
 
 - Chrome unpacked folder: `dist`
 - Chrome test package: `chrome-translation-extension.zip`
-- Chrome ZIP size: `17,860,842` bytes
-- Chrome SHA-256: `696EC1577D694C392E76DC21525EE35FE7FE8B739C3134CDDD56D7039E2E3321`
+- Chrome ZIP size: `17,870,794` bytes
+- Chrome SHA-256: `C1D4CFDC6CB4538395EC86D6A9F7C9834E26A4548B52D568ED5C93A429000338`
 - Firefox unpacked folder: `dist-firefox`
 - Firefox test package: `firefox-translation-extension.zip`
-- Firefox ZIP size: `17,861,014` bytes
-- Firefox SHA-256: `A1116658F3C9111D574CCBFC8B0AD5C4C6328820D14A868F0DE238DA48FCA509`
+- Firefox ZIP size: `17,870,964` bytes
+- Firefox SHA-256: `DE342C140C3410B00B6B072FC301EA9D85B8699F50F03DEEA720C42B9F9CA123`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

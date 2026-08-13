@@ -435,12 +435,20 @@ class BackgroundService {
           response = await this.handleGetTranslationProviderConfigsRequest();
           break;
 
+        case 'getMediaTranscriptionProviderConfigs':
+          response = await this.handleGetMediaTranscriptionProviderConfigsRequest();
+          break;
+
         case 'getTabAudioCaptureStreamId':
           response = await this.handleGetTabAudioCaptureStreamIdRequest(request, sender);
           break;
 
         case 'updateTranslationProviderConfig':
           response = await this.handleUpdateTranslationProviderConfigRequest(request);
+          break;
+
+        case 'updateMediaTranscriptionProviderConfig':
+          response = await this.handleUpdateMediaTranscriptionProviderConfigRequest(request);
           break;
 
         case 'refreshTranslationProviderLanguages':
@@ -469,6 +477,10 @@ class BackgroundService {
 
         case 'removeTranslationProviderConfig':
           response = await this.handleRemoveTranslationProviderConfigRequest(request);
+          break;
+
+        case 'removeMediaTranscriptionProviderConfig':
+          response = await this.handleRemoveMediaTranscriptionProviderConfigRequest(request);
           break;
         
         case 'getLearningStats':
@@ -642,7 +654,7 @@ class BackgroundService {
               abortController = new AbortController();
               postMessage({ type: 'transcribing' });
               try {
-                const providerConfig = await this.storageManager.getTranslationProviderConfig(
+                const providerConfig = await this.storageManager.getMediaTranscriptionProviderConfig(
                   activeUpload.metadata.providerId
                 );
                 const result = await mediaTranscriptionService.transcribe(
@@ -1411,6 +1423,30 @@ class BackgroundService {
   private async handleGetTranslationProviderConfigsRequest(): Promise<MessageResponse> {
     const summaries = await this.storageManager.getTranslationProviderConfigSummaries();
     return { success: true, data: summaries };
+  }
+
+  private async handleGetMediaTranscriptionProviderConfigsRequest(): Promise<MessageResponse> {
+    const summaries = await this.storageManager.getMediaTranscriptionProviderConfigSummaries();
+    return { success: true, data: summaries };
+  }
+
+  private async handleUpdateMediaTranscriptionProviderConfigRequest(
+    request: MessageRequest
+  ): Promise<MessageResponse> {
+    const providerId = String(request.data?.providerId || '');
+    const summary = await this.storageManager.saveMediaTranscriptionProviderConfig(
+      providerId,
+      request.data?.config || {}
+    );
+    return { success: true, data: summary };
+  }
+
+  private async handleRemoveMediaTranscriptionProviderConfigRequest(
+    request: MessageRequest
+  ): Promise<MessageResponse> {
+    const providerId = String(request.data?.providerId || '');
+    await this.storageManager.removeMediaTranscriptionProviderConfig(providerId);
+    return { success: true };
   }
 
   private async handleUpdateTranslationProviderConfigRequest(request: MessageRequest): Promise<MessageResponse> {

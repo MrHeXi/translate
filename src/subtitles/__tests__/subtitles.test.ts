@@ -202,6 +202,47 @@ describe('AI subtitle generator', () => {
     expect((document.getElementById('clearSourceVideo') as HTMLButtonElement).hidden).toBe(true);
   });
 
+  it('enables Deepgram from the independent speech configuration without uploading on load', async () => {
+    const connect = jest.fn();
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({ success: true, data: [] });
+        return;
+      }
+      if (message.action === 'getMediaTranscriptionProviderConfigs') {
+        callback({
+          success: true,
+          data: [{ providerId: 'deepgram', configured: true }]
+        });
+        return;
+      }
+      if (message.action === 'getSettings') {
+        callback({
+          success: true,
+          data: { translationProvider: 'google', defaultTargetLanguage: 'fr' }
+        });
+        return;
+      }
+      callback({ success: true });
+    });
+    (global as any).chrome = {
+      runtime: { sendMessage, connect, lastError: null, openOptionsPage: jest.fn() }
+    };
+
+    require('../subtitles');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+    await flushPromises();
+
+    const provider = document.getElementById('transcriptionProvider') as HTMLSelectElement;
+    const model = document.getElementById('transcriptionModel') as HTMLSelectElement;
+    expect(provider.value).toBe('deepgram');
+    expect(model.value).toBe('nova-3');
+    expect(Array.from(model.options).map(option => option.value)).toEqual(['nova-3', 'nova-2']);
+    expect(connect).not.toHaveBeenCalled();
+    expect(sendMessage.mock.calls.some(([message]) => message.action === 'translate')).toBe(false);
+  });
+
   it('streams partial OpenAI text only after Generate and ignores late partials after Cancel', async () => {
     const harness = createPortHarness();
     const connect = jest.fn(() => harness.port);

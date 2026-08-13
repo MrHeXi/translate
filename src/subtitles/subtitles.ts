@@ -85,7 +85,8 @@ class SubtitleGeneratorController {
   private snapTimelineButton: HTMLButtonElement | null = null;
   private applyToSourceVideoButton: HTMLButtonElement | null = null;
   private clearSourceVideoButton: HTMLButtonElement | null = null;
-  private configuredProviderIds = new Set<string>();
+  private configuredTranslationProviderIds = new Set<string>();
+  private configuredTranscriptionProviderIds = new Set<string>();
   private providerTargetLanguages = new Map<string, string[]>();
   private port: chrome.runtime.Port | null = null;
   private selectedFile: File | null = null;
@@ -290,20 +291,35 @@ class SubtitleGeneratorController {
 
   private async loadProviderConfigurations(): Promise<void> {
     try {
-      const response = await this.sendMessage({ action: 'getTranslationProviderConfigs' });
-      const summaries = response?.success && Array.isArray(response.data)
-        ? response.data as ProviderConfigSummary[]
+      const [translationResponse, transcriptionResponse] = await Promise.all([
+        this.sendMessage({ action: 'getTranslationProviderConfigs' }),
+        this.sendMessage({ action: 'getMediaTranscriptionProviderConfigs' })
+      ]);
+      const summaries = translationResponse?.success && Array.isArray(translationResponse.data)
+        ? translationResponse.data as ProviderConfigSummary[]
         : [];
-      this.configuredProviderIds = new Set(
+      const transcriptionSummaries = transcriptionResponse?.success && Array.isArray(transcriptionResponse.data)
+        ? transcriptionResponse.data as ProviderConfigSummary[]
+        : [];
+      this.configuredTranslationProviderIds = new Set(
         summaries.filter(summary => summary.configured).map(summary => summary.providerId)
       );
+      this.configuredTranscriptionProviderIds = new Set([
+        ...transcriptionSummaries
+          .filter(summary => summary.configured)
+          .map(summary => summary.providerId),
+        ...summaries
+          .filter(summary => summary.configured && ['openai', 'groq'].includes(summary.providerId))
+          .map(summary => summary.providerId)
+      ]);
       this.providerTargetLanguages = new Map(
         summaries
           .filter(summary => Array.isArray(summary.supportedTargetLanguages))
           .map(summary => [summary.providerId, summary.supportedTargetLanguages!])
       );
     } catch {
-      this.configuredProviderIds.clear();
+      this.configuredTranslationProviderIds.clear();
+      this.configuredTranscriptionProviderIds.clear();
       this.providerTargetLanguages.clear();
       this.showStatus('Could not load provider configurations.', true);
     }
@@ -315,7 +331,7 @@ class SubtitleGeneratorController {
     if (this.transcriptionProvider) {
       Array.from(this.transcriptionProvider.options).forEach(option => {
         const definition = MEDIA_TRANSCRIPTION_PROVIDERS.find(provider => provider.id === option.value)!;
-        const configured = this.configuredProviderIds.has(option.value);
+        const configured = this.configuredTranscriptionProviderIds.has(option.value);
         option.disabled = !configured;
         option.textContent = `${definition.label}${configured ? '' : ' (configure in Settings)'}`;
       });
@@ -326,7 +342,7 @@ class SubtitleGeneratorController {
         else this.transcriptionProvider.selectedIndex = -1;
       }
       if (!this.transcriptionProvider.value) {
-        this.showStatus('Configure OpenAI or Groq in Settings.', true);
+        this.showStatus('Configure a speech transcription service in Settings.', true);
       }
       this.updateTranscriptionModelOptions();
     }
@@ -335,7 +351,7 @@ class SubtitleGeneratorController {
       Array.from(this.translationProvider.options).forEach(option => {
         const provider = getTranslationProvider(option.value);
         const requiresConfiguration = Boolean(provider?.configFields?.length);
-        const configured = !requiresConfiguration || this.configuredProviderIds.has(option.value);
+        const configured = !requiresConfiguration || this.configuredTranslationProviderIds.has(option.value);
         option.disabled = !configured;
         option.textContent = provider
           ? `${provider.label}${configured ? '' : ' (configure in Settings)'}`
@@ -627,7 +643,7 @@ class SubtitleGeneratorController {
       return;
     }
     if (!this.transcriptionProvider?.value || !this.transcriptionModel?.value) {
-      this.showStatus('Configure OpenAI or Groq in Settings.', true);
+      this.showStatus('Configure a speech transcription service in Settings.', true);
       return;
     }
     if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {

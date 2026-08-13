@@ -26,6 +26,58 @@ const GENERIC_SELECTOR_SUFFIXES = {
 
 const DEDICATED_ADAPTER_CASES = [
   {
+    adapterId: 'twitch',
+    siteLabel: 'Twitch',
+    primaryUrl: 'https://twitch.tv/videos/2480012345?t=1h2m#chat',
+    subdomainUrl: 'https://www.twitch.tv/videos/2480012345?filter=archives',
+    stableUrl: 'https://m.twitch.tv/videos/2480012345?collection=ignored#theatre',
+    changedIdentityUrl: 'https://www.twitch.tv/videos/2480098765',
+    expectedKey: 'twitch:video:2480012345',
+    maliciousUrls: [
+      'https://twitch.tv.evil.example/videos/2480012345',
+      'https://faketwitch.tv/videos/2480012345',
+    ],
+  },
+  {
+    adapterId: 'dailymotion',
+    siteLabel: 'Dailymotion',
+    primaryUrl: 'https://dailymotion.com/video/x9abcde?playlist=x1#player',
+    subdomainUrl: 'https://geo.dailymotion.com/player.html?video=x9abcde&mute=true',
+    stableUrl: 'https://www.dailymotion.com/video/x9abcde?autoplay=1#comments',
+    changedIdentityUrl: 'https://www.dailymotion.com/video/x8vwxyz',
+    expectedKey: 'dailymotion:video:x9abcde',
+    maliciousUrls: [
+      'https://dailymotion.com.evil.example/video/x9abcde',
+      'https://notdailymotion.com/video/x9abcde',
+    ],
+  },
+  {
+    adapterId: 'ted',
+    siteLabel: 'TED',
+    primaryUrl: 'https://ted.com/talks/example_speaker_a_better_future?language=en#video',
+    subdomainUrl: 'https://embed.ted.com/talks/example_speaker_a_better_future?autoplay=true',
+    stableUrl: 'https://www.ted.com/talks/example_speaker_a_better_future?subtitle=zh#transcript',
+    changedIdentityUrl: 'https://www.ted.com/talks/another_speaker_a_different_talk',
+    expectedKey: 'ted:video:example_speaker_a_better_future',
+    maliciousUrls: [
+      'https://ted.com.evil.example/talks/example_speaker_a_better_future',
+      'https://notreallyted.com/talks/example_speaker_a_better_future',
+    ],
+  },
+  {
+    adapterId: 'prime-video',
+    siteLabel: 'Prime Video',
+    primaryUrl: 'https://primevideo.com/detail/0ABCDEF123456789?autoplay=1#player',
+    subdomainUrl: 'https://www.primevideo.com/detail/0ABCDEF123456789?ref_=atv_dp',
+    stableUrl: 'https://www.primevideo.com/region/us/detail/0ABCDEF123456789?language=zh#episodes',
+    changedIdentityUrl: 'https://www.primevideo.com/detail/0ZYXWVU987654321',
+    expectedKey: 'prime-video:video:0ABCDEF123456789',
+    maliciousUrls: [
+      'https://primevideo.com.evil.example/detail/0ABCDEF123456789',
+      'https://fakeprimevideo.com/detail/0ABCDEF123456789',
+    ],
+  },
+  {
     adapterId: 'netflix',
     siteLabel: 'Netflix',
     primaryUrl: 'https://netflix.com/watch/80100172?trackId=one#player',
@@ -247,6 +299,42 @@ describe('VideoSiteAdapterRegistry', () => {
     },
   );
 
+  it('distinguishes Twitch video, clip, channel, and path navigation identities', () => {
+    expect(resolveVideoSiteContext('https://www.twitch.tv/videos/2480012345').navigationKey)
+      .toBe('twitch:video:2480012345');
+    expect(resolveVideoSiteContext('https://clips.twitch.tv/DistinctClipSlug').navigationKey)
+      .toBe('twitch:clip:DistinctClipSlug');
+    expect(resolveVideoSiteContext('https://www.twitch.tv/ExampleStreamer').navigationKey)
+      .toBe('twitch:channel:examplestreamer');
+    expect(resolveVideoSiteContext('https://www.twitch.tv/directory/category/science-tech').navigationKey)
+      .toBe('twitch:path:directory/category/science-tech');
+  });
+
+  it('distinguishes Dailymotion and TED video, channel, and ordinary paths', () => {
+    expect(resolveVideoSiteContext('https://www.dailymotion.com/video/x9abcde').navigationKey)
+      .toBe('dailymotion:video:x9abcde');
+    expect(resolveVideoSiteContext('https://www.dailymotion.com/user/NewsChannel').navigationKey)
+      .toBe('dailymotion:channel:newschannel');
+    expect(resolveVideoSiteContext('https://www.dailymotion.com/playlist/x123').navigationKey)
+      .toBe('dailymotion:path:playlist/x123');
+
+    expect(resolveVideoSiteContext('https://www.ted.com/talks/example_talk').navigationKey)
+      .toBe('ted:video:example_talk');
+    expect(resolveVideoSiteContext('https://www.ted.com/speakers/example_speaker').navigationKey)
+      .toBe('ted:channel:example_speaker');
+    expect(resolveVideoSiteContext('https://www.ted.com/series/example_series').navigationKey)
+      .toBe('ted:path:series/example_series');
+  });
+
+  it('distinguishes Prime Video detail, storefront, and ordinary path identities', () => {
+    expect(resolveVideoSiteContext('https://www.primevideo.com/detail/0ABCDEF123456789').navigationKey)
+      .toBe('prime-video:video:0ABCDEF123456789');
+    expect(resolveVideoSiteContext('https://www.primevideo.com/storefront/kids').navigationKey)
+      .toBe('prime-video:channel:kids');
+    expect(resolveVideoSiteContext('https://www.primevideo.com/search/ref=atv_nb_sr?phrase=test').navigationKey)
+      .toBe('prime-video:path:search/ref=atv_nb_sr');
+  });
+
   it.each(DEDICATED_ADAPTER_CASES)(
     'keeps $siteLabel keys stable for ordinary URL state and changes them for content identity',
     ({ primaryUrl, stableUrl, changedIdentityUrl }) => {
@@ -352,5 +440,25 @@ describe('VideoSiteAdapterRegistry', () => {
     appendSpy.mockRestore();
     setAttributeSpy.mockRestore();
     removeAttributeSpy.mockRestore();
+  });
+
+  it('loads the registry module without DOM listeners or extension runtime actions', () => {
+    const listenerSpy = jest.spyOn(EventTarget.prototype, 'addEventListener');
+    const observeSpy = jest.spyOn(MutationObserver.prototype, 'observe');
+    const sendMessageSpy = jest.spyOn(chrome.runtime, 'sendMessage');
+
+    try {
+      jest.isolateModules(() => {
+        require('../VideoSiteAdapterRegistry');
+      });
+
+      expect(listenerSpy).not.toHaveBeenCalled();
+      expect(observeSpy).not.toHaveBeenCalled();
+      expect(sendMessageSpy).not.toHaveBeenCalled();
+    } finally {
+      listenerSpy.mockRestore();
+      observeSpy.mockRestore();
+      sendMessageSpy.mockRestore();
+    }
   });
 });

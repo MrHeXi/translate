@@ -1,18 +1,20 @@
-import { TranslationProviderRuntimeConfig } from './TranslationProviderRegistry';
+import type { TranslationProviderRuntimeConfig } from './TranslationProviderRegistry';
 
-export type MediaTranscriptionProviderId = 'openai' | 'groq';
+export type MediaTranscriptionProviderId = 'openai' | 'groq' | 'deepgram';
 export type MediaTranscriptionModelId =
   | 'whisper-1'
   | 'gpt-4o-transcribe'
   | 'gpt-4o-mini-transcribe'
   | 'whisper-large-v3-turbo'
-  | 'whisper-large-v3';
+  | 'whisper-large-v3'
+  | 'nova-3'
+  | 'nova-2';
 
 export interface MediaTranscriptionModelDefinition {
   id: MediaTranscriptionModelId;
   providerId: MediaTranscriptionProviderId;
   label: string;
-  responseMode: 'timed-json' | 'text-sse';
+  responseMode: 'timed-json' | 'text-sse' | 'deepgram-json';
   supportsTimedSegments: boolean;
 }
 
@@ -57,6 +59,7 @@ export interface MediaTranscriptionResult {
 export const MEDIA_TRANSCRIPTION_MAX_BYTES = 25 * 1024 * 1024;
 export const MEDIA_TRANSCRIPTION_CHUNK_BYTES = 256 * 1024;
 export const MEDIA_TRANSCRIPTION_MAX_TEXT_LENGTH = 200000;
+export const MEDIA_TRANSCRIPTION_MAX_SEGMENTS = 10_000;
 export const MEDIA_TRANSCRIPTION_MAX_SSE_EVENTS = 50_000;
 export const MEDIA_TRANSCRIPTION_PARTIAL_PREVIEW_LENGTH = 4_000;
 
@@ -65,6 +68,9 @@ const MEDIA_TRANSCRIPTION_INITIAL_PARTIAL_EMISSIONS = 16;
 const MEDIA_TRANSCRIPTION_PARTIAL_EMIT_INTERVAL = 64;
 const MEDIA_TRANSCRIPTION_DEFAULT_FALLBACK_DURATION_SECONDS = 5;
 const MEDIA_TRANSCRIPTION_MAX_FALLBACK_DURATION_SECONDS = 24 * 60 * 60;
+const MEDIA_TRANSCRIPTION_MAX_SEGMENT_TEXT_LENGTH = 10_000;
+const MEDIA_TRANSCRIPTION_MAX_DEEPGRAM_CHANNELS = 8;
+const MEDIA_TRANSCRIPTION_MAX_DEEPGRAM_ALTERNATIVES = 5;
 
 const MEDIA_TRANSCRIPTION_EXTENSION_PATTERN = /\.(flac|mp3|mp4|mpeg|mpga|m4a|ogg|wav|webm)$/i;
 const MEDIA_TRANSCRIPTION_MIME_TYPES = new Set([
@@ -114,6 +120,17 @@ export const MEDIA_TRANSCRIPTION_PROVIDERS: MediaTranscriptionProviderDefinition
     supportsTimedSegments: true,
     supportsCancellation: true,
     progressMode: 'indeterminate'
+  },
+  {
+    id: 'deepgram',
+    label: 'Deepgram transcription',
+    defaultEndpoint: 'https://api.deepgram.com/v1/listen',
+    defaultModel: 'nova-3',
+    maxBytes: MEDIA_TRANSCRIPTION_MAX_BYTES,
+    supportedMimeTypes: MEDIA_TRANSCRIPTION_SUPPORTED_MIME_TYPES,
+    supportsTimedSegments: true,
+    supportsCancellation: true,
+    progressMode: 'indeterminate'
   }
 ];
 
@@ -151,6 +168,20 @@ export const MEDIA_TRANSCRIPTION_MODELS: readonly MediaTranscriptionModelDefinit
     providerId: 'groq',
     label: 'Whisper Large V3',
     responseMode: 'timed-json',
+    supportsTimedSegments: true
+  },
+  {
+    id: 'nova-3',
+    providerId: 'deepgram',
+    label: 'Nova-3',
+    responseMode: 'deepgram-json',
+    supportsTimedSegments: true
+  },
+  {
+    id: 'nova-2',
+    providerId: 'deepgram',
+    label: 'Nova-2',
+    responseMode: 'deepgram-json',
     supportsTimedSegments: true
   }
 ]);
@@ -287,6 +318,10 @@ export class MediaTranscriptionService {
     if (!apiKey) throw new Error(`${definition.label} API key is not configured.`);
 
     const endpoint = this.resolveEndpoint(definition, providerConfig?.endpoint);
+    if (model.responseMode === 'deepgram-json') {
+      return this.transcribeDeepgram(upload, definition, model, apiKey, endpoint, signal);
+    }
+
     const form = new FormData();
     form.append('file', upload.createBlob(), this.sanitizeFileName(upload.metadata.fileName));
     form.append('model', model.id);
@@ -357,12 +392,280 @@ export class MediaTranscriptionService {
     };
   }
 
+  private async transcribeDeepgram(
+    upload: MediaTranscriptionUpload,
+    definition: MediaTranscriptionProviderDefinition,
+    model: MediaTranscriptionModelDefinition,
+    apiKey: string,
+    endpoint: string,
+    signal?: AbortSignal
+  ): Promise<MediaTranscriptionResult> {
+    this.assertNotAborted(signal);
+    const requestUrl = new URL(endpoint);
+    requestUrl.searchParams.set('model', model.id);
+    requestUrl.searchParams.set('smart_format', 'true');
+    requestUrl.searchParams.set('utterances', 'true');
+    const language = this.normalizeDeepgramLanguage(upload.metadata.language);
+    if (language) requestUrl.searchParams.set('language', language);
+    else requestUrl.searchParams.set('detect_language', 'true');
+
+    const media = upload.createBlob();
+    const response = await fetch(requestUrl.toString(), {
+      method: 'POST',
+      headers: {
+        Authorization: `Token ${apiKey}`,
+        'Content-Type': media.type || 'application/octet-stream'
+      },
+      body: media,
+      signal
+    });
+    this.assertNotAborted(signal);
+    if (!response.ok) {
+      const data = await this.readErrorResponse(response);
+      this.assertNotAborted(signal);
+      const providerMessage = this.getDeepgramErrorMessage(data);
+      throw new Error(
+        providerMessage || `${definition.label} request failed with HTTP ${response.status}.`
+      );
+    }
+
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      throw new Error(`${definition.label} returned invalid JSON.`);
+    }
+    this.assertNotAborted(signal);
+    return this.normalizeDeepgramResult(data, language, definition.label);
+  }
+
   private async readErrorResponse(response: Response): Promise<any> {
     try {
       return await response.json();
     } catch {
       return null;
     }
+  }
+
+  private normalizeDeepgramResult(
+    value: unknown,
+    requestedLanguage: string,
+    providerLabel: string
+  ): MediaTranscriptionResult {
+    if (!this.isRecord(value)) {
+      throw new Error(`${providerLabel} returned a malformed transcript result.`);
+    }
+    const results = value.results;
+    if (!this.isRecord(results)) {
+      throw new Error(`${providerLabel} returned a malformed transcript result.`);
+    }
+    const channels = results.channels;
+    if (
+      !Array.isArray(channels)
+      || channels.length === 0
+      || channels.length > MEDIA_TRANSCRIPTION_MAX_DEEPGRAM_CHANNELS
+    ) {
+      throw new Error(`${providerLabel} returned a malformed or oversized channel result.`);
+    }
+
+    const primaryAlternatives = channels.map(channel => {
+      if (!this.isRecord(channel) || !Array.isArray(channel.alternatives)) {
+        throw new Error(`${providerLabel} returned a malformed channel result.`);
+      }
+      if (
+        channel.alternatives.length === 0
+        || channel.alternatives.length > MEDIA_TRANSCRIPTION_MAX_DEEPGRAM_ALTERNATIVES
+        || channel.alternatives.some(alternative => !this.isRecord(alternative))
+      ) {
+        throw new Error(`${providerLabel} returned a malformed or oversized alternatives result.`);
+      }
+      return channel.alternatives[0] as Record<string, unknown>;
+    });
+
+    let segments: MediaTranscriptionSegment[];
+    if (Array.isArray(results.utterances) && results.utterances.length > 0) {
+      segments = this.normalizeDeepgramUtterances(results.utterances, providerLabel);
+    } else if (results.utterances !== undefined && !Array.isArray(results.utterances)) {
+      throw new Error(`${providerLabel} returned malformed utterances.`);
+    } else {
+      const words = primaryAlternatives.flatMap(alternative => {
+        if (!Array.isArray(alternative.words)) {
+          throw new Error(`${providerLabel} returned no timed transcript words.`);
+        }
+        return alternative.words;
+      });
+      segments = this.normalizeDeepgramWords(words, providerLabel);
+    }
+
+    segments.sort((left, right) => left.start - right.start || left.end - right.end);
+    segments = segments.map((segment, index) => ({ ...segment, id: index + 1 }));
+    const text = segments.map(segment => segment.text).join(' ').trim();
+    if (!text) throw new Error(`${providerLabel} returned no transcript text.`);
+    if (text.length > MEDIA_TRANSCRIPTION_MAX_TEXT_LENGTH) {
+      throw new Error(`${providerLabel} transcript exceeded the text limit.`);
+    }
+
+    const metadata = this.isRecord(value.metadata) ? value.metadata : null;
+    const metadataDuration = this.toFiniteNumber(metadata?.duration);
+    if (
+      metadataDuration !== null
+      && (metadataDuration < 0 || metadataDuration > MEDIA_TRANSCRIPTION_MAX_FALLBACK_DURATION_SECONDS)
+    ) {
+      throw new Error(`${providerLabel} returned an invalid duration.`);
+    }
+    const duration = Math.max(metadataDuration ?? 0, ...segments.map(segment => segment.end));
+    const detectedLanguage = channels
+      .map(channel => this.isRecord(channel) ? channel.detected_language : undefined)
+      .find(language => typeof language === 'string' && language.trim());
+
+    return {
+      text,
+      language: typeof detectedLanguage === 'string'
+        ? this.normalizeProviderLanguage(detectedLanguage)
+        : this.normalizeRequestedLanguage(requestedLanguage),
+      duration,
+      segments,
+      timingMode: 'provider-segments'
+    };
+  }
+
+  private normalizeDeepgramUtterances(
+    utterances: unknown[],
+    providerLabel: string
+  ): MediaTranscriptionSegment[] {
+    if (utterances.length > MEDIA_TRANSCRIPTION_MAX_SEGMENTS) {
+      throw new Error(`${providerLabel} returned too many transcript segments.`);
+    }
+    let totalTextLength = 0;
+    const segments = utterances.map((utterance, index) => {
+      if (!this.isRecord(utterance)) {
+        throw new Error(`${providerLabel} returned a malformed utterance.`);
+      }
+      let text = this.readDeepgramText(utterance.transcript);
+      if (!text && Array.isArray(utterance.words)) {
+        if (utterance.words.length > MEDIA_TRANSCRIPTION_MAX_SEGMENTS) {
+          throw new Error(`${providerLabel} returned too many transcript words.`);
+        }
+        text = utterance.words.map(word => this.readDeepgramWordText(word, providerLabel)).join(' ');
+      }
+      const segment = this.createStrictTimedSegment(
+        index + 1,
+        utterance.start,
+        utterance.end,
+        text,
+        providerLabel
+      );
+      totalTextLength = this.addDeepgramTextLength(totalTextLength, segment.text, providerLabel);
+      return segment;
+    });
+    if (segments.length === 0) throw new Error(`${providerLabel} returned no transcript segments.`);
+    return segments;
+  }
+
+  private normalizeDeepgramWords(words: unknown[], providerLabel: string): MediaTranscriptionSegment[] {
+    if (words.length === 0) throw new Error(`${providerLabel} returned no timed transcript words.`);
+    if (words.length > MEDIA_TRANSCRIPTION_MAX_SEGMENTS) {
+      throw new Error(`${providerLabel} returned too many transcript segments.`);
+    }
+    let totalTextLength = 0;
+    return words.map((word, index) => {
+      if (!this.isRecord(word)) {
+        throw new Error(`${providerLabel} returned a malformed transcript word.`);
+      }
+      const segment = this.createStrictTimedSegment(
+        index + 1,
+        word.start,
+        word.end,
+        this.readDeepgramWordText(word, providerLabel),
+        providerLabel
+      );
+      totalTextLength = this.addDeepgramTextLength(totalTextLength, segment.text, providerLabel);
+      return segment;
+    });
+  }
+
+  private addDeepgramTextLength(current: number, text: string, providerLabel: string): number {
+    const next = current + text.length + (current > 0 ? 1 : 0);
+    if (next > MEDIA_TRANSCRIPTION_MAX_TEXT_LENGTH) {
+      throw new Error(`${providerLabel} transcript exceeded the text limit.`);
+    }
+    return next;
+  }
+
+  private createStrictTimedSegment(
+    id: number,
+    startValue: unknown,
+    endValue: unknown,
+    text: string,
+    providerLabel: string
+  ): MediaTranscriptionSegment {
+    const start = this.toFiniteNumber(startValue);
+    const end = this.toFiniteNumber(endValue);
+    if (
+      !text
+      || text.length > MEDIA_TRANSCRIPTION_MAX_SEGMENT_TEXT_LENGTH
+      || start === null
+      || end === null
+      || start < 0
+      || end <= start
+      || end > MEDIA_TRANSCRIPTION_MAX_FALLBACK_DURATION_SECONDS
+    ) {
+      throw new Error(`${providerLabel} returned a malformed transcript segment.`);
+    }
+    return { id, start, end, text };
+  }
+
+  private readDeepgramWordText(value: unknown, providerLabel: string): string {
+    if (!this.isRecord(value)) {
+      throw new Error(`${providerLabel} returned a malformed transcript word.`);
+    }
+    const text = this.readDeepgramText(value.punctuated_word)
+      || this.readDeepgramText(value.word);
+    if (!text) throw new Error(`${providerLabel} returned a malformed transcript word.`);
+    return text;
+  }
+
+  private readDeepgramText(value: unknown): string {
+    if (typeof value !== 'string') return '';
+    return value.split('\u0000').join('').trim();
+  }
+
+  private normalizeProviderLanguage(value: string): string {
+    const language = value.trim();
+    return language && language.length <= 32 ? language : 'auto';
+  }
+
+  private normalizeDeepgramLanguage(value: unknown): string {
+    if (typeof value !== 'string') return '';
+    const language = value.trim();
+    if (!language || language.toLowerCase() === 'auto') return '';
+    if (language.toLowerCase() === 'multi') return 'multi';
+    return /^(?:[A-Za-z]{2,3})(?:-[A-Za-z0-9]{2,8}){0,3}$/.test(language)
+      ? language.slice(0, 32)
+      : '';
+  }
+
+  private normalizeRequestedLanguage(value: string): string {
+    if (!value) return 'auto';
+    if (value === 'multi') return value;
+    return value.split('-')[0] || 'auto';
+  }
+
+  private getDeepgramErrorMessage(value: unknown): string {
+    if (!this.isRecord(value)) return '';
+    const message = typeof value.err_msg === 'string'
+      ? value.err_msg
+      : typeof value.error === 'string'
+        ? value.error
+        : '';
+    return this.normalizeText(message, 1000);
+  }
+
+  private assertNotAborted(signal?: AbortSignal): void {
+    if (!signal?.aborted) return;
+    const error = new Error('Media transcription was canceled.');
+    error.name = 'AbortError';
+    throw error;
   }
 
   private async readStreamingTranscript(
@@ -531,6 +834,16 @@ export class MediaTranscriptionService {
       throw new Error(`${definition.label} endpoint must not contain URL credentials.`);
     }
 
+    if (definition.id === 'deepgram') {
+      if (!/\/v1\/listen\/?$/.test(url.pathname)) {
+        throw new Error(`${definition.label} endpoint must end in /v1/listen.`);
+      }
+      url.pathname = url.pathname.replace(/\/$/, '');
+      url.search = '';
+      url.hash = '';
+      return url.toString();
+    }
+
     const replacedPath = url.pathname.replace(
       /\/(?:chat\/completions|responses)\/?$/,
       '/audio/transcriptions'
@@ -604,6 +917,10 @@ export class MediaTranscriptionService {
 
   private toFiniteNumber(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
   }
 }
 

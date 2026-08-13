@@ -80,6 +80,7 @@ class ContentScript {
   private documentPagePrompt: DocumentPagePrompt;
   private videoSubtitleTranslator: VideoSubtitleTranslator;
   private liveCaptionTranslator: LiveCaptionTranslator;
+  private liveCaptionTranslationRequestSequence = 0;
   private imageTranslator: ImageTranslator;
   private isTranslationMode: boolean = false;
   private isLearningMode: boolean = false;
@@ -412,7 +413,10 @@ class ContentScript {
       this.videoSubtitleTranslator.disable();
     }
     return this.liveCaptionTranslator.toggle(
-      (text) => this.translateInteractiveText(text),
+      (text, signal) => this.translateInteractiveText(text, undefined, {
+        signal,
+        requestId: `live-caption:${++this.liveCaptionTranslationRequestSequence}`
+      }),
       (text) => this.createTranslationCacheKey(text)
     );
   }

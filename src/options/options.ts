@@ -10,6 +10,7 @@ import {
   TranslationProviderRuntimeConfig
 } from '../services/TranslationProviderRegistry';
 import type {
+  MediaTranscriptionProviderConfigSummary,
   PromptTemplateRegistryEntry,
   TranslationProviderConfigSummary
 } from '../services/StorageManager';
@@ -53,6 +54,11 @@ import {
   AiToolsCatalogItem,
   createAiToolsCatalogService
 } from '../services/AiToolsCatalogService';
+import {
+  getMediaTranscriptionProvider,
+  MEDIA_TRANSCRIPTION_PROVIDERS,
+  MediaTranscriptionProviderId
+} from '../services/MediaTranscriptionService';
 
 interface UserSettings {
   defaultTargetLanguage: string;
@@ -116,6 +122,7 @@ class OptionsController {
   private stats: LearningStats | null = null;
   private dictionaryProgress: DictionaryProgress = {};
   private providerConfigSummaries: Map<string, TranslationProviderConfigSummary> = new Map();
+  private mediaTranscriptionConfigSummaries: Map<string, MediaTranscriptionProviderConfigSummary> = new Map();
   private aiExperts: AiExpertRegistryEntry[] = [];
   private promptTemplates: PromptTemplateRegistryEntry[] = [];
   private readonly aiToolsCatalog = createAiToolsCatalogService();
@@ -137,7 +144,10 @@ class OptionsController {
     
     // 加载当前设置
     await this.loadSettings();
-    await this.loadTranslationProviderConfigs();
+    await Promise.all([
+      this.loadTranslationProviderConfigs(),
+      this.loadMediaTranscriptionProviderConfigs()
+    ]);
     await this.loadAiTools();
     
     // 加载学习统计
@@ -172,6 +182,19 @@ class OptionsController {
 
     const removeProviderConfig = document.getElementById('removeProviderConfig');
     removeProviderConfig?.addEventListener('click', () => this.removeTranslationProviderConfig());
+
+    document.getElementById('mediaTranscriptionProvider')?.addEventListener(
+      'change',
+      () => this.updateMediaTranscriptionConfigurationUI()
+    );
+    document.getElementById('saveMediaTranscriptionConfig')?.addEventListener(
+      'click',
+      () => void this.saveMediaTranscriptionProviderConfig()
+    );
+    document.getElementById('removeMediaTranscriptionConfig')?.addEventListener(
+      'click',
+      () => void this.removeMediaTranscriptionProviderConfig()
+    );
 
     const refreshProviderLanguages = document.getElementById('refreshProviderLanguages');
     refreshProviderLanguages?.addEventListener('click', () => this.refreshTranslationProviderLanguages());
@@ -410,6 +433,16 @@ class OptionsController {
         })
       );
     }
+
+    const mediaProvider = document.getElementById('mediaTranscriptionProvider') as HTMLSelectElement | null;
+    if (mediaProvider && typeof mediaProvider.replaceChildren === 'function') {
+      mediaProvider.replaceChildren(...MEDIA_TRANSCRIPTION_PROVIDERS.map(provider => {
+        const option = document.createElement('option');
+        option.value = provider.id;
+        option.textContent = provider.label;
+        return option;
+      }));
+    }
   }
 
   private switchTab(tabId: string): void {
@@ -459,6 +492,21 @@ class OptionsController {
     } catch (error) {
       this.providerConfigSummaries.clear();
       console.error('Could not load translation provider configurations:', error);
+    }
+  }
+
+  private async loadMediaTranscriptionProviderConfigs(): Promise<void> {
+    try {
+      const response = await this.sendMessage({ action: 'getMediaTranscriptionProviderConfigs' });
+      const summaries = response?.success && Array.isArray(response.data)
+        ? response.data as MediaTranscriptionProviderConfigSummary[]
+        : [];
+      this.mediaTranscriptionConfigSummaries = new Map(
+        summaries.map(summary => [summary.providerId, summary])
+      );
+    } catch (error) {
+      this.mediaTranscriptionConfigSummaries.clear();
+      console.error('Could not load media transcription provider configurations:', error);
     }
   }
 
@@ -929,6 +977,7 @@ class OptionsController {
     if (this.settings) {
       this.updateGeneralSettings();
       this.updateProviderConfigurationUI();
+      this.updateMediaTranscriptionConfigurationUI();
       this.updateDictionarySettings();
       this.updateLearningSettings();
     }
@@ -1399,6 +1448,7 @@ class OptionsController {
       'https://api.deepl.com',
       'https://api.cognitive.microsofttranslator.com',
       'https://api.openai.com',
+      'https://api.deepgram.com',
       'https://generativelanguage.googleapis.com'
     ];
     if (preGrantedOrigins.includes(endpointUrl.origin)) return true;
@@ -1408,6 +1458,109 @@ class OptionsController {
     return new Promise<boolean>(resolve => {
       chrome.permissions.request({ origins: [originPattern] }, resolve);
     });
+  }
+
+  private updateMediaTranscriptionConfigurationUI(): void {
+    const select = document.getElementById('mediaTranscriptionProvider') as HTMLSelectElement | null;
+    const providerId = select?.value as MediaTranscriptionProviderId | undefined;
+    const provider = getMediaTranscriptionProvider(providerId);
+    if (!provider) return;
+    const summary = this.mediaTranscriptionConfigSummaries.get(provider.id);
+    const title = document.getElementById('mediaTranscriptionConfigTitle');
+    const status = document.getElementById('mediaTranscriptionConfigStatus');
+    const apiKey = document.getElementById('mediaTranscriptionApiKey') as HTMLInputElement | null;
+    const endpoint = document.getElementById('mediaTranscriptionEndpoint') as HTMLInputElement | null;
+    const remove = document.getElementById('removeMediaTranscriptionConfig') as HTMLButtonElement | null;
+    if (title) title.textContent = `${provider.label} configuration`;
+    if (status) {
+      status.textContent = summary?.configured
+        ? `Configured${summary.inheritedFromTranslationProvider ? ' from translation settings' : ''}`
+        : 'Not configured';
+    }
+    if (apiKey) {
+      apiKey.value = '';
+      apiKey.placeholder = summary?.apiKeyHint ? `Saved key: ${summary.apiKeyHint}` : 'Enter API key';
+    }
+    if (endpoint) endpoint.value = summary?.endpoint || provider.defaultEndpoint;
+    if (remove) remove.disabled = !summary?.configured || Boolean(summary.inheritedFromTranslationProvider);
+    this.showMediaTranscriptionConfigMessage('');
+  }
+
+  private async saveMediaTranscriptionProviderConfig(): Promise<void> {
+    const select = document.getElementById('mediaTranscriptionProvider') as HTMLSelectElement | null;
+    const providerId = select?.value as MediaTranscriptionProviderId | undefined;
+    const provider = getMediaTranscriptionProvider(providerId);
+    if (!provider) return;
+    const summary = this.mediaTranscriptionConfigSummaries.get(provider.id);
+    const apiKey = (document.getElementById('mediaTranscriptionApiKey') as HTMLInputElement | null)
+      ?.value.trim() || '';
+    const endpoint = (document.getElementById('mediaTranscriptionEndpoint') as HTMLInputElement | null)
+      ?.value.trim() || provider.defaultEndpoint;
+    if (!apiKey && !summary?.apiKeyHint) {
+      this.showMediaTranscriptionConfigMessage(`${provider.label} API key is required`, true);
+      return;
+    }
+    if (!await this.ensureProviderEndpointPermission(endpoint)) {
+      this.showMediaTranscriptionConfigMessage('Host access was not granted for this endpoint', true);
+      return;
+    }
+    try {
+      const response = await this.sendMessage({
+        action: 'updateMediaTranscriptionProviderConfig',
+        data: { providerId: provider.id, config: { apiKey, endpoint } }
+      });
+      if (!response?.success) {
+        this.showMediaTranscriptionConfigMessage(
+          response?.error || 'Could not save speech configuration',
+          true
+        );
+        return;
+      }
+      this.mediaTranscriptionConfigSummaries.set(provider.id, response.data);
+      this.updateMediaTranscriptionConfigurationUI();
+      this.showMediaTranscriptionConfigMessage(`${provider.label} configuration saved locally`);
+    } catch (error) {
+      this.showMediaTranscriptionConfigMessage(
+        error instanceof Error ? error.message : 'Could not save speech configuration',
+        true
+      );
+    }
+  }
+
+  private async removeMediaTranscriptionProviderConfig(): Promise<void> {
+    const providerId = (document.getElementById('mediaTranscriptionProvider') as HTMLSelectElement | null)
+      ?.value as MediaTranscriptionProviderId | undefined;
+    const provider = getMediaTranscriptionProvider(providerId);
+    const summary = provider ? this.mediaTranscriptionConfigSummaries.get(provider.id) : undefined;
+    if (!provider || !summary?.configured || summary.inheritedFromTranslationProvider) return;
+    try {
+      const response = await this.sendMessage({
+        action: 'removeMediaTranscriptionProviderConfig',
+        data: { providerId: provider.id }
+      });
+      if (!response?.success) {
+        this.showMediaTranscriptionConfigMessage(
+          response?.error || 'Could not remove speech configuration',
+          true
+        );
+        return;
+      }
+      await this.loadMediaTranscriptionProviderConfigs();
+      this.updateMediaTranscriptionConfigurationUI();
+      this.showMediaTranscriptionConfigMessage(`${provider.label} configuration removed`);
+    } catch (error) {
+      this.showMediaTranscriptionConfigMessage(
+        error instanceof Error ? error.message : 'Could not remove speech configuration',
+        true
+      );
+    }
+  }
+
+  private showMediaTranscriptionConfigMessage(message: string, isError = false): void {
+    const element = document.getElementById('mediaTranscriptionConfigMessage');
+    if (!element) return;
+    element.textContent = message;
+    element.classList.toggle('error', isError);
   }
 
   private showProviderConfigMessage(message: string, isError: boolean = false): void {

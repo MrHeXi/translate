@@ -182,6 +182,131 @@ describe('StorageManager', () => {
       expect(JSON.stringify(summary)).not.toContain('sk-secret-12345678');
     });
 
+    it('stores speech-only provider credentials separately and exposes masked summaries', async () => {
+      mockChromeStorage.local.get.mockImplementation(async key => {
+        if (key === 'mediaTranscriptionProviderConfigsV1') return {};
+        if (key === 'translationProviderConfigs') {
+          return {
+            translationProviderConfigs: {
+              openai: {
+                apiKey: 'translation-openai-secret',
+                endpoint: 'https://api.openai.com/v1/chat/completions'
+              }
+            }
+          };
+        }
+        return {};
+      });
+      mockChromeStorage.local.set.mockResolvedValue(undefined);
+
+      const summary = await storageManager.saveMediaTranscriptionProviderConfig('deepgram', {
+        apiKey: 'deepgram-secret-12345678',
+        endpoint: 'https://api.deepgram.com/v1/listen'
+      });
+
+      expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
+        mediaTranscriptionProviderConfigsV1: {
+          deepgram: {
+            apiKey: 'deepgram-secret-12345678',
+            endpoint: 'https://api.deepgram.com/v1/listen'
+          }
+        }
+      });
+      expect(mockChromeStorage.sync.set).not.toHaveBeenCalled();
+      expect(summary).toEqual({
+        providerId: 'deepgram',
+        configured: true,
+        apiKeyHint: 'deep...5678',
+        endpoint: 'https://api.deepgram.com/v1/listen'
+      });
+      expect(JSON.stringify(summary)).not.toContain('deepgram-secret-12345678');
+
+      const summaries = await storageManager.getMediaTranscriptionProviderConfigSummaries();
+      expect(summaries).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          providerId: 'openai',
+          configured: true,
+          inheritedFromTranslationProvider: true,
+          apiKeyHint: 'tran...cret'
+        }),
+        expect.objectContaining({ providerId: 'deepgram', configured: false })
+      ]));
+      expect(JSON.stringify(summaries)).not.toContain('translation-openai-secret');
+    });
+
+    it('rejects unsafe speech endpoints and removes only the selected speech configuration', async () => {
+      mockChromeStorage.local.get.mockResolvedValue({
+        mediaTranscriptionProviderConfigsV1: {
+          deepgram: { apiKey: 'secret', endpoint: 'https://api.deepgram.com/v1/listen' },
+          groq: { apiKey: 'groq-secret', endpoint: 'https://api.groq.com/openai/v1/audio/transcriptions' }
+        }
+      });
+      mockChromeStorage.local.set.mockResolvedValue(undefined);
+
+      await expect(storageManager.saveMediaTranscriptionProviderConfig('deepgram', {
+        apiKey: 'secret',
+        endpoint: 'http://api.deepgram.com/v1/listen'
+      })).rejects.toThrow('HTTPS or localhost HTTP');
+      await expect(storageManager.saveMediaTranscriptionProviderConfig('deepgram', {
+        apiKey: 'secret',
+        endpoint: 'https://user:password@api.deepgram.com/v1/listen'
+      })).rejects.toThrow('must not contain URL credentials');
+      await expect(storageManager.saveMediaTranscriptionProviderConfig('deepgram', {
+        apiKey: 'secret',
+        endpoint: 'https://api.deepgram.com/v1/projects'
+      })).rejects.toThrow('must end in /v1/listen');
+
+      await storageManager.removeMediaTranscriptionProviderConfig('deepgram');
+      expect(mockChromeStorage.local.set).toHaveBeenLastCalledWith({
+        mediaTranscriptionProviderConfigsV1: {
+          groq: {
+            apiKey: 'groq-secret',
+            endpoint: 'https://api.groq.com/openai/v1/audio/transcriptions'
+          }
+        }
+      });
+    });
+
+    it('copies an inherited OpenAI key only when the user explicitly saves speech settings', async () => {
+      mockChromeStorage.local.get.mockImplementation(async key => {
+        if (key === 'mediaTranscriptionProviderConfigsV1') {
+          return { mediaTranscriptionProviderConfigsV1: {} };
+        }
+        if (key === 'translationProviderConfigs') {
+          return {
+            translationProviderConfigs: {
+              openai: {
+                apiKey: 'translation-openai-secret',
+                endpoint: 'https://api.openai.com/v1/chat/completions'
+              }
+            }
+          };
+        }
+        return {};
+      });
+      mockChromeStorage.local.set.mockResolvedValue(undefined);
+
+      const summary = await storageManager.saveMediaTranscriptionProviderConfig('openai', {
+        apiKey: '',
+        endpoint: 'https://api.openai.com/v1/audio/transcriptions'
+      });
+
+      expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
+        mediaTranscriptionProviderConfigsV1: {
+          openai: {
+            apiKey: 'translation-openai-secret',
+            endpoint: 'https://api.openai.com/v1/audio/transcriptions'
+          }
+        }
+      });
+      expect(summary).toEqual({
+        providerId: 'openai',
+        configured: true,
+        apiKeyHint: 'tran...cret',
+        endpoint: 'https://api.openai.com/v1/audio/transcriptions'
+      });
+    });
+
     it('stores discovered language capabilities in the local provider config but exposes no credentials', async () => {
       mockChromeStorage.local.get.mockResolvedValue({
         translationProviderConfigs: {

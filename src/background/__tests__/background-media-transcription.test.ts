@@ -19,7 +19,7 @@ interface PortHarness {
 
 interface BackgroundHarness {
   uploads: UploadDouble[];
-  getTranslationProviderConfig: jest.Mock;
+  getMediaTranscriptionProviderConfig: jest.Mock;
   createTabAudioStreamId: jest.Mock;
   connect(): PortHarness;
   sendRuntimeMessage(
@@ -49,7 +49,7 @@ const loadBackgroundHarness = (transcribe: jest.Mock): BackgroundHarness => {
     endpoint: 'https://api.groq.com/openai/v1/chat/completions',
     model: 'chat-model'
   };
-  const getTranslationProviderConfig = jest.fn().mockResolvedValue(providerConfig);
+  const getMediaTranscriptionProviderConfig = jest.fn().mockResolvedValue(providerConfig);
   const createTabAudioStreamId = jest.fn().mockResolvedValue('tab-stream-id');
 
   (global as any).chrome = {
@@ -114,7 +114,7 @@ const loadBackgroundHarness = (transcribe: jest.Mock): BackgroundHarness => {
     }))
   }));
   jest.doMock('../../services/StorageManager', () => ({
-    StorageManager: jest.fn().mockImplementation(() => ({ getTranslationProviderConfig }))
+    StorageManager: jest.fn().mockImplementation(() => ({ getMediaTranscriptionProviderConfig }))
   }));
   jest.doMock('../../services/ReviewService', () => ({
     ReviewService: jest.fn().mockImplementation(() => ({}))
@@ -157,7 +157,7 @@ const loadBackgroundHarness = (transcribe: jest.Mock): BackgroundHarness => {
 
   return {
     uploads,
-    getTranslationProviderConfig,
+    getMediaTranscriptionProviderConfig,
     createTabAudioStreamId,
     connect: () => {
       let messageListener: ((message: Record<string, unknown>) => void) | null = null;
@@ -238,7 +238,7 @@ describe('BackgroundService media transcription port', () => {
     await flushPromises();
     await flushPromises();
 
-    expect(harness.getTranslationProviderConfig).toHaveBeenCalledWith('groq');
+    expect(harness.getMediaTranscriptionProviderConfig).toHaveBeenCalledWith('groq');
     expect(transcribe).toHaveBeenCalledWith(
       expect.objectContaining({ metadata: expect.objectContaining({ providerId: 'groq' }) }),
       expect.objectContaining({ apiKey: 'background-only-secret' }),

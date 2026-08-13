@@ -34,7 +34,7 @@ export interface LiveCaptionTranscriptExport {
   message: string;
 }
 
-type TranslateText = (text: string) => Promise<string>;
+type TranslateText = (text: string, signal?: AbortSignal) => Promise<string>;
 type CreateTranslationCacheKey = (text: string) => string;
 
 interface LiveCaptionCandidate {
@@ -50,6 +50,8 @@ interface MeetingCaptionAdapter {
   rootSelectors: string[];
   speakerSelectors: string[];
   textSelectors: string[];
+  parseSpeakerPrefix?: boolean;
+  preferLastText?: boolean;
 }
 
 const MEETING_CAPTION_ADAPTERS: MeetingCaptionAdapter[] = [
@@ -144,6 +146,69 @@ const MEETING_CAPTION_ADAPTERS: MeetingCaptionAdapter[] = [
     ]
   },
   {
+    source: 'Slack Huddles',
+    priority: 85,
+    rootSelectors: [
+      '[data-qa="huddle_captions_container"]',
+      '[data-qa="huddle_live_captions"]',
+      '[data-qa="huddle_caption"]',
+      '[data-qa*="huddle"][data-qa*="caption"]'
+    ],
+    speakerSelectors: [
+      '[data-qa="huddle_caption_speaker"]',
+      '[data-qa="huddle_caption_speaker_name"]',
+      '[data-qa*="caption_speaker"]'
+    ],
+    textSelectors: [
+      '[data-qa="huddle_caption_text"]',
+      '[data-qa*="caption_text"]',
+      '[class*="captionText"]'
+    ],
+    parseSpeakerPrefix: true
+  },
+  {
+    source: 'Jitsi Meet',
+    priority: 85,
+    rootSelectors: [
+      '[data-testid="transcription-subtitles"]',
+      '[data-testid="subtitles-container"]',
+      '[class*="transcriptionSubtitles"]'
+    ],
+    speakerSelectors: [
+      '[data-testid="subtitle-speaker"]',
+      '[data-testid*="caption-speaker"]',
+      '[class*="speaker"]'
+    ],
+    textSelectors: [
+      '[data-testid="subtitle-text"]',
+      '[data-testid*="caption-text"]',
+      'span'
+    ],
+    parseSpeakerPrefix: true,
+    preferLastText: true
+  },
+  {
+    source: 'BigBlueButton',
+    priority: 85,
+    rootSelectors: [
+      '[data-test="audio-captions-container"]',
+      '[data-test="audio-captions"]',
+      '[data-test="closed-captions"]',
+      '[class*="audioCaptions"]'
+    ],
+    speakerSelectors: [
+      '[data-test="audio-caption-speaker"]',
+      '[data-test*="caption-speaker"]',
+      '[class*="captionSpeaker"]'
+    ],
+    textSelectors: [
+      '[data-test="audio-caption-text"]',
+      '[data-test*="caption-text"]',
+      '[class*="captionText"]'
+    ],
+    parseSpeakerPrefix: true
+  },
+  {
     source: 'YouTube Live',
     priority: 80,
     rootSelectors: [
@@ -188,6 +253,7 @@ export class LiveCaptionTranslator {
   private sessionStartedAt: number | null = null;
   private droppedTranscriptCueCount = 0;
   private translationRunId = 0;
+  private pendingTranslationControllers = new Set<AbortController>();
 
   async toggle(
     translateText: TranslateText,
@@ -232,6 +298,7 @@ export class LiveCaptionTranslator {
   disable(): void {
     this.translationRunId += 1;
     this.isActive = false;
+    this.cancelPendingTranslations();
     this.finalizeActiveTranscriptCue(Date.now());
 
     if (this.observer) {
@@ -375,7 +442,7 @@ export class LiveCaptionTranslator {
       const cacheKey = this.createTranslationCacheKey(caption.text);
       let translatedText = this.translationCache.get(cacheKey);
       if (!translatedText) {
-        translatedText = await this.translateText(caption.text);
+        translatedText = await this.translateCaptionText(caption.text);
         if (this.isActive && translationRunId === this.translationRunId) {
           this.cacheTranslation(cacheKey, translatedText);
         }
@@ -441,10 +508,18 @@ export class LiveCaptionTranslator {
   }
 
   private extractMeetingCaptionCandidate(root: HTMLElement, adapter: MeetingCaptionAdapter): LiveCaptionCandidate | null {
-    const speaker = this.findFirstText(root, adapter.speakerSelectors);
-    const captionText = this.findFirstText(root, adapter.textSelectors);
+    let speaker = this.findFirstText(root, adapter.speakerSelectors);
+    const captionText = this.findText(root, adapter.textSelectors, adapter.preferLastText);
     const fallbackText = this.normalizeCaptionText(root.textContent || '');
-    const text = captionText || (speaker ? this.removeLeadingSpeaker(fallbackText, speaker) : fallbackText);
+    let text = captionText || (speaker ? this.removeLeadingSpeaker(fallbackText, speaker) : fallbackText);
+
+    if (!speaker && adapter.parseSpeakerPrefix) {
+      const prefixedCaption = this.parseSpeakerPrefixedCaption(text);
+      if (prefixedCaption) {
+        speaker = prefixedCaption.speaker;
+        text = prefixedCaption.text;
+      }
+    }
 
     if (!text || text === speaker) return null;
 
@@ -486,12 +561,20 @@ export class LiveCaptionTranslator {
   }
 
   private findFirstText(root: HTMLElement, selectors: string[]): string {
-    for (const selector of selectors) {
-      const element = root.querySelector(selector) as HTMLElement | null;
-      if (!element || !this.isUsableCaptionElement(element)) continue;
+    return this.findText(root, selectors, false);
+  }
 
-      const text = this.normalizeCaptionText(element.textContent || '');
-      if (text) return text;
+  private findText(root: HTMLElement, selectors: string[], preferLast = false): string {
+    for (const selector of selectors) {
+      const elements = Array.from(root.querySelectorAll(selector)) as HTMLElement[];
+      const orderedElements = preferLast ? elements.reverse() : elements;
+
+      for (const element of orderedElements) {
+        if (!this.isUsableCaptionElement(element)) continue;
+
+        const text = this.normalizeCaptionText(element.textContent || '');
+        if (text) return text;
+      }
     }
 
     return '';
@@ -501,6 +584,17 @@ export class LiveCaptionTranslator {
     return text
       .replace(new RegExp(`^${this.escapeRegExp(speaker)}\\s*[:：-]?\\s*`), '')
       .trim();
+  }
+
+  private parseSpeakerPrefixedCaption(text: string): { speaker: string; text: string } | null {
+    const match = text.match(/^(.{1,80}?)\s*[:\uFF1A]\s+(.{2,})$/);
+    if (!match) return null;
+
+    const speaker = this.normalizeCaptionText(match[1]);
+    const captionText = this.normalizeCaptionText(match[2]);
+    if (!speaker || !captionText) return null;
+
+    return { speaker, text: captionText };
   }
 
   private isUsableCaptionElement(element: HTMLElement): boolean {
@@ -532,6 +626,24 @@ export class LiveCaptionTranslator {
       if (oldestKey !== undefined) this.translationCache.delete(oldestKey);
     }
     this.translationCache.set(cacheKey, translatedText);
+  }
+
+  private async translateCaptionText(text: string): Promise<string> {
+    if (!this.translateText) throw new Error('Live caption translation is not active');
+
+    const controller = new AbortController();
+    this.pendingTranslationControllers.add(controller);
+
+    try {
+      return await this.translateText(text, controller.signal);
+    } finally {
+      this.pendingTranslationControllers.delete(controller);
+    }
+  }
+
+  private cancelPendingTranslations(): void {
+    this.pendingTranslationControllers.forEach(controller => controller.abort());
+    this.pendingTranslationControllers.clear();
   }
 
   private formatCaptionForDisplay(caption: LiveCaptionCandidate, translatedText?: string): string {
