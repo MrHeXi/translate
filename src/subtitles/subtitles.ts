@@ -646,7 +646,9 @@ class SubtitleGeneratorController {
       this.showStatus('Configure a speech transcription service in Settings.', true);
       return;
     }
-    if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+    const AudioContextConstructor = window.AudioContext;
+    const MediaRecorderConstructor = window.MediaRecorder;
+    if (!AudioContextConstructor || !MediaRecorderConstructor || !navigator.mediaDevices?.getUserMedia) {
       this.showStatus('This Chrome version cannot record tab audio.', true);
       return;
     }
@@ -665,7 +667,7 @@ class SubtitleGeneratorController {
     this.updateTranslationControls();
 
     try {
-      const audioContext = new AudioContext();
+      const audioContext = new AudioContextConstructor();
       this.tabCaptureAudioContext = audioContext;
       let audioContextResumeError: unknown;
       const audioContextResume = audioContext.resume().catch(error => {
@@ -705,7 +707,7 @@ class SubtitleGeneratorController {
       if (captureRunId !== this.tabCaptureRunId || this.tabCapturePhase !== 'starting') return;
 
       const mimeType = this.chooseTabCaptureMimeType();
-      const recorder = new MediaRecorder(stream, {
+      const recorder = new MediaRecorderConstructor(stream, {
         ...(mimeType ? { mimeType } : {}),
         audioBitsPerSecond: 128000
       });
@@ -864,7 +866,7 @@ class SubtitleGeneratorController {
 
   private chooseTabCaptureMimeType(): string {
     return ['audio/webm;codecs=opus', 'audio/webm']
-      .find(mimeType => MediaRecorder.isTypeSupported(mimeType)) || '';
+      .find(mimeType => window.MediaRecorder.isTypeSupported(mimeType)) || '';
   }
 
   private updateTabCaptureControls(): void {

@@ -1449,6 +1449,7 @@ class OptionsController {
       'https://api.cognitive.microsofttranslator.com',
       'https://api.openai.com',
       'https://api.deepgram.com',
+      'https://api.cloudflare.com',
       'https://generativelanguage.googleapis.com'
     ];
     if (preGrantedOrigins.includes(endpointUrl.origin)) return true;
@@ -1468,6 +1469,9 @@ class OptionsController {
     const summary = this.mediaTranscriptionConfigSummaries.get(provider.id);
     const title = document.getElementById('mediaTranscriptionConfigTitle');
     const status = document.getElementById('mediaTranscriptionConfigStatus');
+    const clientIdField = document.getElementById('mediaTranscriptionClientIdField');
+    const clientIdLabel = document.getElementById('mediaTranscriptionClientIdLabel');
+    const clientId = document.getElementById('mediaTranscriptionClientId') as HTMLInputElement | null;
     const apiKey = document.getElementById('mediaTranscriptionApiKey') as HTMLInputElement | null;
     const endpoint = document.getElementById('mediaTranscriptionEndpoint') as HTMLInputElement | null;
     const remove = document.getElementById('removeMediaTranscriptionConfig') as HTMLButtonElement | null;
@@ -1481,8 +1485,22 @@ class OptionsController {
       apiKey.value = '';
       apiKey.placeholder = summary?.apiKeyHint ? `Saved key: ${summary.apiKeyHint}` : 'Enter API key';
     }
-    if (endpoint) endpoint.value = summary?.endpoint || provider.defaultEndpoint;
-    if (remove) remove.disabled = !summary?.configured || Boolean(summary.inheritedFromTranslationProvider);
+    const needsAccountId = provider.id === 'cloudflare';
+    if (clientIdField) clientIdField.hidden = !needsAccountId;
+    if (clientIdLabel) clientIdLabel.textContent = needsAccountId ? 'Cloudflare Account ID' : 'Account ID';
+    if (clientId) {
+      clientId.value = '';
+      clientId.placeholder = summary?.clientIdHint
+        ? `Saved account: ${summary.clientIdHint}`
+        : 'Enter 32-character Account ID';
+    }
+    if (endpoint) {
+      endpoint.value = summary?.endpoint || provider.defaultEndpoint;
+      endpoint.readOnly = needsAccountId;
+    }
+    if (remove) {
+      remove.disabled = !summary?.hasDedicatedConfig || Boolean(summary.inheritedFromTranslationProvider);
+    }
     this.showMediaTranscriptionConfigMessage('');
   }
 
@@ -1492,12 +1510,18 @@ class OptionsController {
     const provider = getMediaTranscriptionProvider(providerId);
     if (!provider) return;
     const summary = this.mediaTranscriptionConfigSummaries.get(provider.id);
+    const clientId = (document.getElementById('mediaTranscriptionClientId') as HTMLInputElement | null)
+      ?.value.trim() || '';
     const apiKey = (document.getElementById('mediaTranscriptionApiKey') as HTMLInputElement | null)
       ?.value.trim() || '';
     const endpoint = (document.getElementById('mediaTranscriptionEndpoint') as HTMLInputElement | null)
       ?.value.trim() || provider.defaultEndpoint;
     if (!apiKey && !summary?.apiKeyHint) {
       this.showMediaTranscriptionConfigMessage(`${provider.label} API key is required`, true);
+      return;
+    }
+    if (provider.id === 'cloudflare' && !clientId && !summary?.clientIdHint) {
+      this.showMediaTranscriptionConfigMessage(`${provider.label} Account ID is required`, true);
       return;
     }
     if (!await this.ensureProviderEndpointPermission(endpoint)) {
@@ -1507,7 +1531,14 @@ class OptionsController {
     try {
       const response = await this.sendMessage({
         action: 'updateMediaTranscriptionProviderConfig',
-        data: { providerId: provider.id, config: { apiKey, endpoint } }
+        data: {
+          providerId: provider.id,
+          config: {
+            ...(provider.id === 'cloudflare' ? { clientId } : {}),
+            apiKey,
+            endpoint
+          }
+        }
       });
       if (!response?.success) {
         this.showMediaTranscriptionConfigMessage(
@@ -1532,7 +1563,7 @@ class OptionsController {
       ?.value as MediaTranscriptionProviderId | undefined;
     const provider = getMediaTranscriptionProvider(providerId);
     const summary = provider ? this.mediaTranscriptionConfigSummaries.get(provider.id) : undefined;
-    if (!provider || !summary?.configured || summary.inheritedFromTranslationProvider) return;
+    if (!provider || !summary?.hasDedicatedConfig || summary.inheritedFromTranslationProvider) return;
     try {
       const response = await this.sendMessage({
         action: 'removeMediaTranscriptionProviderConfig',

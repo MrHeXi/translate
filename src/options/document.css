@@ -117,6 +117,15 @@ select {
   flex: 1 1 132px;
 }
 
+.input-actions .export-option {
+  flex-basis: 220px;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 1px solid #cfd8e6;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
 .primary-btn,
 .secondary-btn,
 .file-picker {

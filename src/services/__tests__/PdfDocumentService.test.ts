@@ -2,10 +2,13 @@ import {
   PdfDocumentService,
   PdfEngineAdapter,
   PdfOcrDetector,
-  PdfOcrDetectorFactory
+  PdfOcrDetectorFactory,
+  PDF_DOCUMENT_MAX_PAGES,
+  PDF_DOCUMENT_MAX_PAGE_RENDER_PIXELS,
+  PDF_DOCUMENT_MAX_SOURCE_BYTES
 } from '../PdfDocumentService';
 import { BundledOcrSession, bundledOcrService } from '../BundledOcrService';
-import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { PDFDict, PDFDocument, PDFName, PDFPage, PDFString, StandardFonts, degrees } from 'pdf-lib';
 import { getDocument, OPS, Util } from 'pdfjs-dist/legacy/build/pdf';
 import { ReadableStream } from 'stream/web';
 
@@ -778,6 +781,375 @@ describe('PdfDocumentService', () => {
     }
   });
 
+  it('overlays translations while preserving real form widgets and annotations', async () => {
+    const source = await PDFDocument.create();
+    const font = await source.embedFont(StandardFonts.Helvetica);
+    const page = source.addPage([600, 800]);
+    page.drawText('Source line', { x: 72, y: 720, size: 12, font });
+
+    const form = source.getForm();
+    const textField = form.createTextField('contact.name');
+    textField.setText('Ada Lovelace');
+    textField.addToPage(page, { x: 72, y: 650, width: 180, height: 24, font });
+
+    const link = source.context.obj({
+      Type: 'Annot',
+      Subtype: 'Link',
+      Rect: [72, 600, 220, 620],
+      Border: [0, 0, 0],
+      A: {
+        Type: 'Action',
+        S: 'URI',
+        URI: PDFString.of('https://example.com/reference')
+      }
+    });
+    page.node.addAnnot(source.context.register(link));
+
+    const note = source.context.obj({
+      Type: 'Annot',
+      Subtype: 'Text',
+      Rect: [260, 600, 280, 620],
+      Contents: PDFString.of('Keep this reviewer note'),
+      T: PDFString.of('Reviewer'),
+      Open: false
+    });
+    page.node.addAnnot(source.context.register(note));
+    const sourceBytes = new Uint8Array(await source.save());
+
+    const { engine } = createEngine([{
+      width: 600,
+      height: 800,
+      items: [
+        { str: 'Source line', transform: [1, 0, 0, 12, 72, 720], width: 64, height: 12, hasEOL: true }
+      ]
+    }]);
+    const context = {
+      clearRect: jest.fn(),
+      save: jest.fn(),
+      restore: jest.fn(),
+      fillRect: jest.fn(),
+      fillText: jest.fn(),
+      measureText: jest.fn((text: string) => ({ width: text.length * 6 })),
+      fillStyle: '',
+      font: '',
+      textBaseline: 'top'
+    } as unknown as CanvasRenderingContext2D;
+    const contextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(context);
+    const dataUrlSpy = jest.spyOn(HTMLCanvasElement.prototype, 'toDataURL')
+      .mockReturnValue(
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII='
+      );
+
+    try {
+      const session = await new PdfDocumentService(engine, () => null).open(sourceBytes);
+      const analysis = await session.analyze();
+      const exportedBytes = await session.exportTranslatedPdfPreservingInteractions([{
+        block: analysis.blocks[0]!,
+        translatedText: 'Translated source line'
+      }]);
+      const reopened = await PDFDocument.load(exportedBytes, { updateMetadata: false });
+      const reopenedPage = reopened.getPage(0);
+      const annotations = reopenedPage.node.Annots();
+
+      expect(reopened.getForm().getFields().map(field => field.getName())).toEqual(['contact.name']);
+      expect(reopened.getForm().getTextField('contact.name').getText()).toBe('Ada Lovelace');
+      expect(reopened.getForm().getTextField('contact.name').acroField.getWidgets()).toHaveLength(1);
+      expect(annotations?.size()).toBe(3);
+
+      const annotationDicts = Array.from({ length: annotations?.size() || 0 }, (_, index) => (
+        annotations!.lookup(index, PDFDict)
+      ));
+      expect(annotationDicts.map(annotation => (
+        annotation.lookup(PDFName.of('Subtype'), PDFName).decodeText()
+      ))).toEqual(['Widget', 'Link', 'Text']);
+      const reopenedLink = annotationDicts[1]!.lookup(PDFName.of('A'), PDFDict);
+      expect(reopenedLink.lookup(PDFName.of('URI'), PDFString).decodeText())
+        .toBe('https://example.com/reference');
+      expect(annotationDicts[2]!.lookup(PDFName.of('Contents'), PDFString).decodeText())
+        .toBe('Keep this reviewer note');
+
+      reopened.getForm().getTextField('contact.name').setText('Grace Hopper');
+      const editedBytes = await reopened.save();
+      const edited = await PDFDocument.load(editedBytes);
+      expect(edited.getForm().getTextField('contact.name').getText()).toBe('Grace Hopper');
+
+      const pdfJsDocument = await getDocument({ data: exportedBytes.slice() }).promise;
+      try {
+        const operatorList = await (await pdfJsDocument.getPage(1)).getOperatorList();
+        expect(operatorList.fnArray).toContain(OPS.paintImageXObject);
+      } finally {
+        await pdfJsDocument.destroy();
+      }
+      expect(context.fillText).toHaveBeenCalledWith(
+        'Translated source line',
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number)
+      );
+    } finally {
+      contextSpy.mockRestore();
+      dataUrlSpy.mockRestore();
+    }
+  });
+
+  it('supports interaction-preserving export for a PDF without interactive objects', async () => {
+    const source = await PDFDocument.create();
+    source.addPage([600, 800]);
+    const sourceBytes = new Uint8Array(await source.save());
+    const { engine } = createEngine([{
+      width: 600,
+      height: 800,
+      items: [
+        { str: 'Plain source', transform: [1, 0, 0, 12, 72, 720], width: 68, height: 12, hasEOL: true }
+      ]
+    }]);
+    const context = {
+      clearRect: jest.fn(),
+      save: jest.fn(),
+      restore: jest.fn(),
+      fillRect: jest.fn(),
+      fillText: jest.fn(),
+      measureText: jest.fn((text: string) => ({ width: text.length * 6 })),
+      fillStyle: '',
+      font: '',
+      textBaseline: 'top'
+    } as unknown as CanvasRenderingContext2D;
+    const contextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(context);
+    const dataUrlSpy = jest.spyOn(HTMLCanvasElement.prototype, 'toDataURL')
+      .mockReturnValue(
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII='
+      );
+
+    try {
+      const session = await new PdfDocumentService(engine, () => null).open(sourceBytes);
+      const analysis = await session.analyze();
+      const exported = await session.exportTranslatedPdfPreservingInteractions([{
+        block: analysis.blocks[0]!,
+        translatedText: 'Plain translation'
+      }]);
+      const reopened = await PDFDocument.load(exported);
+      expect(reopened.getPageCount()).toBe(1);
+      expect(reopened.catalog.has(PDFName.of('AcroForm'))).toBe(false);
+      expect(reopened.getPage(0).node.get(PDFName.Annots)).toBeUndefined();
+      expect(context.fillText).toHaveBeenCalledWith(
+        'Plain translation',
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number)
+      );
+    } finally {
+      contextSpy.mockRestore();
+      dataUrlSpy.mockRestore();
+    }
+  });
+
+  it.each([
+    { rotation: 90, expectedX: 600, expectedY: 0, expectedAngle: 90 },
+    { rotation: 270, expectedX: 0, expectedY: 800, expectedAngle: -90 }
+  ])(
+    'maps the translated overlay into a $rotation-degree rotated PDF page',
+    async ({ rotation, expectedX, expectedY, expectedAngle }) => {
+      const source = await PDFDocument.create();
+      source.addPage([600, 800]).setRotation(degrees(rotation));
+      const sourceBytes = new Uint8Array(await source.save());
+      const { engine } = createEngine([{
+        width: 800,
+        height: 600,
+        items: [
+          { str: 'Rotated source', transform: [1, 0, 0, 12, 72, 520], width: 82, height: 12, hasEOL: true }
+        ]
+      }]);
+      const context = {
+        clearRect: jest.fn(),
+        save: jest.fn(),
+        restore: jest.fn(),
+        fillRect: jest.fn(),
+        fillText: jest.fn(),
+        measureText: jest.fn((text: string) => ({ width: text.length * 6 })),
+        fillStyle: '',
+        font: '',
+        textBaseline: 'top'
+      } as unknown as CanvasRenderingContext2D;
+      const contextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+        .mockReturnValue(context);
+      const dataUrlSpy = jest.spyOn(HTMLCanvasElement.prototype, 'toDataURL')
+        .mockReturnValue(
+          'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII='
+        );
+      const drawImageSpy = jest.spyOn(PDFPage.prototype, 'drawImage');
+
+      try {
+        const session = await new PdfDocumentService(engine, () => null).open(sourceBytes);
+        const analysis = await session.analyze();
+        await session.exportTranslatedPdfPreservingInteractions([{
+          block: analysis.blocks[0]!,
+          translatedText: 'Rotated translation'
+        }]);
+
+        const drawOptions = drawImageSpy.mock.calls[drawImageSpy.mock.calls.length - 1]?.[1];
+        expect(drawOptions).toEqual(expect.objectContaining({
+          x: expectedX,
+          y: expectedY,
+          width: 800,
+          height: 600,
+          rotate: expect.objectContaining({ angle: expectedAngle })
+        }));
+      } finally {
+        drawImageSpy.mockRestore();
+        contextSpy.mockRestore();
+        dataUrlSpy.mockRestore();
+      }
+    }
+  );
+
+  it('rejects interaction-preserving export when the source contains a signature field', async () => {
+    const source = await PDFDocument.create();
+    const page = source.addPage([600, 800]);
+    const signatureField = source.context.obj({
+      FT: 'Sig',
+      T: PDFString.of('approval.signature')
+    });
+    const signatureRef = source.context.register(signatureField);
+    source.catalog.set(PDFName.of('AcroForm'), source.context.obj({ Fields: [signatureRef] }));
+    const sourceBytes = new Uint8Array(await source.save({ updateFieldAppearances: false }));
+    const { engine } = createEngine([{
+      items: [
+        { str: 'Approval', transform: [1, 0, 0, 12, 72, 720], width: 50, height: 12, hasEOL: true }
+      ]
+    }]);
+    const session = await new PdfDocumentService(engine, () => null).open(sourceBytes);
+    const analysis = await session.analyze();
+
+    await expect(session.exportTranslatedPdfPreservingInteractions([{
+      block: analysis.blocks[0]!,
+      translatedText: 'Translated approval'
+    }])).rejects.toThrow(/cannot preserve a PDF signature/i);
+    expect(page.node.Annots()?.size() || 0).toBe(0);
+  });
+
+  it('rejects active PDF actions instead of carrying executable content into an export', async () => {
+    const source = await PDFDocument.create();
+    const page = source.addPage([600, 800]);
+    const scriptedLink = source.context.obj({
+      Type: 'Annot',
+      Subtype: 'Link',
+      Rect: [72, 600, 220, 620],
+      A: {
+        Type: 'Action',
+        S: 'JavaScript',
+        JS: PDFString.of('app.launchURL("https://example.com", true)')
+      }
+    });
+    page.node.addAnnot(source.context.register(scriptedLink));
+    const sourceBytes = new Uint8Array(await source.save());
+    const { engine } = createEngine([{
+      items: [
+        { str: 'Unsafe link', transform: [1, 0, 0, 12, 72, 720], width: 60, height: 12, hasEOL: true }
+      ]
+    }]);
+    const session = await new PdfDocumentService(engine, () => null).open(sourceBytes);
+    const analysis = await session.analyze();
+
+    await expect(session.exportTranslatedPdfPreservingInteractions([{
+      block: analysis.blocks[0]!,
+      translatedText: 'Translated link'
+    }])).rejects.toThrow(/JavaScript.*actions are not allowed/i);
+  });
+
+  it('rejects page-level automatic actions before preserving the original PDF', async () => {
+    const source = await PDFDocument.create();
+    const page = source.addPage([600, 800]);
+    page.node.set(PDFName.of('AA'), source.context.obj({
+      O: { S: 'JavaScript', JS: PDFString.of('app.alert("opened")') }
+    }));
+    const sourceBytes = new Uint8Array(await source.save());
+    const { engine } = createEngine([{ items: [] }]);
+    const session = await new PdfDocumentService(engine, () => null).open(sourceBytes);
+
+    await expect(session.exportTranslatedPdfPreservingInteractions([]))
+      .rejects.toThrow(/automatic page actions are not allowed/i);
+  });
+
+  it('rejects active actions hidden in the PDF outline object graph', async () => {
+    const source = await PDFDocument.create();
+    source.addPage([600, 800]);
+    const outlineItem = source.context.obj({
+      Title: PDFString.of('Unsafe bookmark'),
+      A: {
+        Type: 'Action',
+        S: 'JavaScript',
+        JS: PDFString.of('app.alert("outline")')
+      }
+    });
+    source.catalog.set(PDFName.of('Outlines'), source.context.obj({
+      Type: 'Outlines',
+      First: outlineItem,
+      Last: outlineItem,
+      Count: 1
+    }));
+    const sourceBytes = new Uint8Array(await source.save());
+    const { engine } = createEngine([{ items: [] }]);
+    const session = await new PdfDocumentService(engine, () => null).open(sourceBytes);
+
+    await expect(session.exportTranslatedPdfPreservingInteractions([]))
+      .rejects.toThrow(/JavaScript.*actions are not allowed/i);
+
+    const customSource = await PDFDocument.create();
+    customSource.addPage([600, 800]);
+    customSource.catalog.set(PDFName.of('Outlines'), customSource.context.obj({
+      Type: 'Outlines',
+      First: {
+        Title: PDFString.of('Unknown action'),
+        A: { Type: 'Action', S: 'CustomExecutable' }
+      }
+    }));
+    const customBytes = new Uint8Array(await customSource.save());
+    const customSession = await new PdfDocumentService(engine, () => null).open(customBytes);
+    await expect(customSession.exportTranslatedPdfPreservingInteractions([]))
+      .rejects.toThrow(/CustomExecutable actions are not allowed/i);
+  });
+
+  it('rejects associated files attached outside the annotation snapshot roots', async () => {
+    const source = await PDFDocument.create();
+    const page = source.addPage([600, 800]);
+    const embeddedFile = source.context.register(source.context.flateStream('payload', {
+      Type: 'EmbeddedFile'
+    }));
+    const fileSpec = source.context.register(source.context.obj({
+      Type: 'Filespec',
+      F: PDFString.of('payload.txt'),
+      EF: { F: embeddedFile }
+    }));
+    page.node.set(PDFName.of('AF'), source.context.obj([fileSpec]));
+    const sourceBytes = new Uint8Array(await source.save());
+    const { engine } = createEngine([{ items: [] }]);
+    const session = await new PdfDocumentService(engine, () => null).open(sourceBytes);
+
+    await expect(session.exportTranslatedPdfPreservingInteractions([]))
+      .rejects.toThrow(/embedded or associated files are not allowed/i);
+  });
+
+  it('bounds PDF interaction names before sorting or serializing them', async () => {
+    const source = await PDFDocument.create();
+    const page = source.addPage([600, 800]);
+    const annotation = source.context.obj({
+      Type: 'Annot',
+      Subtype: 'Text',
+      Rect: [72, 600, 92, 620],
+      Contents: PDFString.of('Bounded note')
+    });
+    annotation.set(PDFName.of(`Oversized${'x'.repeat(4_096)}`), PDFString.of('value'));
+    page.node.addAnnot(source.context.register(annotation));
+    const sourceBytes = new Uint8Array(await source.save());
+    const { engine } = createEngine([{ items: [] }]);
+    const session = await new PdfDocumentService(engine, () => null).open(sourceBytes);
+
+    await expect(session.exportTranslatedPdfPreservingInteractions([]))
+      .rejects.toThrow(/oversized name/i);
+  });
+
   it('leaves detected formulas untouched in flattened PDF export', async () => {
     const { engine } = createEngine([
       {
@@ -837,5 +1209,64 @@ describe('PdfDocumentService', () => {
 
     await expect(service.open(new Uint8Array())).rejects.toThrow('empty');
     expect(engine.getDocument).not.toHaveBeenCalled();
+  });
+
+  it('rejects oversized PDF input before copying it or creating a PDF.js task', async () => {
+    const { engine } = createEngine([]);
+    const service = new PdfDocumentService(engine, () => null);
+
+    await expect(service.open(new Uint8Array(PDF_DOCUMENT_MAX_SOURCE_BYTES + 1)))
+      .rejects.toThrow('64 MB document limit');
+    expect(engine.getDocument).not.toHaveBeenCalled();
+  });
+
+  it('isolates PDF.js worker bytes so the caller and preserved source remain intact', async () => {
+    const source = await PDFDocument.create();
+    source.addPage([600, 800]);
+    const sourceBytes = new Uint8Array(await source.save());
+    const originalHeader = Array.from(sourceBytes.slice(0, 4));
+    const { engine } = createEngine([{ items: [] }]);
+    const getDocument = engine.getDocument as jest.Mock;
+    const baseImplementation = getDocument.getMockImplementation()!;
+    getDocument.mockImplementation((params: Record<string, unknown>) => {
+      const workerBytes = params.data as Uint8Array;
+      expect(workerBytes).not.toBe(sourceBytes);
+      workerBytes.fill(0);
+      return baseImplementation(params);
+    });
+
+    const session = await new PdfDocumentService(engine, () => null).open(sourceBytes);
+    expect(Array.from(sourceBytes.slice(0, 4))).toEqual(originalHeader);
+    const exported = await session.exportTranslatedPdfPreservingInteractions([]);
+    expect(String.fromCharCode(...exported.slice(0, 4))).toBe('%PDF');
+  });
+
+  it('rejects excessive page counts before page analysis begins', async () => {
+    const pages = Array.from({ length: PDF_DOCUMENT_MAX_PAGES + 1 }, () => ({ items: [] }));
+    const { engine, destroy } = createEngine(pages);
+
+    await expect(new PdfDocumentService(engine, () => null).open(new Uint8Array([1])))
+      .rejects.toThrow(`${PDF_DOCUMENT_MAX_PAGES}-page safety limit`);
+    expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a page that exceeds the rendered-pixel budget', async () => {
+    const side = Math.ceil(Math.sqrt(PDF_DOCUMENT_MAX_PAGE_RENDER_PIXELS)) + 1;
+    const { engine } = createEngine([{ width: side, height: side, items: [] }]);
+    const session = await new PdfDocumentService(engine, () => null).open(new Uint8Array([1]));
+
+    await expect(session.analyze()).rejects.toThrow(/page 1 exceeds the rendered-pixel safety limit/i);
+  });
+
+  it('rejects documents whose combined pages exceed the rendered-pixel budget', async () => {
+    const pages = Array.from({ length: 52 }, () => ({
+      width: 2_300,
+      height: 2_300,
+      items: []
+    }));
+    const { engine } = createEngine(pages);
+    const session = await new PdfDocumentService(engine, () => null).open(new Uint8Array([1]));
+
+    await expect(session.analyze()).rejects.toThrow(/total rendered-pixel safety limit/i);
   });
 });

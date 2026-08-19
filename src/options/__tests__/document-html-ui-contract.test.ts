@@ -84,6 +84,8 @@ describe('document translator HTML files', () => {
     expect(html).toContain('id="exportResearchNote"');
     expect(html).toContain('id="exportBabelDocGuide"');
     expect(html).toContain('hidden disabled>Export BabelDOC guide</button>');
+    expect(html).toContain('id="preservePdfInteractions"');
+    expect(html).toContain('Preserve PDF forms, links, and annotations');
     expect(html).toContain('.mobi,.azw3');
   });
 

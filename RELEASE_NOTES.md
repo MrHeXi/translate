@@ -32,14 +32,17 @@ Initial productized release candidate for local Chrome/Firefox testing and brows
 - Editing a loaded PDF preserves block IDs, page geometry, column metadata, and formula metadata when safe; newly inserted text without safe source geometry remains translatable but disables PDF export rather than being silently omitted.
 - Conservative two-column PDF detection with left-column-then-right-column reading order and translated overlays constrained to inferred column regions.
 - Local standalone-formula detection that preserves likely mathematical expressions, excludes them from direct translation and neighboring AI context, and does not paint over them in translated previews or PDF exports.
+- Explicit interaction-preserving PDF export that overlays translated pages on the original document while semantically verifying AcroForm fields, widgets, links, and annotations. Signed PDFs and preservation mismatches are rejected without silently downloading a flattened substitute; rotated and cropped pages use bounded coordinate transforms.
 - Video subtitle translation for pages that expose caption/subtitle text tracks or common DOM-rendered caption containers.
 - Versioned YouTube Adapter v1 for standard videos, Live pages, Shorts, and `youtu.be`, with active-player-scoped captions, route checks before every cue request/result, same-text timed-cue preservation, bounded export retention, and immediate Stop instead of automatic translation after SPA video navigation.
 - Dedicated contract-tested video adapters for Netflix, Vimeo, Bilibili, Udemy, Coursera, Khan Academy, Nebula, Bloomberg, Twitch, Dailymotion, TED, and Prime Video, with exact-domain matching, stable content identities, site-first selectors, generic fallbacks, and no resolver-side DOM writes.
 - YouTube Live DOM captions now settle before a provider request, cancel an in-flight partial request when the cue grows, and merge translated incremental growth into one final exported cue.
 - Video subtitles and Live captions remain text-only modes and never start tab recording.
 - SRT export for translated video subtitle cues from the current session.
-- User-invoked AI subtitle generation for selected local audio/video files up to 25 MB through separately configured OpenAI, Groq, or Deepgram transcription endpoints.
+- User-invoked AI subtitle generation for selected local audio/video files up to 25 MB through separately configured OpenAI, Groq, Deepgram, or Cloudflare Workers AI transcription endpoints.
 - Dedicated local speech-provider credentials and masked settings summaries, with Deepgram Nova-3/Nova-2 raw-media requests, strict timed-result validation, cancellation, and no upload before Generate subtitles or Stop and generate.
+- Cloudflare Workers AI Whisper and Whisper Large V3 Turbo transcription through the fixed official account-level API, with separately stored and masked Account ID/API Token credentials, raw-media requests for automatic/empty context, documented structured language/context input when selected, bounded JSON parsing across every speech provider, VTT/word/segment timing normalization, pre-truncation token redaction, removable corrupt credentials, and event-loop-yielding structured encoding that can be canceled before fetch.
+- Interaction-preserving PDF export now caps source PDFs at 64 MiB, 1,000 pages, 32 Mi rendered pixels per page, and 1,024 Mi rendered pixels total; isolates PDF.js worker-transfer bytes without an unnecessary retained copy; scans the complete saved object graph; rejects scripts, automatic actions, embedded or associated files, unsafe links, dangerous annotations, signatures, and over-limit structures; and accounts for dictionary keys and PDF names before sorting or serializing them.
 - Provider-specific speech-model selection: OpenAI Whisper 1 and Groq Whisper models retain provider-timed segments, while OpenAI GPT-4o Transcribe and GPT-4o mini Transcribe support bounded SSE partial text after explicit submission and visibly labeled editable fallback timing.
 - Local transcription input support now includes FLAC and OGG alongside MP3, MP4, MPEG/MPGA, M4A, WAV, and WebM.
 - Explicit Chrome current-tab audio capture from the Capture current tab control while the subtitle generator remains open, using the required permission only after that click, preserving local playback, sending no provider request before Stop and generate, and cleaning up on cancel, page close, failure, or the 25 MB limit. Firefox omits the unsupported permission, disables that button, and keeps explicit local-media transcription available.
@@ -98,15 +101,15 @@ Initial productized release candidate for local Chrome/Firefox testing and brows
 
 ### Verification
 
-Verified on 2026-08-13:
+Verified on 2026-08-19:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand`: passed, 81 test suites and 951 tests.
+- `jest --runInBand --no-cache`: passed, 81 test suites and 980 tests.
 - `npm run package`: passed for Chrome and Firefox Desktop.
 - `web-ext lint --source-dir dist-firefox`: passed with 0 errors, 0 notices, and 31 warnings retained for AMO review.
-- Chrome build metadata: source `0D8F3EFC068FC9C9BAEBE58582B8681BF7B31824A514B7D265A0973F6B0AD99E`, manifest `41AFFA9B654EA31CE6CCF26FFC450286B4FF686C2CBE42AA6E33359CF89CEEDA`, payload `975399D6BCB15039983AA608E89776B5D7196F5EDDDDA18F5A4A2B95C1F00B22`.
-- Firefox build metadata: source `C865FC875F66FD68F97B488878BFA1AD8B573241767D5C29FB9CAA2C243CA737`, manifest `8CB3DE4816758B2344DD9E3696CE32789FF1A2E02929F326A8D5301A5E0D5D22`, payload `91743EF23B09A2E022B67EC6B01B806BCC003365A3A0E060254DD269A73F366D`.
+- Chrome build metadata: source `6CC0A385059136DA13C0743FCD09AAC88B2FB4D12F6E2627BBCF085DE5F94705`, manifest `68BA4D2F9519F1D7D42DD388392934FF9B4966791048A82E2920138F9B72828E`, payload `588881F2802A036B2E2EA8D3BDB0337315DDE0554210D43B8D26DBE6DFA1A65C`.
+- Firefox build metadata: source `18435943802BF6774E3E245D1E526B58D2069021D6D295377C3EB6F983A81AA8`, manifest `9F879A96EC3A84499C5EE00A17B104ED4BFC19AFF796CC8F5FE989F06EF8859D`, payload `F629E7397FE2D4AC14FC0603213B2350B62BC70BF3E17E12B05D0D1213A9FFBD`.
 - Both production directories contain exactly 246 files; forbidden tests, TypeScript declarations/sources, and source maps are absent, and every non-manifest/non-metadata file is byte-identical across targets.
 - Both ZIPs were generated twice from sorted forward-slash paths with fixed timestamps, compared byte-for-byte, CRC-checked, and reloaded to match every production file.
 
@@ -122,11 +125,11 @@ Expected build warnings:
 
 - Chrome unpacked folder: `dist`
 - Chrome test package: `chrome-translation-extension.zip`
-- Chrome ZIP size: `17,870,794` bytes
-- Chrome SHA-256: `C1D4CFDC6CB4538395EC86D6A9F7C9834E26A4548B52D568ED5C93A429000338`
+- Chrome ZIP size: `17,881,943` bytes
+- Chrome SHA-256: `0CC4D2F9C61956F0725BB9F9941EEF07D05893F9084FA34359CC8258B0D8B291`
 - Firefox unpacked folder: `dist-firefox`
 - Firefox test package: `firefox-translation-extension.zip`
-- Firefox ZIP size: `17,870,964` bytes
-- Firefox SHA-256: `DE342C140C3410B00B6B072FC301EA9D85B8699F50F03DEEA720C42B9F9CA123`
+- Firefox ZIP size: `17,882,114` bytes
+- Firefox SHA-256: `199EB44427D152A27041078622E4DF69647235BEAB98A57553454E3CBA65C085`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

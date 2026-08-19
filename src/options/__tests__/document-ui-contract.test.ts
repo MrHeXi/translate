@@ -133,6 +133,9 @@ const setupDocumentDom = (): void => {
     <button id="exportDocxFile" disabled></button>
     <button id="exportEpubFile" disabled></button>
     <button id="exportPdfFile" disabled></button>
+    <label id="preservePdfInteractionsControl" hidden>
+      <input id="preservePdfInteractions" type="checkbox">
+    </label>
     <button id="exportTextFile" disabled></button>
     <button id="exportResearchNote" disabled></button>
     <button id="exportBabelDocGuide" hidden disabled></button>
@@ -257,6 +260,33 @@ describe('document translator page', () => {
     });
   });
 
+  it('rejects an oversized PDF before reading bytes or opening the PDF engine', async () => {
+    const open = jest.fn();
+    jest.doMock('../../services/PdfDocumentService', () => ({
+      PDF_DOCUMENT_MAX_SOURCE_BYTES: 64 * 1024 * 1024,
+      pdfDocumentService: { open }
+    }));
+    require('../document');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    const file = new File(['small'], 'oversized.pdf', { type: 'application/pdf' });
+    const arrayBuffer = jest.fn();
+    Object.defineProperty(file, 'size', {
+      value: 64 * 1024 * 1024 + 1,
+      configurable: true
+    });
+    Object.defineProperty(file, 'arrayBuffer', { value: arrayBuffer, configurable: true });
+    const fileInput = document.getElementById('documentFile') as HTMLInputElement;
+    Object.defineProperty(fileInput, 'files', { value: [file], configurable: true });
+    fileInput.dispatchEvent(new Event('change'));
+    await flushPromises();
+
+    expect(arrayBuffer).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+    expect(document.getElementById('documentMessage')?.textContent).toContain('64 MB document limit');
+  });
+
   it('exports a bilingual research note only after an explicit click', async () => {
     let exportedBlob: Blob | null = null;
     const createObjectURL = jest.fn((blob: Blob) => {
@@ -349,6 +379,7 @@ describe('document translator page', () => {
       destroy: jest.fn(async () => undefined)
     };
     jest.doMock('../../services/PdfDocumentService', () => ({
+      PDF_DOCUMENT_MAX_SOURCE_BYTES: 64 * 1024 * 1024,
       pdfDocumentService: { open: jest.fn(async () => session) }
     }));
 
@@ -762,6 +793,9 @@ describe('document translator page', () => {
       return { pageNumber: 1, width: 600, height: 800, scale: 1.35 };
     });
     const exportTranslatedPdf = jest.fn(async () => new Uint8Array([37, 80, 68, 70]));
+    const exportTranslatedPdfPreservingInteractions = jest.fn(
+      async () => new Uint8Array([37, 80, 68, 71])
+    );
     const destroy = jest.fn(async () => undefined);
     const session = {
       analyze: jest.fn(async () => ({
@@ -824,10 +858,12 @@ describe('document translator page', () => {
       })),
       renderPage,
       exportTranslatedPdf,
+      exportTranslatedPdfPreservingInteractions,
       destroy
     };
     const open = jest.fn(async () => session);
     jest.doMock('../../services/PdfDocumentService', () => ({
+      PDF_DOCUMENT_MAX_SOURCE_BYTES: 64 * 1024 * 1024,
       pdfDocumentService: { open }
     }));
 
@@ -872,6 +908,12 @@ describe('document translator page', () => {
         'research.pdf loaded, 1 page, 2 positioned blocks, 1 preserved formula, 1 multi-column page'
       );
       expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(true);
+      expect((document.getElementById('preservePdfInteractionsControl') as HTMLElement).hidden)
+        .toBe(false);
+      expect((document.getElementById('preservePdfInteractions') as HTMLInputElement).checked)
+        .toBe(false);
+      expect(exportTranslatedPdf).not.toHaveBeenCalled();
+      expect(exportTranslatedPdfPreservingInteractions).not.toHaveBeenCalled();
 
       const sourceText = document.getElementById('sourceText') as HTMLTextAreaElement;
       const formulaText = sourceText.value.split('\n\n')[1]!;
@@ -960,6 +1002,39 @@ describe('document translator page', () => {
         'Exported translated PDF with 1 positioned blocks'
       );
 
+      const preserveInteractions = document.getElementById('preservePdfInteractions') as HTMLInputElement;
+      preserveInteractions.checked = true;
+      preserveInteractions.dispatchEvent(new Event('change'));
+      expect(exportTranslatedPdfPreservingInteractions).not.toHaveBeenCalled();
+      document.getElementById('exportPdfFile')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+
+      expect(exportTranslatedPdf).toHaveBeenCalledTimes(1);
+      expect(exportTranslatedPdfPreservingInteractions).toHaveBeenCalledWith([
+        expect.objectContaining({
+          translatedText: 'translated: Edited PDF.js positioned heading'
+        })
+      ]);
+      expect(Array.from(await readBlobBytes(exportedBlob!))).toEqual([37, 80, 68, 71]);
+      expect(document.getElementById('documentMessage')?.textContent).toBe(
+        'Exported translated PDF with 1 positioned blocks while preserving forms, links, and annotations'
+      );
+
+      exportTranslatedPdfPreservingInteractions.mockRejectedValueOnce(
+        new Error('Cannot preserve a PDF signature during translation export.')
+      );
+      const downloadCountBeforeRejectedExport = createObjectURL.mock.calls.length;
+      document.getElementById('exportPdfFile')!.dispatchEvent(new Event('click'));
+      await flushPromises();
+      await flushPromises();
+      expect(createObjectURL).toHaveBeenCalledTimes(downloadCountBeforeRejectedExport);
+      expect(exportTranslatedPdf).toHaveBeenCalledTimes(1);
+      expect(document.getElementById('documentMessage')?.textContent).toBe(
+        'Cannot preserve a PDF signature during translation export.'
+      );
+      expect(document.getElementById('documentMessage')?.classList.contains('error')).toBe(true);
+
       (global as any).chrome.runtime.sendMessage.mockClear();
       sourceText.value = formulaText;
       document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
@@ -996,6 +1071,7 @@ describe('document translator page', () => {
       document.getElementById('exportPdfFile')!.dispatchEvent(new Event('click'));
       await flushPromises();
       expect(exportTranslatedPdf).toHaveBeenCalledTimes(1);
+      expect(exportTranslatedPdfPreservingInteractions).toHaveBeenCalledTimes(2);
       expect(document.getElementById('documentMessage')?.textContent).toBe(
         'PDF export is unavailable after adding text without source geometry.'
       );
@@ -1123,6 +1199,7 @@ describe('document translator page', () => {
       destroy: jest.fn(async () => undefined)
     };
     jest.doMock('../../services/PdfDocumentService', () => ({
+      PDF_DOCUMENT_MAX_SOURCE_BYTES: 64 * 1024 * 1024,
       pdfDocumentService: { open: jest.fn(async () => session) }
     }));
 

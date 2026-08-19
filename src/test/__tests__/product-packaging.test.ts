@@ -88,6 +88,7 @@ describe('product packaging contract', () => {
       'https://api.cognitive.microsofttranslator.com/*',
       'https://api.openai.com/*',
       'https://api.deepgram.com/*',
+      'https://api.cloudflare.com/*',
       'https://generativelanguage.googleapis.com/*'
     ]);
     expect(manifest.optional_host_permissions).toEqual([
@@ -117,6 +118,7 @@ describe('product packaging contract', () => {
       'alarms'
     ]);
     expect(manifest.minimum_chrome_version).toBeUndefined();
+    expect(manifest.host_permissions).toContain('https://api.cloudflare.com/*');
     expect(manifest.background).toEqual({ scripts: ['background.js'] });
     expect(manifest.side_panel).toBeUndefined();
     expect(manifest.sidebar_action).toEqual({
@@ -213,8 +215,8 @@ describe('product packaging contract', () => {
     expect(readme).toContain('Export translated subtitle cues from the current session as an `.srt` file');
     expect(readme).toContain('Generate Subtitles From Local Media');
     expect(readme).toContain('Generate Subtitles From Current Tab Audio');
-    expect(readme).toContain('separately configured OpenAI, Groq, or Deepgram transcription service');
-    expect(readme).toContain('Deepgram Nova models return provider-timed segments');
+    expect(readme).toContain('separately configured OpenAI, Groq, Deepgram, or Cloudflare Workers AI transcription service');
+    expect(readme).toContain('Deepgram Nova, and Cloudflare Workers AI Whisper models return provider-timed segments');
     expect(readme).toContain('Speech credentials are stored separately in local extension storage');
     expect(readme).toContain('Capturing audio from the source tab in Chrome only after an explicit click');
     expect(readme).toContain('click Stop and generate when enough audio has played');
@@ -247,10 +249,12 @@ describe('product packaging contract', () => {
     expect(readme).toContain('Export translated DOCX files');
     expect(readme).toContain('Export translated EPUB files');
     expect(readme).toContain('Export translated `.srt` and `.vtt` subtitle files');
-    expect(readme).toContain('Parse and render PDF pages locally with Mozilla PDF.js');
+    expect(readme).toContain('Parse and render PDF files up to 64 MiB and 1,000 pages locally with Mozilla PDF.js');
+    expect(readme).toContain('32 Mi pixels per page and 1,024 Mi pixels across the document');
     expect(readme).toContain('left-column-then-right-column reading order');
     expect(readme).toContain('exclude them from translation-provider requests');
     expect(readme).toContain('Export translated PDF pages locally as a flattened visual PDF');
+    expect(readme).toContain('Optionally preserve safe original AcroForm fields, widgets, HTTP(S) links, and annotations');
     expect(readme).toContain('merge/deduplicate OCR and text-layer blocks');
     expect(readme).toContain('bundled Tesseract fallback');
     expect(readme).toContain('Simplified Chinese, Traditional Chinese, Japanese, or Korean');
@@ -332,6 +336,9 @@ describe('product packaging contract', () => {
     expect(privacy).toContain('Export BabelDOC guide is a local text download');
     expect(privacy).toContain('PDF scan cleanup and mixed-language OCR run locally only after the user clicks Translate document');
     expect(privacy).toContain('Subtitle waveform decoding starts only after Generate waveform is clicked');
+    expect(privacy).toContain('Cloudflare Account IDs and API Tokens stay in local extension storage');
+    expect(privacy).toContain('Interaction-preserving PDF export runs locally');
+    expect(privacy).toContain('scans the complete saved object graph');
     expect(privacy).toContain('stateless `ghs_` JWT tokens');
 
     const checklist = readProjectFile('RELEASE_CHECKLIST.md');
@@ -344,6 +351,10 @@ describe('product packaging contract', () => {
     expect(checklist).toContain('Permissions');
     expect(checklist).toContain('Version');
     expect(checklist).toContain('mixed PDF page with sparse centered text plus raster content');
+    expect(checklist).toContain('more than 1,000 pages');
+    expect(checklist).toContain('outline JavaScript');
+    expect(checklist).toContain('token redaction occurs before truncation');
+    expect(checklist).toContain('before native JSON parsing');
     expect(checklist).toContain('add text without safe geometry');
     expect(checklist).toContain('changing settings while Image text remains enabled makes a fresh provider request');
     expect(checklist).toContain('repeated Video subtitle and Live caption text also makes a fresh request');
@@ -382,6 +393,7 @@ describe('product packaging contract', () => {
     expect(listing).toContain('two-column reading order');
     expect(listing).toContain('standalone-formula preservation');
     expect(listing).toContain('flattened translated-PDF export');
+    expect(listing).toContain('optional interaction-preserving PDF export');
     expect(listing).toContain('Video subtitle translation');
     expect(listing).toContain('Explicit subtitle generation for a selected local audio/video file up to 25 MB');
     expect(listing).toContain('Explicit current-tab audio capture while the subtitle generator remains open');
@@ -448,13 +460,15 @@ describe('product packaging contract', () => {
     const screenshotGuide = readProjectFile('docs/release/SCREENSHOT_GUIDE.md');
 
     expect(releaseNotes).toContain('1.0.0 - 2026-07-17');
-    expect(releaseNotes).toContain('81 test suites and 951 tests');
-    expect(releaseNotes).toContain('17,870,794');
-    expect(releaseNotes).toContain('C1D4CFDC6CB4538395EC86D6A9F7C9834E26A4548B52D568ED5C93A429000338');
-    expect(releaseNotes).toContain('17,870,964');
-    expect(releaseNotes).toContain('DE342C140C3410B00B6B072FC301EA9D85B8699F50F03DEEA720C42B9F9CA123');
-    expect(releaseNotes).toContain('0D8F3EFC068FC9C9BAEBE58582B8681BF7B31824A514B7D265A0973F6B0AD99E');
-    expect(releaseNotes).toContain('C865FC875F66FD68F97B488878BFA1AD8B573241767D5C29FB9CAA2C243CA737');
+    expect(releaseNotes).toContain('81 test suites and 980 tests');
+    expect(releaseNotes).toContain('17,881,943');
+    expect(releaseNotes).toContain('0CC4D2F9C61956F0725BB9F9941EEF07D05893F9084FA34359CC8258B0D8B291');
+    expect(releaseNotes).toContain('17,882,114');
+    expect(releaseNotes).toContain('199EB44427D152A27041078622E4DF69647235BEAB98A57553454E3CBA65C085');
+    expect(releaseNotes).toContain('6CC0A385059136DA13C0743FCD09AAC88B2FB4D12F6E2627BBCF085DE5F94705');
+    expect(releaseNotes).toContain('18435943802BF6774E3E245D1E526B58D2069021D6D295377C3EB6F983A81AA8');
+    expect(releaseNotes).toContain('588881F2802A036B2E2EA8D3BDB0337315DDE0554210D43B8D26DBE6DFA1A65C');
+    expect(releaseNotes).toContain('F629E7397FE2D4AC14FC0603213B2350B62BC70BF3E17E12B05D0D1213A9FFBD');
     expect(releaseNotes).toContain('chrome-translation-extension.zip');
     expect(releaseNotes).toContain('firefox-translation-extension.zip');
     expect(releaseNotes).toContain('`npm run package`: passed');
@@ -472,6 +486,8 @@ describe('product packaging contract', () => {
     expect(releaseNotes).toContain('bilingual Markdown research-note export');
     expect(releaseNotes).toContain('Nebula, Bloomberg, Twitch, Dailymotion, TED, and Prime Video');
     expect(releaseNotes).toContain('Deepgram Nova-3/Nova-2 raw-media requests');
+    expect(releaseNotes).toContain('Cloudflare Workers AI Whisper and Whisper Large V3 Turbo');
+    expect(releaseNotes).toContain('Explicit interaction-preserving PDF export');
     expect(releaseNotes).toContain('Slack Huddles, Jitsi Meet, and BigBlueButton');
     expect(releaseNotes).toContain('strictly validated IPv6');
     expect(releaseNotes).toContain('Explicit live-caption transcript Save');
@@ -575,6 +591,7 @@ describe('product packaging contract', () => {
     expect(roadmap).toContain('order left-column text before right-column text');
     expect(roadmap).toContain('identify likely standalone formulas locally');
     expect(roadmap).toContain('flattened visual PDF');
+    expect(roadmap).toContain('interaction-preserving PDF export');
     expect(roadmap).toContain('supplement sparse text layers on raster-backed pages');
     expect(roadmap).toContain('preserve loaded PDF block identity, page geometry');
     expect(roadmap).toContain('exclude standalone formula blocks from neighboring AI context');
@@ -685,6 +702,8 @@ describe('product packaging contract', () => {
     expect(webpackConfig).toContain('stream: false');
     expect(documentHtml).toContain('id="pdfViewer"');
     expect(documentHtml).toContain('id="exportPdfFile"');
+    expect(documentHtml).toContain('id="preservePdfInteractions"');
+    expect(documentHtml).toContain('Preserve PDF forms, links, and annotations');
     expect(documentHtml).toContain('id="ocrLanguage"');
     expect(documentHtml).toContain('.ass,.ssa');
     expect(documentHtml).toContain('.mobi,.azw3');
@@ -816,6 +835,7 @@ describe('product packaging contract', () => {
     expect(transcriptionService).toContain('supportsTimedSegments: true');
     expect(transcriptionService).toContain("id: 'gpt-4o-transcribe'");
     expect(transcriptionService).toContain("id: 'gpt-4o-mini-transcribe'");
+    expect(transcriptionService).toContain("id: '@cf/openai/whisper-large-v3-turbo'");
     expect(transcriptionService).toContain("payloadType === 'transcript.text.delta'");
     expect(videoSiteRegistry).toContain('VIDEO_SITE_ADAPTER_SCHEMA_VERSION = 1');
     expect(videoSiteRegistry).toContain('createVideoNavigationToken');

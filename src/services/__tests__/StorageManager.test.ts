@@ -216,6 +216,7 @@ describe('StorageManager', () => {
       expect(summary).toEqual({
         providerId: 'deepgram',
         configured: true,
+        hasDedicatedConfig: true,
         apiKeyHint: 'deep...5678',
         endpoint: 'https://api.deepgram.com/v1/listen'
       });
@@ -302,8 +303,84 @@ describe('StorageManager', () => {
       expect(summary).toEqual({
         providerId: 'openai',
         configured: true,
+        hasDedicatedConfig: true,
         apiKeyHint: 'tran...cret',
         endpoint: 'https://api.openai.com/v1/audio/transcriptions'
+      });
+    });
+
+    it('stores Cloudflare speech credentials locally with a masked account summary', async () => {
+      mockChromeStorage.local.get.mockResolvedValue({
+        mediaTranscriptionProviderConfigsV1: {}
+      });
+      mockChromeStorage.local.set.mockResolvedValue(undefined);
+      const accountId = '0123456789abcdef0123456789abcdef';
+
+      const summary = await storageManager.saveMediaTranscriptionProviderConfig('cloudflare', {
+        clientId: accountId,
+        apiKey: 'cloudflare-private-token',
+        endpoint: 'https://api.cloudflare.com/client/v4/accounts/'
+      });
+
+      expect(mockChromeStorage.local.set).toHaveBeenCalledWith({
+        mediaTranscriptionProviderConfigsV1: {
+          cloudflare: {
+            clientId: accountId,
+            apiKey: 'cloudflare-private-token',
+            endpoint: 'https://api.cloudflare.com/client/v4/accounts'
+          }
+        }
+      });
+      expect(mockChromeStorage.sync.set).not.toHaveBeenCalled();
+      expect(summary).toEqual({
+        providerId: 'cloudflare',
+        configured: true,
+        hasDedicatedConfig: true,
+        clientIdHint: '0123...cdef',
+        apiKeyHint: 'clou...oken',
+        endpoint: 'https://api.cloudflare.com/client/v4/accounts'
+      });
+      expect(JSON.stringify(summary)).not.toContain(accountId);
+      expect(JSON.stringify(summary)).not.toContain('cloudflare-private-token');
+
+      await expect(storageManager.saveMediaTranscriptionProviderConfig('cloudflare', {
+        clientId: 'not-an-account',
+        apiKey: 'token',
+        endpoint: 'https://api.cloudflare.com/client/v4/accounts'
+      })).rejects.toThrow('32 hexadecimal characters');
+      await expect(storageManager.saveMediaTranscriptionProviderConfig('cloudflare', {
+        clientId: accountId,
+        apiKey: 'token',
+        endpoint: 'https://api.cloudflare.com/client/v4/accounts/attacker'
+      })).rejects.toThrow('must be https://api.cloudflare.com/client/v4/accounts');
+    });
+
+    it('does not report a corrupted Cloudflare Account ID as configured', async () => {
+      mockChromeStorage.local.get.mockResolvedValue({
+        mediaTranscriptionProviderConfigsV1: {
+          cloudflare: {
+            clientId: 'not-an-account',
+            apiKey: 'cloudflare-private-token',
+            endpoint: 'https://api.cloudflare.com/client/v4/accounts'
+          }
+        }
+      });
+
+      const summaries = await storageManager.getMediaTranscriptionProviderConfigSummaries();
+      const cloudflare = summaries.find(summary => summary.providerId === 'cloudflare');
+
+      expect(cloudflare).toEqual(expect.objectContaining({
+        configured: false,
+        hasDedicatedConfig: true,
+        clientIdHint: 'not-...ount',
+        apiKeyHint: 'clou...oken'
+      }));
+      await expect(storageManager.getMediaTranscriptionProviderConfig('cloudflare'))
+        .resolves.toBeUndefined();
+
+      await storageManager.removeMediaTranscriptionProviderConfig('cloudflare');
+      expect(mockChromeStorage.local.set).toHaveBeenLastCalledWith({
+        mediaTranscriptionProviderConfigsV1: {}
       });
     });
 

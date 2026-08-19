@@ -66,6 +66,10 @@ describe('options UI settings contract', () => {
       <section id="mediaTranscriptionConfigPanel">
         <h4 id="mediaTranscriptionConfigTitle"></h4>
         <p id="mediaTranscriptionConfigStatus"></p>
+        <label id="mediaTranscriptionClientIdField" hidden>
+          <span id="mediaTranscriptionClientIdLabel"></span>
+          <input id="mediaTranscriptionClientId" type="password">
+        </label>
         <input id="mediaTranscriptionApiKey" type="password">
         <input id="mediaTranscriptionEndpoint" type="url">
         <p id="mediaTranscriptionConfigMessage"></p>
@@ -1466,6 +1470,170 @@ describe('options UI settings contract', () => {
     expect(document.getElementById('mediaTranscriptionConfigMessage')?.textContent)
       .toContain('saved locally');
     expect(sendMessage.mock.calls.some(([message]) => message.action === 'translate')).toBe(false);
+  });
+
+  it('shows and saves Cloudflare Account ID only after an explicit click', async () => {
+    const accountId = '0123456789abcdef0123456789abcdef';
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getSettings') {
+        callback({ success: true, data: createSettings() });
+        return;
+      }
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({ success: true, data: [] });
+        return;
+      }
+      if (message.action === 'getMediaTranscriptionProviderConfigs') {
+        callback({
+          success: true,
+          data: [{
+            providerId: 'cloudflare',
+            configured: false,
+            hasDedicatedConfig: false,
+            clientIdHint: '',
+            apiKeyHint: '',
+            endpoint: 'https://api.cloudflare.com/client/v4/accounts'
+          }]
+        });
+        return;
+      }
+      if (message.action === 'updateMediaTranscriptionProviderConfig') {
+        callback({
+          success: true,
+          data: {
+            providerId: 'cloudflare',
+            configured: true,
+            hasDedicatedConfig: true,
+            clientIdHint: '0123...cdef',
+            apiKeyHint: 'clou...oken',
+            endpoint: 'https://api.cloudflare.com/client/v4/accounts'
+          }
+        });
+        return;
+      }
+      if (message.action === 'getLearningStats') {
+        callback({ success: true, data: createStats() });
+        return;
+      }
+      if (message.action === 'getDictionaryProgress') {
+        callback({ success: true, data: {} });
+        return;
+      }
+      callback({ success: true });
+    });
+    const request = jest.fn((_permissions, callback) => callback(true));
+    (global as any).chrome = {
+      runtime: { sendMessage, lastError: null },
+      permissions: { request }
+    };
+
+    require('../options');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    const provider = document.getElementById('mediaTranscriptionProvider') as HTMLSelectElement;
+    provider.value = 'cloudflare';
+    provider.dispatchEvent(new Event('change'));
+    expect((document.getElementById('mediaTranscriptionClientIdField') as HTMLElement).hidden)
+      .toBe(false);
+    expect(document.getElementById('mediaTranscriptionClientIdLabel')?.textContent)
+      .toBe('Cloudflare Account ID');
+    expect((document.getElementById('mediaTranscriptionEndpoint') as HTMLInputElement).value)
+      .toBe('https://api.cloudflare.com/client/v4/accounts');
+    expect((document.getElementById('mediaTranscriptionEndpoint') as HTMLInputElement).readOnly)
+      .toBe(true);
+    expect(sendMessage.mock.calls.some(([message]) => (
+      message.action === 'updateMediaTranscriptionProviderConfig'
+    ))).toBe(false);
+    expect(request).not.toHaveBeenCalled();
+
+    (document.getElementById('mediaTranscriptionClientId') as HTMLInputElement).value = accountId;
+    (document.getElementById('mediaTranscriptionApiKey') as HTMLInputElement).value =
+      'cloudflare-private-token';
+    document.getElementById('saveMediaTranscriptionConfig')!.click();
+    await flushPromises();
+
+    expect(request).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith({
+      action: 'updateMediaTranscriptionProviderConfig',
+      data: {
+        providerId: 'cloudflare',
+        config: {
+          clientId: accountId,
+          apiKey: 'cloudflare-private-token',
+          endpoint: 'https://api.cloudflare.com/client/v4/accounts'
+        }
+      }
+    }, expect.any(Function));
+    expect((document.getElementById('mediaTranscriptionClientId') as HTMLInputElement).value)
+      .toBe('');
+    expect((document.getElementById('mediaTranscriptionApiKey') as HTMLInputElement).value)
+      .toBe('');
+    expect(sendMessage.mock.calls.some(([message]) => message.action === 'translate')).toBe(false);
+  });
+
+  it('allows a corrupted dedicated Cloudflare credential to be removed', async () => {
+    let removed = false;
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getSettings') {
+        callback({ success: true, data: createSettings() });
+        return;
+      }
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({ success: true, data: [] });
+        return;
+      }
+      if (message.action === 'getMediaTranscriptionProviderConfigs') {
+        callback({
+          success: true,
+          data: [{
+            providerId: 'cloudflare',
+            configured: false,
+            hasDedicatedConfig: !removed,
+            clientIdHint: removed ? '' : 'not-...ount',
+            apiKeyHint: removed ? '' : 'clou...oken',
+            endpoint: 'https://api.cloudflare.com/client/v4/accounts'
+          }]
+        });
+        return;
+      }
+      if (message.action === 'removeMediaTranscriptionProviderConfig') {
+        removed = true;
+        callback({ success: true });
+        return;
+      }
+      if (message.action === 'getLearningStats') {
+        callback({ success: true, data: createStats() });
+        return;
+      }
+      if (message.action === 'getDictionaryProgress') {
+        callback({ success: true, data: {} });
+        return;
+      }
+      callback({ success: true });
+    });
+    (global as any).chrome = {
+      runtime: { sendMessage, lastError: null }
+    };
+
+    require('../options');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    const provider = document.getElementById('mediaTranscriptionProvider') as HTMLSelectElement;
+    provider.value = 'cloudflare';
+    provider.dispatchEvent(new Event('change'));
+    const remove = document.getElementById('removeMediaTranscriptionConfig') as HTMLButtonElement;
+    expect(remove.disabled).toBe(false);
+    remove.click();
+    await flushPromises();
+
+    expect(sendMessage).toHaveBeenCalledWith({
+      action: 'removeMediaTranscriptionProviderConfig',
+      data: { providerId: 'cloudflare' }
+    }, expect.any(Function));
+    expect(remove.disabled).toBe(true);
+    expect(document.getElementById('mediaTranscriptionConfigMessage')?.textContent).toContain('removed');
   });
 
   it('removes a saved provider configuration through the background message channel', async () => {

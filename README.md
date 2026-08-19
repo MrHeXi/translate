@@ -14,7 +14,7 @@ It is best for:
 - Translating pasted or uploaded text documents, HTML files, JSON files, DOCX files, EPUB files, bounded MOBI/AZW3 eBooks, subtitle files, and PDFs with local page rendering.
 - Queuing multiple local documents for an explicit batch run with bounded concurrency, cancellation, failed-file retry, and deterministic ZIP download.
 - Translating video captions when the page exposes subtitle/caption tracks or common DOM-rendered captions.
-- Generating timed subtitles from a user-selected local audio or video file through a separately configured OpenAI, Groq, or Deepgram transcription service.
+- Generating timed subtitles from a user-selected local audio or video file through a separately configured OpenAI, Groq, Deepgram, or Cloudflare Workers AI transcription service.
 - Capturing audio from the source tab in Chrome only after an explicit click, then generating subtitles after the user stops capture. Firefox keeps local-media subtitle generation but disables unsupported current-tab capture.
 - Translating live caption text already visible in a page, with explicit local export and bounded cross-session history.
 - Translating text from selected or currently visible images, SVGs, and canvases with browser OCR or the bundled offline OCR fallback.
@@ -92,7 +92,7 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Queue up to 100 supported documents, limited to 64 MiB per file and 128 MiB total, choose concurrency 1, 2, or 3, and click Start batch explicitly. Cancel an active batch, queue failed files for an explicit retry, and download a deterministic ZIP only after every file succeeds.
 - Save document results explicitly to versioned local history, reopen them without starting translation, export an entry as JSON, delete entries, clear all history, and keep the latest 10, 25, or 50 entries.
 - Keep document history in `chrome.storage.local` only with bounded entry and total sizes. Binary PDF, DOCX, EPUB, MOBI, and AZW3 source bytes are never stored, so source-format export is unavailable after reopening those files from history.
-- Parse and render PDF pages locally with Mozilla PDF.js, including compressed text streams, font mappings, page sizes, and positioned text lines.
+- Parse and render PDF files up to 64 MiB and 1,000 pages locally with Mozilla PDF.js, including compressed text streams, font mappings, page sizes, and positioned text lines. Rendering is bounded to 32 Mi pixels per page and 1,024 Mi pixels across the document.
 - Detect confidently separated two-column PDF text, keep left-column-then-right-column reading order, and constrain translated overlays to the detected column region.
 - Identify likely standalone mathematical expressions, preserve them in their original form, and exclude them from translation-provider requests and translated overlays.
 - Show original and translated PDF pages side by side, or switch to translation-only or original-only display.
@@ -100,6 +100,7 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Preserve PDF block identity and geometry through safe source edits; inserted text without safe source geometry remains visible for translation but disables flattened PDF export.
 - Choose bundled OCR recognition for English, Simplified Chinese, Traditional Chinese, Japanese, or Korean and see per-page recognition progress.
 - Export translated PDF pages locally as a flattened visual PDF so browser fonts and the rendered source page remain visible.
+- Optionally preserve safe original AcroForm fields, widgets, HTTP(S) links, and annotations while adding translated page overlays. The complete saved PDF object graph is checked for signed content, embedded or associated files, scripts, automatic actions, unsafe links, dangerous annotations, and over-limit structures; a preservation failure never falls back silently to flattened output.
 - OCR quality still depends on scan resolution, contrast, orientation, language choice, and page complexity. Formula and column detection are conservative heuristics; editable text reflow, complex table fitting, form/annotation editing, and layout-perfect Office/eBook conversion remain later work.
 
 ### Video Subtitle Translation
@@ -116,8 +117,8 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - On YouTube standard, Live, or Shorts pages, use the contextual Generate button to open the generator without starting capture, then explicitly click Capture current tab and Stop and generate.
 - From another regular media page, explicitly click Capture current tab, keep the generator open, and click Stop and generate when enough audio has played.
 - Generate a bounded waveform locally only after clicking Generate waveform; the same control becomes Stop waveform while decoding. Choose 23.976, 24, 25, 29.97, 30, 50, 59.94, or 60 fps to snap generated caption timing locally without a provider request.
-- Choose a provider-specific speech model. OpenAI Whisper 1, Groq Whisper, and Deepgram Nova models return provider-timed segments; OpenAI GPT-4o Transcribe models can display bounded SSE partial text after submission and produce one explicitly labeled, editable fallback-timing cue because that stream does not provide segment timestamps.
-- Generate captions through a configured OpenAI, Groq, or Deepgram speech service, optionally translate them with any configured translation provider, and export bilingual SRT or VTT. Speech credentials are stored separately in local extension storage, with backward-compatible OpenAI/Groq inheritance until a dedicated speech configuration is saved.
+- Choose a provider-specific speech model. OpenAI Whisper 1, Groq Whisper, Deepgram Nova, and Cloudflare Workers AI Whisper models return provider-timed segments when the selected service supplies them; OpenAI GPT-4o Transcribe models can display bounded SSE partial text after submission and produce one explicitly labeled, editable fallback-timing cue because that stream does not provide segment timestamps.
+- Generate captions through a configured OpenAI, Groq, Deepgram, or Cloudflare Workers AI speech service, optionally translate them with any configured translation provider, and export bilingual SRT or VTT. Speech credentials are stored separately in local extension storage, with backward-compatible OpenAI/Groq inheritance until a dedicated speech configuration is saved. Cloudflare uses a separately saved Account ID and API Token at its fixed official endpoint, sends raw media when language/context stay automatic and empty, and uses the documented structured audio input when the user supplies those fields.
 - Edit each generated cue's start time, end time, original text, and translated text before export. A proportional local timeline highlights overlaps and focuses a cue without playing media or contacting a provider. Shift the whole timeline by a bounded offset, split at the original-text cursor, merge adjacent cues without silent truncation, delete cues locally, and undo or redo up to 50 in-memory edit snapshots. Current-tab captures begin at the source video's playback position when the page exposes it.
 - Click Apply to source video to load the edited bilingual cues into the originating page and synchronize them with its active video. Apply never starts playback, and Clear source video subtitles removes the overlay and listeners immediately.
 - Keep selected local media idle until Generate subtitles is clicked; current-tab audio remains local until Stop and generate. Stream submitted media to the background in bounded chunks and clear buffers after completion, cancellation, provider errors, or disconnection.
@@ -283,14 +284,14 @@ In Main content scope, LexiBridge prefers semantic `article`, `main`, and `[role
 
 1. Open the extension popup and click Generate from media.
 2. Choose a supported local audio or video file up to 25 MB.
-3. Choose a configured OpenAI, Groq, or Deepgram speech service, a provider-specific speech model, spoken language, and optional vocabulary context.
+3. Choose a configured OpenAI, Groq, Deepgram, or Cloudflare Workers AI speech service, a provider-specific speech model, spoken language, and optional vocabulary context.
 4. Choose whether to translate the generated captions, then click Generate subtitles.
 5. Export the generated captions as bilingual SRT or VTT.
 
 ### Generate Subtitles From Current Tab Audio
 
 1. Open the extension popup while the source video or audio page is active and click Generate from media.
-2. Choose a configured OpenAI, Groq, or Deepgram speech service and optional translation controls.
+2. Choose a configured OpenAI, Groq, Deepgram, or Cloudflare Workers AI speech service and optional translation controls.
 3. Click Capture current tab; the installed `tabCapture` permission is not used before this click.
 4. Keep the subtitle generator open while the source plays, then click Stop and generate.
 5. Export the generated captions as bilingual SRT or VTT.
@@ -349,11 +350,12 @@ In Main content scope, LexiBridge prefers semantic `article`, `main`, and `[role
 
 ### Translate PDF Files
 
-1. Open the document translator and choose a `.pdf` file.
+1. Open the document translator and choose a `.pdf` file up to 64 MiB.
 2. Choose the OCR language, optional grayscale/binary scan cleanup, and optional bounded second-script routing for image-only pages.
 3. Review the locally rendered pages and any reported OCR limitations before clicking Translate document.
 4. Choose bilingual, translation-only, or original-only display for the page preview.
-5. Click Export PDF to download flattened translated page images as a new PDF.
+5. Leave Preserve forms, links, and annotations off, then click Export PDF for flattened translated page images.
+6. Enable that option before Export PDF to retain supported AcroForm fields, widgets, HTTP(S) links, and annotations. Signed PDFs, active content, embedded files, unsafe links, over-limit interaction structures, and preservation mismatches are rejected without a silent flattened fallback.
 
 ### Translate Live Captions
 

@@ -133,9 +133,14 @@ const startTabCapture = async (): Promise<TabCaptureHarness> => {
     configurable: true,
     value: { getUserMedia: jest.fn().mockResolvedValue(mediaStream) }
   });
-  Object.defineProperty(window, 'MediaRecorder', { configurable: true, value: MockMediaRecorder });
+  Object.defineProperty(window, 'MediaRecorder', {
+    configurable: true,
+    writable: true,
+    value: MockMediaRecorder
+  });
   Object.defineProperty(window, 'AudioContext', {
     configurable: true,
+    writable: true,
     value: jest.fn(() => audioContext)
   });
   (global as any).chrome = {
@@ -147,7 +152,7 @@ const startTabCapture = async (): Promise<TabCaptureHarness> => {
   document.dispatchEvent(new Event('DOMContentLoaded'));
   await flushPromises();
   await flushPromises();
-  document.getElementById('toggleTabCapture')!.dispatchEvent(new Event('click'));
+  (document.getElementById('toggleTabCapture') as HTMLButtonElement).click();
   await flushPromises();
   await flushPromises();
 
@@ -239,6 +244,50 @@ describe('AI subtitle generator', () => {
     expect(provider.value).toBe('deepgram');
     expect(model.value).toBe('nova-3');
     expect(Array.from(model.options).map(option => option.value)).toEqual(['nova-3', 'nova-2']);
+    expect(connect).not.toHaveBeenCalled();
+    expect(sendMessage.mock.calls.some(([message]) => message.action === 'translate')).toBe(false);
+  });
+
+  it('enables Cloudflare models from local speech configuration without connecting on load', async () => {
+    const connect = jest.fn();
+    const sendMessage = jest.fn((message, callback) => {
+      if (message.action === 'getTranslationProviderConfigs') {
+        callback({ success: true, data: [] });
+        return;
+      }
+      if (message.action === 'getMediaTranscriptionProviderConfigs') {
+        callback({
+          success: true,
+          data: [{ providerId: 'cloudflare', configured: true }]
+        });
+        return;
+      }
+      if (message.action === 'getSettings') {
+        callback({
+          success: true,
+          data: { translationProvider: 'google', defaultTargetLanguage: 'fr' }
+        });
+        return;
+      }
+      callback({ success: true });
+    });
+    (global as any).chrome = {
+      runtime: { sendMessage, connect, lastError: null, openOptionsPage: jest.fn() }
+    };
+
+    require('../subtitles');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+    await flushPromises();
+
+    const provider = document.getElementById('transcriptionProvider') as HTMLSelectElement;
+    const model = document.getElementById('transcriptionModel') as HTMLSelectElement;
+    expect(provider.value).toBe('cloudflare');
+    expect(Array.from(model.options).map(option => option.value)).toEqual([
+      '@cf/openai/whisper',
+      '@cf/openai/whisper-large-v3-turbo'
+    ]);
+    expect(model.value).toBe('@cf/openai/whisper');
     expect(connect).not.toHaveBeenCalled();
     expect(sendMessage.mock.calls.some(([message]) => message.action === 'translate')).toBe(false);
   });
@@ -607,6 +656,7 @@ describe('AI subtitle generator', () => {
       .mockReturnValue(canvasContext);
     Object.defineProperty(window, 'AudioContext', {
       configurable: true,
+      writable: true,
       value: MockAudioContext
     });
     (global as any).chrome = {
@@ -939,10 +989,12 @@ describe('AI subtitle generator', () => {
     });
     Object.defineProperty(window, 'MediaRecorder', {
       configurable: true,
+      writable: true,
       value: AvailableMediaRecorder
     });
     Object.defineProperty(window, 'AudioContext', {
       configurable: true,
+      writable: true,
       value: jest.fn(() => audioContext)
     });
     (global as any).chrome = {
@@ -955,7 +1007,7 @@ describe('AI subtitle generator', () => {
     await flushPromises();
     await flushPromises();
 
-    document.getElementById('toggleTabCapture')!.dispatchEvent(new Event('click'));
+    (document.getElementById('toggleTabCapture') as HTMLButtonElement).click();
     await flushPromises();
 
     expect(sendMessage.mock.calls.some(([message]) => message.action === 'getTabAudioCaptureStreamId')).toBe(true);
@@ -1036,10 +1088,12 @@ describe('AI subtitle generator', () => {
     });
     Object.defineProperty(window, 'MediaRecorder', {
       configurable: true,
+      writable: true,
       value: MockMediaRecorder
     });
     Object.defineProperty(window, 'AudioContext', {
       configurable: true,
+      writable: true,
       value: MockAudioContext
     });
     (global as any).chrome = {
@@ -1068,7 +1122,7 @@ describe('AI subtitle generator', () => {
       expect(captureButton.disabled).toBe(false);
       expect(connect).not.toHaveBeenCalled();
 
-      captureButton.dispatchEvent(new Event('click'));
+      captureButton.click();
       await flushPromises();
       await flushPromises();
 
@@ -1094,7 +1148,7 @@ describe('AI subtitle generator', () => {
       recorderInstance!.ondataavailable?.({
         data: new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/webm' })
       } as BlobEvent);
-      captureButton.dispatchEvent(new Event('click'));
+      captureButton.click();
       await flushPromises();
       await flushPromises();
 

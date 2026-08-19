@@ -95,6 +95,8 @@ export interface TranslationProviderConfigSummary {
 export interface MediaTranscriptionProviderConfigSummary {
   providerId: MediaTranscriptionProviderId;
   configured: boolean;
+  hasDedicatedConfig: boolean;
+  clientIdHint?: string;
   apiKeyHint: string;
   endpoint: string;
   inheritedFromTranslationProvider?: boolean;
@@ -136,6 +138,7 @@ const USER_SETTINGS_FIELDS: ReadonlyArray<keyof UserSettings> = [
   'aiPromptVariables',
   'sensitiveDataMaskingEnabled'
 ];
+const CLOUDFLARE_ACCOUNT_ID_PATTERN = /^[a-f0-9]{32}$/i;
 
 export class StorageManager {
   private readonly providerConfigStorageKey = 'translationProviderConfigs';
@@ -430,7 +433,10 @@ export class StorageManager {
     if (!provider) return undefined;
     const configs = await this.loadMediaTranscriptionProviderConfigs();
     const config = configs[provider.id];
-    if (config?.apiKey?.trim()) return { ...config };
+    if (
+      config?.apiKey?.trim()
+      && (provider.id !== 'cloudflare' || CLOUDFLARE_ACCOUNT_ID_PATTERN.test(config.clientId?.trim() || ''))
+    ) return { ...config };
 
     if (provider.id === 'openai' || provider.id === 'groq') {
       return this.getTranslationProviderConfig(provider.id);
@@ -444,6 +450,7 @@ export class StorageManager {
       this.loadTranslationProviderConfigs()
     ]);
     return MEDIA_TRANSCRIPTION_PROVIDERS.map(provider => {
+      const hasDedicatedConfig = Object.prototype.hasOwnProperty.call(configs, provider.id);
       const dedicated = configs[provider.id];
       const inherited = !dedicated?.apiKey?.trim()
         && (provider.id === 'openai' || provider.id === 'groq')
@@ -452,7 +459,17 @@ export class StorageManager {
       const config = dedicated?.apiKey?.trim() ? dedicated : inherited;
       return {
         providerId: provider.id,
-        configured: Boolean(config?.apiKey?.trim()),
+        configured: Boolean(
+          config?.apiKey?.trim()
+          && (
+            provider.id !== 'cloudflare'
+            || CLOUDFLARE_ACCOUNT_ID_PATTERN.test(config.clientId?.trim() || '')
+          )
+        ),
+        hasDedicatedConfig,
+        ...(provider.id === 'cloudflare'
+          ? { clientIdHint: this.maskCredential(config?.clientId || '') }
+          : {}),
         apiKeyHint: this.maskCredential(config?.apiKey || ''),
         endpoint: config?.endpoint?.trim() || provider.defaultEndpoint,
         ...(inherited ? { inheritedFromTranslationProvider: true } : {})
@@ -474,12 +491,20 @@ export class StorageManager {
       apiKey = inherited?.apiKey?.trim() || '';
     }
     if (!apiKey) throw new Error(`${provider.label} API key is required`);
+    const clientId = config.clientId?.trim() || current.clientId?.trim() || '';
+    if (provider.id === 'cloudflare' && !CLOUDFLARE_ACCOUNT_ID_PATTERN.test(clientId)) {
+      throw new Error(`${provider.label} Account ID must be 32 hexadecimal characters`);
+    }
     const endpoint = this.normalizeMediaTranscriptionEndpoint(
       config.endpoint?.trim() || current.endpoint?.trim() || provider.defaultEndpoint,
       provider.id,
       provider.label
     );
-    const saved: TranslationProviderRuntimeConfig = { apiKey, endpoint };
+    const saved: TranslationProviderRuntimeConfig = {
+      ...(provider.id === 'cloudflare' ? { clientId } : {}),
+      apiKey,
+      endpoint
+    };
     configs[provider.id] = saved;
     await chrome.storage.local.set({
       [this.mediaTranscriptionProviderConfigStorageKey]: configs
@@ -487,6 +512,10 @@ export class StorageManager {
     return {
       providerId: provider.id,
       configured: true,
+      hasDedicatedConfig: true,
+      ...(provider.id === 'cloudflare'
+        ? { clientIdHint: this.maskCredential(clientId) }
+        : {}),
       apiKeyHint: this.maskCredential(apiKey),
       endpoint
     };
@@ -822,6 +851,18 @@ export class StorageManager {
         throw new Error(`${providerLabel} endpoint must end in /v1/listen`);
       }
       url.pathname = url.pathname.replace(/\/$/, '');
+      url.search = '';
+    }
+    if (providerId === 'cloudflare') {
+      if (
+        url.origin !== 'https://api.cloudflare.com'
+        || !/^\/client\/v4\/accounts\/?$/.test(url.pathname)
+      ) {
+        throw new Error(
+          `${providerLabel} endpoint must be https://api.cloudflare.com/client/v4/accounts`
+        );
+      }
+      url.pathname = '/client/v4/accounts';
       url.search = '';
     }
     url.hash = '';

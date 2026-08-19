@@ -2,6 +2,7 @@ import { TextDecoder as NodeTextDecoder, TextEncoder as NodeTextEncoder } from '
 
 import {
   MEDIA_TRANSCRIPTION_MAX_BYTES,
+  MEDIA_TRANSCRIPTION_MAX_JSON_RESPONSE_BYTES,
   MEDIA_TRANSCRIPTION_MAX_SEGMENTS,
   MEDIA_TRANSCRIPTION_MAX_SSE_EVENTS,
   MEDIA_TRANSCRIPTION_MAX_TEXT_LENGTH,
@@ -75,7 +76,7 @@ describe('MediaTranscriptionService', () => {
   });
 
   it('declares bounded timed-segment and cancellation capabilities for every provider', () => {
-    expect(MEDIA_TRANSCRIPTION_PROVIDERS).toHaveLength(3);
+    expect(MEDIA_TRANSCRIPTION_PROVIDERS).toHaveLength(4);
     MEDIA_TRANSCRIPTION_PROVIDERS.forEach(provider => {
       expect(provider).toEqual(expect.objectContaining({
         maxBytes: MEDIA_TRANSCRIPTION_MAX_BYTES,
@@ -94,7 +95,9 @@ describe('MediaTranscriptionService', () => {
       ['groq', 'whisper-large-v3-turbo'],
       ['groq', 'whisper-large-v3'],
       ['deepgram', 'nova-3'],
-      ['deepgram', 'nova-2']
+      ['deepgram', 'nova-2'],
+      ['cloudflare', '@cf/openai/whisper'],
+      ['cloudflare', '@cf/openai/whisper-large-v3-turbo']
     ]);
     expect(getMediaTranscriptionModels('openai').map(model => model.id)).toEqual([
       'whisper-1',
@@ -104,6 +107,10 @@ describe('MediaTranscriptionService', () => {
     expect(getMediaTranscriptionModels('deepgram').map(model => model.id)).toEqual([
       'nova-3',
       'nova-2'
+    ]);
+    expect(getMediaTranscriptionModels('cloudflare').map(model => model.id)).toEqual([
+      '@cf/openai/whisper',
+      '@cf/openai/whisper-large-v3-turbo'
     ]);
   });
 
@@ -255,7 +262,7 @@ describe('MediaTranscriptionService', () => {
   });
 
   it('posts a raw media Blob to Deepgram v1/listen and normalizes utterances', async () => {
-    const fetchMock = jest.fn(async () => ({
+    const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
       ok: true,
       status: 200,
       json: async () => ({
@@ -372,6 +379,268 @@ describe('MediaTranscriptionService', () => {
     });
   });
 
+  it('posts raw media to the fixed Cloudflare Workers AI path and prefers timed segments', async () => {
+    const fetchMock = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        errors: [],
+        result: {
+          text: 'Hello Cloudflare.',
+          vtt: 'WEBVTT\n\n00:00:09.000 --> 00:00:10.000\nignored lower priority timing\n',
+          words: [{ start: 9, end: 10, word: 'ignored' }],
+          transcription_info: {
+            language: 'en',
+            duration: 2.5,
+            segments: [
+              { start: 1.25, end: 2.5, text: 'Hello Cloudflare.' }
+            ]
+          }
+        }
+      })
+    }));
+    (global as any).fetch = fetchMock;
+    const controller = new AbortController();
+    const accountId = '0123456789abcdef0123456789abcdef';
+
+    const result = await new MediaTranscriptionService().transcribe(createUpload([1, 2, 3], {
+      providerId: 'cloudflare',
+      transcriptionModel: '@cf/openai/whisper-large-v3-turbo',
+      fileName: 'workers-ai.webm',
+      mimeType: 'audio/webm',
+      language: 'auto',
+      prompt: ''
+    }), {
+      clientId: accountId.toUpperCase(),
+      apiKey: 'cloudflare-api-token',
+      endpoint: 'https://api.cloudflare.com/client/v4/accounts'
+    }, controller.signal);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}`
+      + '/ai/run/@cf/openai/whisper-large-v3-turbo'
+    );
+    expect(init).toEqual(expect.objectContaining({
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer cloudflare-api-token',
+        'Content-Type': 'audio/webm'
+      },
+      signal: controller.signal
+    }));
+    expect(init.body).toEqual(expect.objectContaining({ size: 3, type: 'audio/webm' }));
+    expect(init.body).not.toBeInstanceOf(FormData);
+    expect(result).toEqual({
+      text: 'Hello Cloudflare.',
+      language: 'en',
+      duration: 2.5,
+      segments: [{ id: 1, start: 1.25, end: 2.5, text: 'Hello Cloudflare.' }],
+      timingMode: 'provider-segments'
+    });
+  });
+
+  it('sends Cloudflare language and context only through the documented structured input', async () => {
+    const fetchMock = jest.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, result: { text: 'Structured transcript.' } })
+    }));
+    (global as any).fetch = fetchMock;
+
+    const upload = createUpload([1, 2, 3], {
+      providerId: 'cloudflare',
+      transcriptionModel: '@cf/openai/whisper-large-v3-turbo',
+      language: 'zh',
+      prompt: 'Names: LexiBridge'
+    });
+    const createBlob = jest.spyOn(upload, 'createBlob');
+    await new MediaTranscriptionService().transcribe(upload, {
+      clientId: '0123456789abcdef0123456789abcdef',
+      apiKey: 'cloudflare-token',
+      endpoint: 'https://api.cloudflare.com/client/v4/accounts'
+    });
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.headers).toEqual(expect.objectContaining({ 'Content-Type': 'application/json' }));
+    expect(JSON.parse(String(init.body))).toEqual({
+      audio: 'AQID',
+      language: 'zh',
+      initial_prompt: 'Names: LexiBridge'
+    });
+    expect(createBlob).not.toHaveBeenCalled();
+  });
+
+  it('yields during Cloudflare structured encoding so cancellation prevents the request', async () => {
+    const chunk = new Uint8Array(256 * 1024).fill(7);
+    const upload = new MediaTranscriptionUpload({
+      providerId: 'cloudflare',
+      transcriptionModel: '@cf/openai/whisper-large-v3-turbo',
+      fileName: 'long.webm',
+      mimeType: 'audio/webm',
+      totalBytes: chunk.byteLength * 5,
+      language: 'en'
+    });
+    for (let index = 0; index < 5; index++) {
+      upload.appendBase64Chunk(index, Buffer.from(chunk).toString('base64'));
+    }
+    const controller = new AbortController();
+    const fetchMock = jest.fn();
+    (global as any).fetch = fetchMock;
+    setTimeout(() => controller.abort(), 0);
+
+    await expect(new MediaTranscriptionService().transcribe(upload, {
+      clientId: '0123456789abcdef0123456789abcdef',
+      apiKey: 'cloudflare-token',
+      endpoint: 'https://api.cloudflare.com/client/v4/accounts'
+    }, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('normalizes Cloudflare VTT before words and falls back to bounded text timing', async () => {
+    const service = new MediaTranscriptionService();
+    (global as any).fetch = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        result: {
+          text: 'First line. Second line.',
+          vtt: [
+            'WEBVTT',
+            '',
+            '00:00:00.200 --> 00:00:01.000',
+            'First line.',
+            '',
+            '2',
+            '00:00:01.100 --> 00:00:02.400 align:start',
+            'Second line.'
+          ].join('\n'),
+          words: [{ start: 8, end: 9, word: 'ignored' }]
+        }
+      })
+    }));
+    const config = {
+      clientId: 'abcdef0123456789abcdef0123456789',
+      apiKey: 'token',
+      endpoint: 'https://api.cloudflare.com/client/v4/accounts'
+    };
+    const timed = await service.transcribe(createUpload([1], {
+      providerId: 'cloudflare',
+      transcriptionModel: '@cf/openai/whisper'
+    }), config);
+    expect(timed.segments).toEqual([
+      { id: 1, start: 0.2, end: 1, text: 'First line.' },
+      { id: 2, start: 1.1, end: 2.4, text: 'Second line.' }
+    ]);
+    expect(timed.timingMode).toBe('provider-segments');
+
+    (global as any).fetch = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, result: { text: 'Text only.' } })
+    }));
+    const fallback = await service.transcribe(createUpload([1], {
+      providerId: 'cloudflare',
+      transcriptionModel: '@cf/openai/whisper',
+      fallbackDurationSeconds: 7
+    }), config);
+    expect(fallback).toEqual({
+      text: 'Text only.',
+      language: 'zh',
+      duration: 7,
+      segments: [{ id: 1, start: 0, end: 7, text: 'Text only.' }],
+      timingMode: 'fallback'
+    });
+  });
+
+  it('rejects unsafe Cloudflare configuration, redacts tokens, and preserves cancellation', async () => {
+    const service = new MediaTranscriptionService();
+    (global as any).fetch = jest.fn();
+    const validUpload = () => createUpload([1], {
+      providerId: 'cloudflare',
+      transcriptionModel: '@cf/openai/whisper'
+    });
+    const account = '0123456789abcdef0123456789abcdef';
+
+    await expect(service.transcribe(validUpload(), {
+      clientId: 'not-an-account',
+      apiKey: 'token',
+      endpoint: 'https://api.cloudflare.com/client/v4/accounts'
+    })).rejects.toThrow('exactly 32 hexadecimal characters');
+    await expect(service.transcribe(validUpload(), {
+      clientId: account,
+      apiKey: 'token',
+      endpoint: 'https://evil.example/client/v4/accounts'
+    })).rejects.toThrow('must be https://api.cloudflare.com/client/v4/accounts');
+    await expect(service.transcribe(validUpload(), {
+      clientId: account,
+      apiKey: 'token',
+      endpoint: 'https://api.cloudflare.com/client/v4/accounts/attacker'
+    })).rejects.toThrow('must be https://api.cloudflare.com/client/v4/accounts');
+    expect(global.fetch).not.toHaveBeenCalled();
+
+    const secret = 'cloudflare-private-token';
+    (global as any).fetch = jest.fn(async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({
+        success: false,
+        errors: [{ message: `Invalid token ${secret}` }]
+      })
+    }));
+    await expect(service.transcribe(validUpload(), {
+      clientId: account,
+      apiKey: secret,
+      endpoint: 'https://api.cloudflare.com/client/v4/accounts'
+    })).rejects.toThrow('Invalid token [redacted]');
+
+    (global as any).fetch = jest.fn(async () => {
+      throw new Error(`${'x'.repeat(995)}${secret}`);
+    });
+    let boundaryError: Error | undefined;
+    try {
+      await service.transcribe(validUpload(), {
+        clientId: account,
+        apiKey: secret,
+        endpoint: 'https://api.cloudflare.com/client/v4/accounts'
+      });
+    } catch (error) {
+      boundaryError = error as Error;
+    }
+    expect(boundaryError).toBeInstanceOf(Error);
+    expect(boundaryError!.message).not.toContain(secret.slice(0, 5));
+    expect(boundaryError!.message).not.toContain(secret);
+
+    (global as any).fetch = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: {
+        get: (name: string) => name.toLowerCase() === 'content-length'
+          ? String(MEDIA_TRANSCRIPTION_MAX_JSON_RESPONSE_BYTES + 1)
+          : null
+      },
+      json: jest.fn()
+    }));
+    await expect(service.transcribe(validUpload(), {
+      clientId: account,
+      apiKey: secret,
+      endpoint: 'https://api.cloudflare.com/client/v4/accounts'
+    })).rejects.toThrow('response exceeded the size limit');
+
+    const canceled = new AbortController();
+    canceled.abort();
+    (global as any).fetch = jest.fn();
+    await expect(service.transcribe(validUpload(), {
+      clientId: account,
+      apiKey: secret,
+      endpoint: 'https://api.cloudflare.com/client/v4/accounts'
+    }, canceled.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   it('parses OpenAI SSE across byte boundaries and reports bounded accumulated partial text', async () => {
     const stream = [
       'event: transcript.text.delta\r\n',
@@ -464,6 +733,30 @@ describe('MediaTranscriptionService', () => {
     await expect(new MediaTranscriptionService().transcribe(createUpload([1], {
       transcriptionModel: 'gpt-4o-mini-transcribe'
     }), { apiKey: 'secret' })).rejects.toThrow('Rate limit reached.');
+  });
+
+  it.each([
+    { providerId: 'openai', model: 'whisper-1' },
+    { providerId: 'groq', model: 'whisper-large-v3' },
+    { providerId: 'deepgram', model: 'nova-3' }
+  ])('rejects oversized $providerId JSON before parsing it', async ({ providerId, model }) => {
+    const json = jest.fn();
+    (global as any).fetch = jest.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: {
+        get: (name: string) => name.toLowerCase() === 'content-length'
+          ? String(MEDIA_TRANSCRIPTION_MAX_JSON_RESPONSE_BYTES + 1)
+          : null
+      },
+      json
+    }));
+
+    await expect(new MediaTranscriptionService().transcribe(createUpload([1], {
+      providerId: providerId as any,
+      transcriptionModel: model as any
+    }), { apiKey: 'secret' })).rejects.toThrow('response exceeded the size limit');
+    expect(json).not.toHaveBeenCalled();
   });
 
   it('preserves Deepgram cancellation before and during the explicit request', async () => {

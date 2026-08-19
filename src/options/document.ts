@@ -11,6 +11,7 @@ import {
   PdfDocumentSession,
   PdfOcrProgress,
   PdfPageSummary,
+  PDF_DOCUMENT_MAX_SOURCE_BYTES,
   pdfDocumentService
 } from '../services/PdfDocumentService';
 import {
@@ -96,6 +97,8 @@ class DocumentTranslatorController {
   private exportDocxButton: HTMLButtonElement | null = null;
   private exportEpubButton: HTMLButtonElement | null = null;
   private exportPdfButton: HTMLButtonElement | null = null;
+  private preservePdfInteractions: HTMLInputElement | null = null;
+  private preservePdfInteractionsControl: HTMLElement | null = null;
   private exportTextButton: HTMLButtonElement | null = null;
   private exportResearchNoteButton: HTMLButtonElement | null = null;
   private exportBabelDocGuideButton: HTMLButtonElement | null = null;
@@ -164,6 +167,8 @@ class DocumentTranslatorController {
     this.exportDocxButton = document.getElementById('exportDocxFile') as HTMLButtonElement | null;
     this.exportEpubButton = document.getElementById('exportEpubFile') as HTMLButtonElement | null;
     this.exportPdfButton = document.getElementById('exportPdfFile') as HTMLButtonElement | null;
+    this.preservePdfInteractions = document.getElementById('preservePdfInteractions') as HTMLInputElement | null;
+    this.preservePdfInteractionsControl = document.getElementById('preservePdfInteractionsControl');
     this.exportTextButton = document.getElementById('exportTextFile') as HTMLButtonElement | null;
     this.exportResearchNoteButton = document.getElementById('exportResearchNote') as HTMLButtonElement | null;
     this.exportBabelDocGuideButton = document.getElementById('exportBabelDocGuide') as HTMLButtonElement | null;
@@ -352,6 +357,9 @@ class DocumentTranslatorController {
       const isEpubDocument = this.isEpubDocumentFile(file);
       const isMobiDocument = this.isMobiDocumentFile(file);
       const isPdfDocument = this.isPdfDocumentFile(file);
+      if (isPdfDocument && file.size > PDF_DOCUMENT_MAX_SOURCE_BYTES) {
+        throw new Error('The selected PDF exceeds the 64 MB document limit.');
+      }
       const rawText = isDocxDocument || isEpubDocument || isMobiDocument || isPdfDocument
         ? ''
         : await file.text();
@@ -1097,9 +1105,16 @@ class DocumentTranslatorController {
     try {
       this.setBusy(true);
       this.showMessage('Rendering translated PDF pages');
-      const content = await this.pdfSession.exportTranslatedPdf(pdfResults);
+      const preserveInteractions = Boolean(this.preservePdfInteractions?.checked);
+      const content = preserveInteractions
+        ? await this.pdfSession.exportTranslatedPdfPreservingInteractions(pdfResults)
+        : await this.pdfSession.exportTranslatedPdf(pdfResults);
       this.downloadBinaryFile(content, this.createPdfExportFilename(), 'application/pdf');
-      this.showMessage(`Exported translated PDF with ${pdfResults.length} positioned blocks`);
+      this.showMessage(
+        preserveInteractions
+          ? `Exported translated PDF with ${pdfResults.length} positioned blocks while preserving forms, links, and annotations`
+          : `Exported translated PDF with ${pdfResults.length} positioned blocks`
+      );
     } catch (error) {
       this.showMessage(error instanceof Error ? error.message : 'Could not export translated PDF.', 'error');
     } finally {
@@ -2195,6 +2210,7 @@ class DocumentTranslatorController {
     if (this.ocrLanguage) this.ocrLanguage.disabled = isBusy;
     if (this.scanPreprocessing) this.scanPreprocessing.disabled = isBusy;
     if (this.mixedLanguageOcr) this.mixedLanguageOcr.disabled = isBusy;
+    if (this.preservePdfInteractions) this.preservePdfInteractions.disabled = isBusy;
     if (this.historyRetention) this.historyRetention.disabled = isBusy;
     if (this.clearHistoryButton) {
       this.clearHistoryButton.disabled = isBusy || this.historyEntries.length === 0;
@@ -2255,6 +2271,16 @@ class DocumentTranslatorController {
   }
 
   private updatePdfExportButton(isBusy: boolean = false): void {
+    const hasLoadedPdf = Boolean(this.pdfSession)
+      && Boolean(this.loadedRawFileBytes)
+      && this.isPdfFileName(this.loadedFileName)
+      && !this.loadedPdfUsesCompatibilityFallback;
+    if (this.preservePdfInteractionsControl) {
+      this.preservePdfInteractionsControl.hidden = !hasLoadedPdf;
+    }
+    if (this.preservePdfInteractions && !hasLoadedPdf) {
+      this.preservePdfInteractions.checked = false;
+    }
     if (!this.exportPdfButton) return;
 
     const hasTranslatedPdf = this.currentResults.some(result => (

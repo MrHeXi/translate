@@ -1,5 +1,19 @@
 import { getDocument, GlobalWorkerOptions, OPS, Util } from 'pdfjs-dist/legacy/build/pdf';
-import { PDFDocument } from 'pdf-lib';
+import {
+  PDFArray,
+  PDFBool,
+  PDFDict,
+  PDFDocument,
+  PDFHexString,
+  PDFName,
+  PDFNull,
+  PDFNumber,
+  PDFObject,
+  PDFRef,
+  PDFStream,
+  PDFString,
+  degrees
+} from 'pdf-lib';
 import type { DocumentBlock, DocumentBlockLayout } from './DocumentTextExtractor';
 import {
   BundledOcrLanguageCode,
@@ -118,6 +132,11 @@ export interface PdfTranslationResult {
   translatedText: string;
 }
 
+interface PdfInteractionSnapshot {
+  acroForm: string | null;
+  annotations: string[][];
+}
+
 export interface PdfRenderedPage {
   pageNumber: number;
   width: number;
@@ -158,6 +177,59 @@ const SPARSE_TEXT_MAX_BLOCKS = 4;
 const SPARSE_TEXT_MAX_CHARACTERS = 160;
 const SPARSE_TEXT_MAX_PAGE_AREA_RATIO = 0.03;
 const SPARSE_TEXT_MARGIN_RATIO = 0.2;
+export const PDF_DOCUMENT_MAX_SOURCE_BYTES = 64 * 1024 * 1024;
+export const PDF_DOCUMENT_MAX_PAGES = 1_000;
+export const PDF_DOCUMENT_MAX_PAGE_RENDER_PIXELS = 32 * 1024 * 1024;
+export const PDF_DOCUMENT_MAX_TOTAL_RENDER_PIXELS = 1024 * 1024 * 1024;
+const MAX_PRESERVED_INTERACTION_OBJECTS = 10_000;
+const MAX_PRESERVED_PDF_GRAPH_OBJECTS = 100_000;
+const MAX_PRESERVED_INTERACTION_DEPTH = 64;
+const MAX_PRESERVED_INTERACTION_STRING_LENGTH = 1_000_000;
+const MAX_PRESERVED_INTERACTION_NAME_LENGTH = 4_096;
+const MAX_PRESERVED_INTERACTION_PAYLOAD_BYTES = 16 * 1024 * 1024;
+const SIGNATURE_FIELD_TYPE = '/Sig';
+const SAFE_NAMED_ACTIONS = new Set(['/FirstPage', '/LastPage', '/NextPage', '/PrevPage']);
+const PDF_ACTION_TYPES = new Set([
+  '/GoTo',
+  '/GoTo3DView',
+  '/GoToE',
+  '/GoToR',
+  '/Hide',
+  '/ImportData',
+  '/JavaScript',
+  '/Launch',
+  '/Movie',
+  '/Named',
+  '/NOP',
+  '/Rendition',
+  '/ResetForm',
+  '/RichMediaExecute',
+  '/SetOCGState',
+  '/SetState',
+  '/Sound',
+  '/SubmitForm',
+  '/Thread',
+  '/Trans',
+  '/URI'
+]);
+const UNSAFE_PDF_GRAPH_KEYS = new Set([
+  '/AA',
+  '/AF',
+  '/Collection',
+  '/EF',
+  '/EmbeddedFiles',
+  '/JavaScript',
+  '/JS',
+  '/XFA'
+]);
+const UNSAFE_ANNOTATION_SUBTYPES = new Set([
+  '/3D',
+  '/FileAttachment',
+  '/Movie',
+  '/RichMedia',
+  '/Screen',
+  '/Sound'
+]);
 const RASTER_IMAGE_OPERATORS = new Set<number>([
   OPS.paintImageMaskXObject,
   OPS.paintImageMaskXObjectGroup,
@@ -328,7 +400,8 @@ export class PdfDocumentSession {
     private readonly pdfDocument: PdfDocumentLike,
     private readonly engine: PdfEngineAdapter,
     private readonly ocrDetector: PdfOcrDetector | null,
-    private readonly onOcrProgress?: (progress: PdfOcrProgress) => void
+    private readonly onOcrProgress?: (progress: PdfOcrProgress) => void,
+    private readonly sourceBytes?: Uint8Array
   ) {}
 
   analyze(): Promise<PdfDocumentAnalysis> {
@@ -345,6 +418,7 @@ export class PdfDocumentSession {
   ): Promise<PdfRenderedPage> {
     const page = await this.getPage(pageNumber);
     const viewport = page.getViewport({ scale });
+    this.assertRenderablePagePixels(viewport.width, viewport.height, pageNumber);
     const context = canvas.getContext('2d', { alpha: false });
     if (!context) throw new Error('Canvas rendering is not available in this browser.');
 
@@ -393,6 +467,109 @@ export class PdfDocumentSession {
     return new Uint8Array(await output.save());
   }
 
+  async exportTranslatedPdfPreservingInteractions(
+    results: PdfTranslationResult[]
+  ): Promise<Uint8Array> {
+    const analysis = await this.analyze();
+    if (analysis.pages.length === 0) throw new Error('The PDF has no renderable pages.');
+    if (!this.sourceBytes) {
+      throw new Error('The original PDF bytes are unavailable for interaction-preserving export.');
+    }
+
+    let output: PDFDocument;
+    try {
+      output = await PDFDocument.load(this.sourceBytes.slice(), {
+        throwOnInvalidObject: true,
+        updateMetadata: false
+      });
+    } catch (error) {
+      throw new Error(
+        `Cannot preserve PDF forms and annotations because the original PDF could not be loaded: ${this.describeError(error)}`
+      );
+    }
+
+    if (output.isEncrypted) {
+      throw new Error('Cannot preserve PDF forms and annotations in an encrypted PDF.');
+    }
+    if (output.getPageCount() !== analysis.pages.length) {
+      throw new Error('Cannot preserve PDF interactions because the source page count changed during export.');
+    }
+
+    const sourceAnnotationPresence = pagesHaveDirectAnnotations(output);
+    const sourceSnapshot = this.captureInteractionSnapshot(output, 'source PDF');
+    const pages = output.getPages();
+
+    for (const pageSummary of analysis.pages) {
+      const pageResults = results.filter(result => (
+        result.block.layout?.pageNumber === pageSummary.pageNumber
+        && result.block.layout.contentKind !== 'formula'
+        && Boolean(result.translatedText.trim())
+      ));
+      if (pageResults.length === 0) continue;
+
+      const page = pages[pageSummary.pageNumber - 1];
+      if (!page) {
+        throw new Error(`Cannot preserve PDF interactions because page ${pageSummary.pageNumber} is missing.`);
+      }
+      const canvas = this.createCanvas();
+      const rendered: PdfRenderedPage = {
+        pageNumber: pageSummary.pageNumber,
+        width: pageSummary.width,
+        height: pageSummary.height,
+        scale: 1.6
+      };
+      canvas.width = Math.max(1, Math.ceil(rendered.width * rendered.scale));
+      canvas.height = Math.max(1, Math.ceil(rendered.height * rendered.scale));
+      const context = canvas.getContext('2d', { alpha: true });
+      if (!context) throw new Error('Canvas rendering is not available in this browser.');
+
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      this.drawTranslatedBlocks(context, pageResults, rendered);
+
+      const image = await output.embedPng(canvas.toDataURL('image/png'));
+      this.drawPreservedTranslationLayer(page, image, rendered.width, rendered.height);
+    }
+
+    // pdf-lib normalizes pages when drawing and may create an empty /Annots entry.
+    // Remove only entries that did not exist in the source; preserve explicit empty arrays.
+    output.getPages().forEach((page, pageIndex) => {
+      if (sourceAnnotationPresence[pageIndex]) return;
+      const annotations = page.node.get(PDFName.Annots);
+      if (annotations instanceof PDFArray && annotations.size() === 0) {
+        page.node.delete(PDFName.Annots);
+      }
+    });
+
+    let bytes: Uint8Array;
+    try {
+      bytes = await output.save({ updateFieldAppearances: false });
+    } catch (error) {
+      throw new Error(
+        `Cannot preserve PDF forms and annotations while saving the translated PDF: ${this.describeError(error)}`
+      );
+    }
+
+    let reopened: PDFDocument;
+    try {
+      reopened = await PDFDocument.load(bytes, {
+        throwOnInvalidObject: true,
+        updateMetadata: false
+      });
+    } catch (error) {
+      throw new Error(
+        `Cannot verify preserved PDF forms and annotations after export: ${this.describeError(error)}`
+      );
+    }
+    const exportedSnapshot = this.captureInteractionSnapshot(reopened, 'exported PDF');
+    if (JSON.stringify(sourceSnapshot) !== JSON.stringify(exportedSnapshot)) {
+      throw new Error(
+        'Cannot verify that the original PDF forms and annotations were preserved; no PDF was exported.'
+      );
+    }
+
+    return new Uint8Array(bytes);
+  }
+
   async destroy(): Promise<void> {
     this.pageCache.clear();
     await this.pdfDocument.destroy();
@@ -406,11 +583,21 @@ export class PdfDocumentSession {
     let unreadablePageCount = 0;
     let formulaBlockCount = 0;
     let multiColumnPageCount = 0;
+    let totalRenderPixels = 0;
 
     try {
       for (let pageNumber = 1; pageNumber <= this.pdfDocument.numPages; pageNumber++) {
         const page = await this.getPage(pageNumber);
         const viewport = page.getViewport({ scale: 1 });
+        const pageRenderPixels = this.getPageRenderPixels(
+          viewport.width * OCR_SCALE,
+          viewport.height * OCR_SCALE,
+          pageNumber
+        );
+        totalRenderPixels += pageRenderPixels;
+        if (totalRenderPixels > PDF_DOCUMENT_MAX_TOTAL_RENDER_PIXELS) {
+          throw new Error('The selected PDF exceeds the total rendered-pixel safety limit.');
+        }
         const textContent = await page.getTextContent();
         const textBlocks = this.createTextBlocks(textContent.items, pageNumber, viewport);
         let pageBlocks = textBlocks;
@@ -1014,6 +1201,548 @@ export class PdfDocumentSession {
     return document.createElement('canvas');
   }
 
+  private drawPreservedTranslationLayer(
+    page: ReturnType<PDFDocument['getPages']>[number],
+    image: Awaited<ReturnType<PDFDocument['embedPng']>>,
+    renderedWidth: number,
+    renderedHeight: number
+  ): void {
+    const cropBox = page.getCropBox();
+    const rotation = ((page.getRotation().angle % 360) + 360) % 360;
+    const isQuarterTurn = rotation === 90 || rotation === 270;
+    const targetVisualWidth = isQuarterTurn ? cropBox.height : cropBox.width;
+    const targetVisualHeight = isQuarterTurn ? cropBox.width : cropBox.height;
+    const horizontalScale = targetVisualWidth / renderedWidth;
+    const verticalScale = targetVisualHeight / renderedHeight;
+    if (
+      !Number.isFinite(horizontalScale)
+      || !Number.isFinite(verticalScale)
+      || horizontalScale <= 0
+      || verticalScale <= 0
+      || Math.abs(horizontalScale - verticalScale) > 0.01
+    ) {
+      throw new Error('Cannot preserve PDF interactions because the rendered page geometry is incompatible.');
+    }
+    const scale = Math.min(horizontalScale, verticalScale);
+    const width = renderedWidth * scale;
+    const height = renderedHeight * scale;
+
+    if (rotation === 0) {
+      page.drawImage(image, { x: cropBox.x, y: cropBox.y, width, height });
+      return;
+    }
+    if (rotation === 90) {
+      page.drawImage(image, {
+        x: cropBox.x + cropBox.width,
+        y: cropBox.y,
+        width,
+        height,
+        rotate: degrees(90)
+      });
+      return;
+    }
+    if (rotation === 180) {
+      page.drawImage(image, {
+        x: cropBox.x + cropBox.width,
+        y: cropBox.y + cropBox.height,
+        width,
+        height,
+        rotate: degrees(180)
+      });
+      return;
+    }
+    if (rotation === 270) {
+      page.drawImage(image, {
+        x: cropBox.x,
+        y: cropBox.y + cropBox.height,
+        width,
+        height,
+        rotate: degrees(-90)
+      });
+      return;
+    }
+    throw new Error(`Cannot preserve PDF interactions on a page rotated by ${rotation} degrees.`);
+  }
+
+  private captureInteractionSnapshot(
+    document: PDFDocument,
+    label: string
+  ): PdfInteractionSnapshot {
+    const acroForm = document.catalog.get(PDFName.of('AcroForm'));
+    const annotationRoots = document.getPages()
+      .map(page => page.node.get(PDFName.Annots))
+      .filter((object): object is PDFObject => Boolean(object));
+    if (
+      document.catalog.has(PDFName.of('Perms'))
+      || this.containsSignatureField(document, [acroForm, ...annotationRoots])
+    ) {
+      throw new Error(
+        'Cannot preserve a PDF signature during translation export because changing the document invalidates the signature.'
+      );
+    }
+    this.assertSafePreservedInteractions(document, acroForm, annotationRoots, label);
+
+    const state = { objectCount: 0, payloadBytes: 0 };
+    return {
+      acroForm: acroForm
+        ? this.serializeInteractionObject(document, acroForm, state, new Set(), 0, label)
+        : null,
+      annotations: document.getPages().map((page, pageIndex) => {
+        const annotations = page.node.get(PDFName.Annots);
+        if (!annotations) return [];
+        const annotationArray = document.context.lookupMaybe(annotations, PDFArray);
+        if (!annotationArray) {
+          throw new Error(
+            `Cannot verify preserved interactions because ${label} page ${pageIndex + 1} has an invalid annotations array.`
+          );
+        }
+        const snapshots: string[] = [];
+        for (let index = 0; index < annotationArray.size(); index++) {
+          snapshots.push(this.serializeInteractionObject(
+            document,
+            annotationArray.get(index),
+            state,
+            new Set(),
+            0,
+            label
+          ));
+        }
+        return snapshots;
+      })
+    };
+  }
+
+  private containsSignatureField(
+    document: PDFDocument,
+    roots: Array<PDFObject | undefined>
+  ): boolean {
+    const queue = roots.filter((object): object is PDFObject => Boolean(object));
+    if (queue.length > MAX_PRESERVED_INTERACTION_OBJECTS) {
+      throw new Error('Cannot preserve PDF interactions because the form structure exceeds the safety limit.');
+    }
+    const visitedRefs = new Set<string>();
+    let objectCount = 0;
+    const enqueue = (object: PDFObject): void => {
+      if (queue.length >= MAX_PRESERVED_INTERACTION_OBJECTS) {
+        throw new Error('Cannot preserve PDF interactions because the form structure exceeds the safety limit.');
+      }
+      queue.push(object);
+    };
+
+    while (queue.length > 0) {
+      if (++objectCount > MAX_PRESERVED_INTERACTION_OBJECTS) {
+        throw new Error('Cannot preserve PDF interactions because the form structure exceeds the safety limit.');
+      }
+      const object = queue.shift()!;
+      if (object instanceof PDFRef) {
+        if (visitedRefs.has(object.tag)) continue;
+        visitedRefs.add(object.tag);
+        const resolved = document.context.lookup(object);
+        if (resolved) enqueue(resolved);
+        continue;
+      }
+      if (object instanceof PDFArray) {
+        for (let index = 0; index < object.size(); index++) enqueue(object.get(index));
+        continue;
+      }
+      if (!(object instanceof PDFDict)) continue;
+      const fieldType = object.get(PDFName.of('FT'));
+      const resolvedFieldType = document.context.lookup(fieldType);
+      if (resolvedFieldType instanceof PDFName && resolvedFieldType.toString() === SIGNATURE_FIELD_TYPE) {
+        return true;
+      }
+      const fields = object.get(PDFName.of('Fields'));
+      const kids = object.get(PDFName.of('Kids'));
+      const parent = object.get(PDFName.of('Parent'));
+      if (fields) enqueue(fields);
+      if (kids) enqueue(kids);
+      if (parent) enqueue(parent);
+    }
+    return false;
+  }
+
+  private assertSafePreservedInteractions(
+    document: PDFDocument,
+    acroForm: PDFObject | undefined,
+    annotationRoots: PDFObject[],
+    label: string
+  ): void {
+    const resolvedAcroForm = acroForm ? document.context.lookup(acroForm) : undefined;
+    if (resolvedAcroForm instanceof PDFDict && resolvedAcroForm.has(PDFName.of('XFA'))) {
+      throw new Error(`Cannot preserve ${label} because XFA forms may contain active content.`);
+    }
+    const names = document.context.lookup(document.catalog.get(PDFName.of('Names')));
+    if (names instanceof PDFDict) {
+      if (names.has(PDFName.of('JavaScript'))) {
+        throw new Error(`Cannot preserve ${label} because document JavaScript is not allowed.`);
+      }
+      if (names.has(PDFName.of('EmbeddedFiles'))) {
+        throw new Error(`Cannot preserve ${label} because embedded files are not allowed.`);
+      }
+    }
+    if (
+      document.catalog.has(PDFName.of('AA'))
+      || document.catalog.has(PDFName.of('AF'))
+      || document.catalog.has(PDFName.of('Collection'))
+    ) {
+      throw new Error(`Cannot preserve ${label} because automatic document actions are not allowed.`);
+    }
+    if (document.getPages().some(page => page.node.has(PDFName.of('AA')))) {
+      throw new Error(`Cannot preserve ${label} because automatic page actions are not allowed.`);
+    }
+    const openAction = document.catalog.get(PDFName.of('OpenAction'));
+    if (openAction) {
+      const resolved = document.context.lookup(openAction);
+      if (!(resolved instanceof PDFArray)
+        && !(resolved instanceof PDFName)
+        && !(resolved instanceof PDFString)
+        && !(resolved instanceof PDFHexString)) {
+        this.assertSafePdfAction(document, openAction, true, new Set(), 0, label);
+      }
+    }
+    this.assertSafePdfObjectGraph(document, label);
+
+    const queue = [acroForm, ...annotationRoots].filter((object): object is PDFObject => Boolean(object));
+    const visitedRefs = new Set<string>();
+    let objectCount = 0;
+    while (queue.length > 0) {
+      if (++objectCount > MAX_PRESERVED_INTERACTION_OBJECTS) {
+        throw new Error(`Cannot preserve ${label} because the interaction structure exceeds the safety limit.`);
+      }
+      const object = queue.shift()!;
+      if (object instanceof PDFRef) {
+        if (visitedRefs.has(object.tag)) continue;
+        visitedRefs.add(object.tag);
+        const resolved = document.context.lookup(object);
+        if (resolved) queue.push(resolved);
+        continue;
+      }
+      if (object instanceof PDFArray) {
+        if (object.size() > MAX_PRESERVED_INTERACTION_OBJECTS - queue.length) {
+          throw new Error(`Cannot preserve ${label} because the interaction structure exceeds the safety limit.`);
+        }
+        for (let index = 0; index < object.size(); index++) queue.push(object.get(index));
+        continue;
+      }
+      if (!(object instanceof PDFDict)) continue;
+
+      const subtype = document.context.lookup(object.get(PDFName.of('Subtype')));
+      if (subtype instanceof PDFName && UNSAFE_ANNOTATION_SUBTYPES.has(subtype.toString())) {
+        throw new Error(`Cannot preserve ${label} because active ${subtype.toString()} annotations are not allowed.`);
+      }
+      if (object.has(PDFName.of('AA'))) {
+        throw new Error(`Cannot preserve ${label} because automatic form or annotation actions are not allowed.`);
+      }
+      const action = object.get(PDFName.of('A'));
+      if (action) this.assertSafePdfAction(document, action, false, new Set(), 0, label);
+
+      for (const key of ['Fields', 'Kids', 'Parent']) {
+        const child = object.get(PDFName.of(key));
+        if (child) queue.push(child);
+      }
+      if (queue.length > MAX_PRESERVED_INTERACTION_OBJECTS) {
+        throw new Error(`Cannot preserve ${label} because the interaction structure exceeds the safety limit.`);
+      }
+    }
+  }
+
+  private assertSafePdfObjectGraph(document: PDFDocument, label: string): void {
+    const indirectObjects = document.context.enumerateIndirectObjects();
+    if (indirectObjects.length > MAX_PRESERVED_PDF_GRAPH_OBJECTS) {
+      throw new Error(`Cannot preserve ${label} because the PDF object graph exceeds the safety limit.`);
+    }
+
+    const queue: PDFObject[] = [document.catalog, ...indirectObjects.map(([, object]) => object)];
+    const visited = new Set<PDFObject>();
+    let objectCount = 0;
+
+    while (queue.length > 0) {
+      const object = queue.shift()!;
+      if (object instanceof PDFRef || visited.has(object)) continue;
+      visited.add(object);
+      if (++objectCount > MAX_PRESERVED_PDF_GRAPH_OBJECTS) {
+        throw new Error(`Cannot preserve ${label} because the PDF object graph exceeds the safety limit.`);
+      }
+      if (object instanceof PDFArray) {
+        for (let index = 0; index < object.size(); index++) queue.push(object.get(index));
+        continue;
+      }
+
+      const dictionary = object instanceof PDFStream
+        ? object.dict
+        : object instanceof PDFDict
+          ? object
+          : null;
+      if (!dictionary) {
+        if (
+          object instanceof PDFName
+          && object.toString().length > MAX_PRESERVED_INTERACTION_NAME_LENGTH
+        ) {
+          throw new Error(`Cannot preserve ${label} because the PDF object graph contains an oversized name.`);
+        }
+        continue;
+      }
+
+      const fieldType = document.context.lookup(dictionary.get(PDFName.of('FT')));
+      const objectType = document.context.lookup(dictionary.get(PDFName.of('Type')));
+      const actionType = document.context.lookup(dictionary.get(PDFName.of('S')));
+      if (
+        (objectType instanceof PDFName && objectType.toString() === '/Action')
+        || (actionType instanceof PDFName && PDF_ACTION_TYPES.has(actionType.toString()))
+      ) {
+        this.assertSafePdfAction(document, dictionary, false, new Set(), 0, label);
+      }
+      if (
+        (fieldType instanceof PDFName && fieldType.toString() === SIGNATURE_FIELD_TYPE)
+        || (objectType instanceof PDFName && objectType.toString() === SIGNATURE_FIELD_TYPE)
+      ) {
+        throw new Error(
+          'Cannot preserve a PDF signature during translation export because changing the document invalidates the signature.'
+        );
+      }
+      const subtype = document.context.lookup(dictionary.get(PDFName.of('Subtype')));
+      if (subtype instanceof PDFName && UNSAFE_ANNOTATION_SUBTYPES.has(subtype.toString())) {
+        throw new Error(`Cannot preserve ${label} because active ${subtype.toString()} annotations are not allowed.`);
+      }
+
+      for (const [key, value] of dictionary.entries()) {
+        const keyText = key.toString();
+        if (keyText.length > MAX_PRESERVED_INTERACTION_NAME_LENGTH) {
+          throw new Error(`Cannot preserve ${label} because the PDF object graph contains an oversized name.`);
+        }
+        if (UNSAFE_PDF_GRAPH_KEYS.has(keyText)) {
+          if (keyText === '/AA') {
+            throw new Error(`Cannot preserve ${label} because automatic actions are not allowed.`);
+          }
+          if (keyText === '/AF' || keyText === '/EF' || keyText === '/EmbeddedFiles') {
+            throw new Error(`Cannot preserve ${label} because embedded or associated files are not allowed.`);
+          }
+          if (keyText === '/Collection') {
+            throw new Error(`Cannot preserve ${label} because PDF collections are not allowed.`);
+          }
+          if (keyText === '/XFA') {
+            throw new Error(`Cannot preserve ${label} because XFA forms may contain active content.`);
+          }
+          throw new Error(`Cannot preserve ${label} because document JavaScript is not allowed.`);
+        }
+        queue.push(value);
+      }
+      if (queue.length > MAX_PRESERVED_PDF_GRAPH_OBJECTS) {
+        throw new Error(`Cannot preserve ${label} because the PDF object graph exceeds the safety limit.`);
+      }
+    }
+  }
+
+  private assertSafePdfAction(
+    document: PDFDocument,
+    object: PDFObject,
+    localOnly: boolean,
+    visitedRefs: Set<string>,
+    depth: number,
+    label: string
+  ): void {
+    if (depth > MAX_PRESERVED_INTERACTION_DEPTH) {
+      throw new Error(`Cannot preserve ${label} because an action exceeds the structure depth limit.`);
+    }
+    if (object instanceof PDFRef) {
+      if (visitedRefs.has(object.tag)) return;
+      visitedRefs.add(object.tag);
+      const resolved = document.context.lookup(object);
+      if (!resolved) throw new Error(`Cannot preserve ${label} because an action has a broken reference.`);
+      this.assertSafePdfAction(document, resolved, localOnly, visitedRefs, depth + 1, label);
+      return;
+    }
+    if (object instanceof PDFArray) {
+      if (object.size() > MAX_PRESERVED_INTERACTION_OBJECTS) {
+        throw new Error(`Cannot preserve ${label} because an action exceeds the safety limit.`);
+      }
+      for (let index = 0; index < object.size(); index++) {
+        this.assertSafePdfAction(document, object.get(index), localOnly, visitedRefs, depth + 1, label);
+      }
+      return;
+    }
+    if (!(object instanceof PDFDict)) {
+      throw new Error(`Cannot preserve ${label} because an action is malformed.`);
+    }
+
+    const actionType = document.context.lookup(object.get(PDFName.of('S')));
+    const actionName = actionType instanceof PDFName ? actionType.toString() : '';
+    if (actionName === '/GoTo') {
+      // Local destinations do not execute code or contact another origin.
+    } else if (!localOnly && actionName === '/URI') {
+      const uriObject = document.context.lookup(object.get(PDFName.of('URI')));
+      if (!(uriObject instanceof PDFString) && !(uriObject instanceof PDFHexString)) {
+        throw new Error(`Cannot preserve ${label} because a link URI is malformed.`);
+      }
+      let uri: URL;
+      try {
+        uri = new URL(uriObject.decodeText());
+      } catch {
+        throw new Error(`Cannot preserve ${label} because a link URI is invalid.`);
+      }
+      if (uri.protocol !== 'https:' && uri.protocol !== 'http:') {
+        throw new Error(`Cannot preserve ${label} because only HTTP(S) links are allowed.`);
+      }
+    } else if (!localOnly && actionName === '/Named') {
+      const named = document.context.lookup(object.get(PDFName.of('N')));
+      if (!(named instanceof PDFName) || !SAFE_NAMED_ACTIONS.has(named.toString())) {
+        throw new Error(`Cannot preserve ${label} because a named action is not allowed.`);
+      }
+    } else {
+      throw new Error(`Cannot preserve ${label} because ${actionName || 'unknown'} actions are not allowed.`);
+    }
+
+    const next = object.get(PDFName.of('Next'));
+    if (next) this.assertSafePdfAction(document, next, localOnly, visitedRefs, depth + 1, label);
+  }
+
+  private serializeInteractionObject(
+    document: PDFDocument,
+    object: PDFObject,
+    state: { objectCount: number; payloadBytes: number },
+    ancestors: Set<string>,
+    depth: number,
+    label: string
+  ): string {
+    if (depth > MAX_PRESERVED_INTERACTION_DEPTH) {
+      throw new Error(`Cannot verify preserved interactions because ${label} exceeds the structure depth limit.`);
+    }
+    if (++state.objectCount > MAX_PRESERVED_INTERACTION_OBJECTS) {
+      throw new Error(`Cannot verify preserved interactions because ${label} exceeds the object count limit.`);
+    }
+    if (object instanceof PDFRef) {
+      const pageIndex = document.getPages().findIndex(page => page.ref.tag === object.tag);
+      if (pageIndex >= 0) return `page-ref:${pageIndex + 1}`;
+      if (ancestors.has(object.tag)) return 'ref-cycle';
+      const resolved = document.context.lookup(object);
+      if (!resolved) throw new Error(`Cannot verify preserved interactions because ${label} has a broken reference.`);
+      const nextAncestors = new Set(ancestors);
+      nextAncestors.add(object.tag);
+      return `ref:${this.serializeInteractionObject(
+        document,
+        resolved,
+        state,
+        nextAncestors,
+        depth + 1,
+        label
+      )}`;
+    }
+    if (object instanceof PDFArray) {
+      const values: string[] = [];
+      for (let index = 0; index < object.size(); index++) {
+        values.push(this.serializeInteractionObject(
+          document,
+          object.get(index),
+          state,
+          ancestors,
+          depth + 1,
+          label
+        ));
+      }
+      return `[${values.join(',')}]`;
+    }
+    if (object instanceof PDFStream) {
+      return `stream:${this.serializeInteractionObject(
+        document,
+        object.dict,
+        state,
+        ancestors,
+        depth + 1,
+        label
+      )}:${this.encodeBytes(object.getContents(), label, state)}`;
+    }
+    if (object instanceof PDFDict) {
+      const map = object.asMap();
+      if (state.objectCount + map.size > MAX_PRESERVED_INTERACTION_OBJECTS) {
+        throw new Error(`Cannot verify preserved interactions because ${label} exceeds the object count limit.`);
+      }
+      state.objectCount += map.size;
+      for (const key of map.keys()) {
+        const keyText = key.toString();
+        if (keyText.length > MAX_PRESERVED_INTERACTION_NAME_LENGTH) {
+          throw new Error(`Cannot verify preserved interactions because ${label} contains an oversized name.`);
+        }
+        this.addInteractionPayloadBytes(state, keyText.length * 2, label);
+      }
+      const entries = Array.from(map.entries())
+        .sort(([left], [right]) => left.toString().localeCompare(right.toString()))
+        .map(([key, value]) => `${key.toString()}:${this.serializeInteractionObject(
+          document,
+          value,
+          state,
+          ancestors,
+          depth + 1,
+          label
+        )}`);
+      return `{${entries.join(',')}}`;
+    }
+    if (object instanceof PDFName) {
+      const name = object.toString();
+      if (name.length > MAX_PRESERVED_INTERACTION_NAME_LENGTH) {
+        throw new Error(`Cannot verify preserved interactions because ${label} contains an oversized name.`);
+      }
+      this.addInteractionPayloadBytes(state, name.length * 2, label);
+      return `name:${name}`;
+    }
+    if (object instanceof PDFString || object instanceof PDFHexString) {
+      const value = object.decodeText();
+      if (value.length > MAX_PRESERVED_INTERACTION_STRING_LENGTH) {
+        throw new Error(`Cannot verify preserved interactions because ${label} contains an oversized string.`);
+      }
+      this.addInteractionPayloadBytes(state, value.length * 2, label);
+      return `string:${JSON.stringify(value)}`;
+    }
+    if (object instanceof PDFNumber) return `number:${object.asNumber()}`;
+    if (object instanceof PDFBool) return `boolean:${object.asBoolean()}`;
+    if (object === PDFNull) return 'null';
+    throw new Error(
+      `Cannot verify preserved interactions because ${label} contains unsupported ${object.constructor.name} data.`
+    );
+  }
+
+  private encodeBytes(
+    bytes: Uint8Array,
+    label: string,
+    state?: { objectCount: number; payloadBytes: number }
+  ): string {
+    if (state) this.addInteractionPayloadBytes(state, bytes.byteLength, label);
+    let encoded = '';
+    for (const value of bytes) encoded += value.toString(16).padStart(2, '0');
+    return encoded;
+  }
+
+  private addInteractionPayloadBytes(
+    state: { objectCount: number; payloadBytes: number },
+    byteLength: number,
+    label: string
+  ): void {
+    state.payloadBytes += byteLength;
+    if (state.payloadBytes > MAX_PRESERVED_INTERACTION_PAYLOAD_BYTES) {
+      throw new Error(`Cannot verify preserved interactions because ${label} exceeds the payload safety limit.`);
+    }
+  }
+
+  private describeError(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  private assertRenderablePagePixels(width: number, height: number, pageNumber: number): void {
+    this.getPageRenderPixels(width, height, pageNumber);
+  }
+
+  private getPageRenderPixels(width: number, height: number, pageNumber: number): number {
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      throw new Error(`PDF page ${pageNumber} has invalid dimensions.`);
+    }
+    const renderedWidth = Math.ceil(width);
+    const renderedHeight = Math.ceil(height);
+    const pixels = renderedWidth * renderedHeight;
+    if (!Number.isSafeInteger(pixels) || pixels > PDF_DOCUMENT_MAX_PAGE_RENDER_PIXELS) {
+      throw new Error(`PDF page ${pageNumber} exceeds the rendered-pixel safety limit.`);
+    }
+    return pixels;
+  }
+
   private drawTranslatedBlocks(
     context: CanvasRenderingContext2D,
     results: PdfTranslationResult[],
@@ -1107,6 +1836,10 @@ export class PdfDocumentSession {
   }
 }
 
+function pagesHaveDirectAnnotations(document: PDFDocument): boolean[] {
+  return document.getPages().map(page => Boolean(page.node.get(PDFName.Annots)));
+}
+
 export class PdfDocumentService {
   constructor(
     private readonly engine: PdfEngineAdapter = defaultEngine,
@@ -1119,6 +1852,10 @@ export class PdfDocumentService {
 
   async open(bytes: Uint8Array, options: PdfOpenOptions = {}): Promise<PdfDocumentSession> {
     if (bytes.byteLength === 0) throw new Error('The selected PDF is empty.');
+    if (bytes.byteLength > PDF_DOCUMENT_MAX_SOURCE_BYTES) {
+      throw new Error('The selected PDF exceeds the 64 MB document limit.');
+    }
+    const workerBytes = bytes.slice();
 
     const resourceOptions = hasExtensionResourceUrls()
       ? {
@@ -1128,16 +1865,21 @@ export class PdfDocumentService {
       }
       : {};
     const loadingTask = this.engine.getDocument({
-      data: bytes.slice(),
+      data: workerBytes,
       useSystemFonts: true,
       ...resourceOptions
     });
     const pdfDocument = await loadingTask.promise;
+    if (pdfDocument.numPages > PDF_DOCUMENT_MAX_PAGES) {
+      await pdfDocument.destroy();
+      throw new Error(`The selected PDF exceeds the ${PDF_DOCUMENT_MAX_PAGES}-page safety limit.`);
+    }
     return new PdfDocumentSession(
       pdfDocument,
       this.engine,
       options.enableOcr === false ? null : this.ocrDetectorFactory(options),
-      options.onOcrProgress
+      options.onOcrProgress,
+      bytes
     );
   }
 }

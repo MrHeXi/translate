@@ -70,7 +70,7 @@ Current batch:
 - Explicit multi-file document batch translation that remains idle after selection, starts only on command, limits concurrency to 1/2/3, supports cancellation and explicit failed-file retry, and emits a deterministic ZIP only after all files succeed.
 - Manual document entry prompt on detected document URLs.
 - Manual video subtitle translation for pages that expose caption or subtitle text tracks.
-- User-invoked local-media transcription through separately configured OpenAI, Groq, or Deepgram endpoints with optional caption translation and SRT/VTT export.
+- User-invoked local-media transcription through separately configured OpenAI, Groq, Deepgram, or Cloudflare Workers AI endpoints with optional caption translation and SRT/VTT export.
 - Explicit current-tab audio capture in the open subtitle generator with source-tab authorization, click-only API use, local playback preservation, bounded memory, and Stop-and-generate submission.
 - DOM-rendered video caption adapters for common caption containers.
 - SRT export for translated subtitle cues collected during the current video session.
@@ -151,11 +151,12 @@ Current batch:
 - Done: fall back to a bundled Tesseract worker when browser `TextDetector` is unavailable or returns no text.
 - Done: expose a persisted OCR language choice and per-page bundled OCR progress.
 - Done: export translated PDF pages locally as a flattened visual PDF.
+- Done: add an explicit interaction-preserving PDF export that overlays translated pages on PDFs capped at 64 MiB, 1,000 pages, 32 Mi rendered pixels per page, and 1,024 Mi rendered pixels total; retains semantically verified AcroForm fields, widgets, safe HTTP(S) links, and annotations; scans the complete saved object graph; rejects signatures, scripts, automatic actions, embedded or associated files, unsafe links, dangerous annotations, and over-limit structures; and never silently falls back to flattened output.
 - Done: supplement sparse text layers on raster-backed pages, merge OCR/text blocks in deterministic reading order, deduplicate overlapping equivalent blocks, and reject unusable browser OCR results before falling back to bundled Tesseract.
 - Done: preserve loaded PDF block identity, page geometry, column metadata, and formula metadata through source edits; map inserted text only to adjacent prose geometry and disable PDF export when no safe geometry exists.
 - Done: exclude standalone formula blocks from neighboring AI context as well as direct translation requests.
-- Verified: generated real PDF.js fixtures cover text extraction, columns/formulas, and a real raster-backed mixed page; flattened export remains covered as a visual-PDF contract.
-- Remaining: editable block-level PDF reflow beyond safe geometry mapping, structural MathML/LaTeX reconstruction, form/annotation preservation, and advanced multi-column/table layout fitting beyond conservative two-column detection.
+- Verified: generated real PDF.js fixtures cover text extraction, columns/formulas, a real raster-backed mixed page, interactive form/link/annotation preservation, signature rejection, and both flattened and interaction-preserving exports.
+- Remaining: editable block-level PDF reflow beyond safe geometry mapping, structural MathML/LaTeX reconstruction, form/annotation content editing, and advanced multi-column/table layout fitting beyond conservative two-column detection.
 
 ### Batch E: Video Subtitle Translation
 
@@ -165,13 +166,14 @@ Current batch:
 - Done: render bilingual subtitle overlays without blocking playback.
 - Done: keep Video subtitles text-only; it never starts current-tab recording.
 - Done: export translated subtitle cues from the current session as SRT.
-- Done: generate timestamped captions from explicitly selected local audio/video files through configured OpenAI, Groq, or Deepgram transcription endpoints.
+- Done: generate timestamped captions from explicitly selected local audio/video files through configured OpenAI, Groq, Deepgram, or Cloudflare Workers AI transcription endpoints.
 - Done: upload media in bounded ordered chunks, abort on cancellation/disconnect, keep bytes in memory only, optionally translate normalized cues, and export bilingual SRT/VTT.
 - Done: declare `tabCapture` so Chrome can authorize the source tab when the popup is invoked, call it only after an explicit subtitle-generator click, preserve local playback, and stop/discard on cancel, page close, failure, or the 25 MB limit.
 - Done: add provider-specific Whisper/GPT-4o transcription-model selection, OpenAI SSE partial text after explicit submission, strict event/size/abort handling, and visibly labeled editable fallback timing when a stream has no provider segments; add FLAC/OGG inputs.
 - Done: add local generated-caption timeline editing with a proportional overlap-aware cue track, bounded whole-timeline shifts, Unicode-safe cursor splitting, lossless adjacent-cue merging with overflow rejection, automatic renumbering, cue deletion, and bounded in-memory Undo/Redo without provider requests.
 - Done: add explicit local waveform generation with a true Generate/Stop toggle and local frame-rate snapping.
 - Done: add independent local speech-provider configuration and Deepgram Nova-3/Nova-2 timed transcription without changing the explicit Generate/Stop-and-generate upload boundary.
+- Done: add fixed-endpoint Cloudflare Workers AI Whisper and Whisper Large V3 Turbo transcription with independent local Account ID/API Token storage, raw-media or documented structured language/context input, byte-bounded JSON parsing across all speech providers, pre-truncation token redaction, removable corrupt configuration, and event-loop-yielding structured encoding that remains cancelable before fetch.
 - Remaining: deeper site-specific optimizations, further evidence-backed speech providers, files above provider limits, and continuous partial transcription while capture is still running.
 
 ### Batch F: Image, Manga, and OCR Translation
@@ -253,6 +255,7 @@ Current batch:
 - Done: add YouTube Live caption-container support to Live captions, reject unrelated ARIA status regions while retaining semantic generic caption containers, and make Video subtitles and Live captions mutually exclusive in both directions.
 - Done: add contract-tested Twitch, Dailymotion, TED, and Prime Video adapters, plus Slack Huddles, Jitsi Meet, and BigBlueButton live-caption adapters with immediate pending-request cancellation on Stop.
 - Done: add Deepgram as an independent timed speech provider with strict bounded normalization and cancellation.
+- Done: add Cloudflare Workers AI as a fourth independent speech provider using its documented execute-model REST contract and fixed official API origin.
 - Remaining: complete real-account/site smoke tests for dedicated adapters, add adapters and speech providers for further evidence-backed documented services, support files above provider limits, and add continuous partial transcription while current-tab capture is still running.
 - Keep every subtitle-generation and media-capture path user-triggered; visiting or playing a video never starts capture, OCR, transcription, or translation.
 
