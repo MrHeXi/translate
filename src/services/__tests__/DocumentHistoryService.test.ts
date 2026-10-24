@@ -259,6 +259,134 @@ describe('DocumentHistoryService', () => {
     })).rejects.toThrow(/Invalid/i);
   });
 
+  it('round-trips bounded PDF table-cell geometry and rejects malformed cell bounds', async () => {
+    const service = new DocumentHistoryService();
+    const tableBlock = {
+      id: 1,
+      originalText: 'Revenue',
+      layout: {
+        pageNumber: 1,
+        x: 72,
+        y: 120,
+        width: 80,
+        height: 12,
+        pageWidth: 600,
+        pageHeight: 800,
+        contentKind: 'prose' as const,
+        readingOrder: 0,
+        columnIndex: 1,
+        columnCount: 1,
+        regionX: 0,
+        regionWidth: 600,
+        tableCell: {
+          tableId: 1,
+          rowIndex: 1,
+          rowCount: 3,
+          columnIndex: 1,
+          columnCount: 2,
+          x: 68,
+          y: 114,
+          width: 170,
+          height: 24
+        },
+        source: 'pdf-text' as const
+      }
+    };
+    const saved = await service.save({
+      ...makeInput('table.pdf'),
+      sourceKind: 'pdf',
+      rawFileText: undefined,
+      sourceText: tableBlock.originalText,
+      documentBlocks: [tableBlock],
+      results: [{ block: tableBlock, translatedText: 'Translated revenue' }]
+    });
+
+    expect(saved.documentBlocks[0]?.layout?.tableCell).toEqual(tableBlock.layout.tableCell);
+    expect((await service.get(saved.id))?.results[0]?.block.layout?.tableCell)
+      .toEqual(tableBlock.layout.tableCell);
+
+    await expect(service.save({
+      ...makeInput('invalid-table.pdf'),
+      sourceKind: 'pdf',
+      rawFileText: undefined,
+      complete: false,
+      documentBlocks: [{
+        ...tableBlock,
+        layout: {
+          ...tableBlock.layout,
+          tableCell: { ...tableBlock.layout.tableCell, width: 0 }
+        }
+      }],
+      results: []
+    })).rejects.toThrow(/Invalid/i);
+
+    for (const invalidLayout of [
+      { ...tableBlock.layout, source: 'plain-text' as const },
+      { ...tableBlock.layout, pageNumber: 0 },
+      { ...tableBlock.layout, width: -10 },
+      { ...tableBlock.layout, height: 0 },
+      {
+        ...tableBlock.layout,
+        tableCell: { ...tableBlock.layout.tableCell, width: 600 }
+      },
+      { ...tableBlock.layout, x: 60 }
+    ]) {
+      await expect(service.save({
+        ...makeInput('unsafe-table.pdf'),
+        sourceKind: 'pdf',
+        rawFileText: undefined,
+        complete: false,
+        documentBlocks: [{ ...tableBlock, layout: invalidLayout }],
+        results: []
+      })).rejects.toThrow(/Invalid/i);
+    }
+
+    await expect(service.save({
+      ...makeInput('duplicate-table.pdf'),
+      sourceKind: 'pdf',
+      rawFileText: undefined,
+      complete: false,
+      documentBlocks: [
+        tableBlock,
+        { ...tableBlock, id: 2, originalText: 'Duplicate coordinate' }
+      ],
+      results: []
+    })).rejects.toThrow(/Invalid/i);
+
+    await expect(service.save({
+      ...makeInput('mismatched-result-table.pdf'),
+      sourceKind: 'pdf',
+      rawFileText: undefined,
+      sourceText: tableBlock.originalText,
+      documentBlocks: [tableBlock],
+      results: [{
+        block: {
+          ...tableBlock,
+          layout: {
+            ...tableBlock.layout,
+            tableCell: { ...tableBlock.layout.tableCell, columnIndex: 2 }
+          }
+        },
+        translatedText: 'Translated revenue'
+      }]
+    })).rejects.toThrow(/Invalid/i);
+
+    await expect(service.save({
+      ...makeInput('mismatched-result-page.pdf'),
+      sourceKind: 'pdf',
+      rawFileText: undefined,
+      sourceText: tableBlock.originalText,
+      documentBlocks: [tableBlock],
+      results: [{
+        block: {
+          ...tableBlock,
+          layout: { ...tableBlock.layout, pageNumber: 2 }
+        },
+        translatedText: 'Translated revenue'
+      }]
+    })).rejects.toThrow(/Invalid/i);
+  });
+
   it('keeps the total serialized store under 4 MiB by evicting oldest whole entries', async () => {
     const service = new DocumentHistoryService();
     await service.setRetention(50);

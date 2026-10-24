@@ -29,7 +29,20 @@ export interface DocumentBlockLayout {
   columnCount?: number;
   regionX?: number;
   regionWidth?: number;
+  tableCell?: DocumentTableCellLayout;
   source: 'pdf-text' | 'pdf-ocr' | 'plain-text' | 'subtitle' | 'html' | 'json';
+}
+
+export interface DocumentTableCellLayout {
+  tableId: number;
+  rowIndex: number;
+  rowCount: number;
+  columnIndex: number;
+  columnCount: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export interface DocumentSubtitleCue {

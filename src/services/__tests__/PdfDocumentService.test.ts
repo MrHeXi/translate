@@ -253,6 +253,101 @@ describe('PdfDocumentService', () => {
     expect(destroy).toHaveBeenCalledTimes(1);
   });
 
+  it('detects conservative text tables before line joining and keeps row-major cell order', async () => {
+    const { engine } = createEngine([{
+      items: [
+        { str: 'Quarterly summary', transform: [1, 0, 0, 14, 50, 760], width: 250, height: 14, hasEOL: true },
+        { str: 'Name', transform: [1, 0, 0, 12, 50, 700], width: 60, height: 12 },
+        { str: 'Value', transform: [1, 0, 0, 12, 250, 700], width: 60, height: 12 },
+        { str: 'Alpha', transform: [1, 0, 0, 12, 50, 675], width: 60, height: 12 },
+        { str: '10', transform: [1, 0, 0, 12, 290, 675], width: 20, height: 12 },
+        { str: 'Beta', transform: [1, 0, 0, 12, 50, 650], width: 54, height: 12 },
+        { str: '100', transform: [1, 0, 0, 12, 280, 650], width: 30, height: 12 }
+      ]
+    }]);
+    const session = await new PdfDocumentService(engine, () => null)
+      .open(new Uint8Array([1, 2, 3]));
+    const analysis = await session.analyze();
+
+    expect(analysis.blocks.map(block => block.originalText)).toEqual([
+      'Quarterly summary',
+      'Name',
+      'Value',
+      'Alpha',
+      '10',
+      'Beta',
+      '100'
+    ]);
+    const cells = analysis.blocks.slice(1).map(block => block.layout?.tableCell);
+    expect(cells.map(cell => [cell?.rowIndex, cell?.columnIndex])).toEqual([
+      [1, 1], [1, 2], [2, 1], [2, 2], [3, 1], [3, 2]
+    ]);
+    expect(cells.every(cell => (
+      cell?.tableId === 1
+      && cell.rowCount === 3
+      && cell.columnCount === 2
+      && cell.width > 0
+      && cell.height > 0
+    ))).toBe(true);
+    expect(analysis.blocks[0]?.layout?.tableCell).toBeUndefined();
+  });
+
+  it('does not classify an unruled two-by-two text matrix as a table', async () => {
+    const { engine } = createEngine([{
+      items: [
+        { str: 'Name', transform: [1, 0, 0, 12, 50, 700], width: 60, height: 12 },
+        { str: 'Value', transform: [1, 0, 0, 12, 250, 700], width: 60, height: 12 },
+        { str: 'Alpha', transform: [1, 0, 0, 12, 50, 675], width: 60, height: 12 },
+        { str: '10', transform: [1, 0, 0, 12, 290, 675], width: 20, height: 12 }
+      ]
+    }]);
+    const session = await new PdfDocumentService(engine, () => null)
+      .open(new Uint8Array([1, 2, 3]));
+    const analysis = await session.analyze();
+
+    expect(analysis.blocks).toHaveLength(4);
+    expect(analysis.blocks.every(block => block.layout?.tableCell === undefined)).toBe(true);
+  });
+
+  it('rejects table metadata when minimum block geometry would escape a detected cell', async () => {
+    const { engine } = createEngine([{
+      items: [
+        { str: 'A', transform: [1, 0, 0, 4, 50, 700], width: 2, height: 4 },
+        { str: 'B', transform: [1, 0, 0, 4, 250, 700], width: 2, height: 4 },
+        { str: '1', transform: [1, 0, 0, 4, 50, 690], width: 2, height: 4 },
+        { str: '2', transform: [1, 0, 0, 4, 250, 690], width: 2, height: 4 },
+        { str: '3', transform: [1, 0, 0, 4, 50, 680], width: 2, height: 4 },
+        { str: '4', transform: [1, 0, 0, 4, 250, 680], width: 2, height: 4 }
+      ]
+    }]);
+    const session = await new PdfDocumentService(engine, () => null)
+      .open(new Uint8Array([1, 2, 3]));
+    const analysis = await session.analyze();
+
+    expect(analysis.blocks).toHaveLength(6);
+    expect(analysis.blocks.every(block => block.layout?.tableCell === undefined)).toBe(true);
+  });
+
+  it('ignores invalid and rotated text items during table detection', async () => {
+    const { engine } = createEngine([{
+      items: [
+        { str: 'Broken A', transform: [1, 0, 0, 12, Number.POSITIVE_INFINITY, 700], width: 40, height: 12 },
+        { str: 'Broken B', transform: [1, 0, 0, 12, 250, 700], width: Number.POSITIVE_INFINITY, height: 12 },
+        { str: 'R1', transform: [0, 12, 12, 0, 50, 675], width: 20, height: 12 },
+        { str: 'R2', transform: [0, 12, 12, 0, 250, 675], width: 20, height: 12 },
+        { str: 'R3', transform: [0, 12, 12, 0, 50, 650], width: 20, height: 12 },
+        { str: 'R4', transform: [0, 12, 12, 0, 250, 650], width: 20, height: 12 }
+      ]
+    }]);
+    const session = await new PdfDocumentService(engine, () => null)
+      .open(new Uint8Array([1, 2, 3]));
+    const analysis = await session.analyze();
+
+    expect(analysis.blocks.every(block => block.layout?.tableCell === undefined)).toBe(true);
+    expect(analysis.blocks.map(block => block.originalText)).not.toContain('Broken A');
+    expect(analysis.blocks.map(block => block.originalText)).not.toContain('Broken B');
+  });
+
   it('keeps two-column reading order, separates same-height columns, and marks formulas', async () => {
     const { engine } = createEngine([
       {
@@ -775,6 +870,86 @@ describe('PdfDocumentService', () => {
       );
       const drawnY = (context.fillText as jest.Mock).mock.calls[0]?.[2] as number;
       expect(drawnY).toBeLessThan(analysis.blocks[0]!.layout!.y * 1.6);
+    } finally {
+      contextSpy.mockRestore();
+      dataUrlSpy.mockRestore();
+    }
+  });
+
+  it('clips fitting table translations in both PDF export modes and rejects overflow before rendering', async () => {
+    const source = await PDFDocument.create();
+    source.addPage([600, 800]);
+    const sourceBytes = new Uint8Array(await source.save());
+    const { engine } = createEngine([{
+      items: [
+        { str: 'Quarterly summary', transform: [1, 0, 0, 14, 50, 750], width: 180, height: 14, hasEOL: true },
+        { str: 'Name', transform: [1, 0, 0, 12, 50, 700], width: 60, height: 12 },
+        { str: 'Value', transform: [1, 0, 0, 12, 250, 700], width: 60, height: 12 },
+        { str: 'Alpha', transform: [1, 0, 0, 12, 50, 675], width: 60, height: 12 },
+        { str: '10', transform: [1, 0, 0, 12, 290, 675], width: 20, height: 12 },
+        { str: 'Beta', transform: [1, 0, 0, 12, 50, 650], width: 54, height: 12 },
+        { str: '100', transform: [1, 0, 0, 12, 280, 650], width: 30, height: 12 }
+      ]
+    }]);
+    const context = {
+      save: jest.fn(),
+      restore: jest.fn(),
+      beginPath: jest.fn(),
+      rect: jest.fn(),
+      clip: jest.fn(),
+      clearRect: jest.fn(),
+      fillRect: jest.fn(),
+      fillText: jest.fn(),
+      measureText: jest.fn((text: string) => {
+        const fontSize = Number.parseFloat(context.font) || 10;
+        return { width: Array.from(text).length * fontSize * 0.55 };
+      }),
+      fillStyle: '',
+      font: '',
+      textBaseline: 'top'
+    } as unknown as CanvasRenderingContext2D;
+    const contextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(context);
+    const dataUrlSpy = jest.spyOn(HTMLCanvasElement.prototype, 'toDataURL')
+      .mockReturnValue(
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII='
+      );
+
+    try {
+      const session = await new PdfDocumentService(engine, () => null).open(sourceBytes);
+      const analysis = await session.analyze();
+      const block = analysis.blocks.find(candidate => candidate.originalText === 'Name')!;
+      const result = { block, translatedText: '名称' };
+      const flattened = await session.exportTranslatedPdf([result]);
+      const preserved = await session.exportTranslatedPdfPreservingInteractions([result]);
+
+      expect(String.fromCharCode(...flattened.slice(0, 4))).toBe('%PDF');
+      expect(String.fromCharCode(...preserved.slice(0, 4))).toBe('%PDF');
+      expect(context.beginPath).toHaveBeenCalledTimes(2);
+      expect(context.rect).toHaveBeenCalledTimes(2);
+      expect(context.clip).toHaveBeenCalledTimes(2);
+      expect(context.fillText).toHaveBeenCalledWith(
+        '名称',
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number)
+      );
+
+      const renderedPngCount = dataUrlSpy.mock.calls.length;
+      const overflow = { block, translatedText: 'translation '.repeat(200) };
+      await expect(session.exportTranslatedPdf([overflow]))
+        .rejects.toThrow(/page 1, table 1, row 1, column 1.*does not fit/i);
+      await expect(session.exportTranslatedPdfPreservingInteractions([overflow]))
+        .rejects.toThrow(/page 1, table 1, row 1, column 1.*does not fit/i);
+      expect(dataUrlSpy).toHaveBeenCalledTimes(renderedPngCount);
+
+      const proseBlock = analysis.blocks.find(candidate => candidate.originalText === 'Quarterly summary')!;
+      const proseOverflow = { block: proseBlock, translatedText: 'ordinary translation '.repeat(2_000) };
+      await expect(session.exportTranslatedPdf([proseOverflow]))
+        .rejects.toThrow(/page 1.*does not fit inside its page region/i);
+      await expect(session.exportTranslatedPdfPreservingInteractions([proseOverflow]))
+        .rejects.toThrow(/page 1.*does not fit inside its page region/i);
+      expect(dataUrlSpy).toHaveBeenCalledTimes(renderedPngCount);
     } finally {
       contextSpy.mockRestore();
       dataUrlSpy.mockRestore();

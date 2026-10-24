@@ -1143,6 +1143,153 @@ describe('document translator page', () => {
     }
   });
 
+  it('keeps simple-table translations inside detected cells after the explicit translate click', async () => {
+    const renderPage = jest.fn(async (_pageNumber: number, canvas: HTMLCanvasElement) => {
+      canvas.width = 810;
+      canvas.height = 1080;
+      return { pageNumber: 1, width: 600, height: 800, scale: 1.35 };
+    });
+    const cells = [
+      { text: 'Metric', row: 1, column: 1, x: 60, y: 100 },
+      { text: 'Value', row: 1, column: 2, x: 240, y: 100 },
+      { text: 'Revenue', row: 2, column: 1, x: 60, y: 142 },
+      { text: '$10m', row: 2, column: 2, x: 240, y: 142 }
+    ];
+    const blocks = cells.map((cell, index) => ({
+      id: index + 1,
+      originalText: cell.text,
+      layout: {
+        pageNumber: 1,
+        x: cell.x + 10,
+        y: cell.y + 8,
+        width: 80,
+        height: 12,
+        pageWidth: 600,
+        pageHeight: 800,
+        contentKind: 'prose' as const,
+        readingOrder: index,
+        columnIndex: 1,
+        columnCount: 1,
+        regionX: 0,
+        regionWidth: 600,
+        tableCell: {
+          tableId: 1,
+          rowIndex: cell.row,
+          rowCount: 2,
+          columnIndex: cell.column,
+          columnCount: 2,
+          x: cell.x,
+          y: cell.y,
+          width: 180,
+          height: 42
+        },
+        source: 'pdf-text' as const
+      }
+    }));
+    const session = {
+      analyze: jest.fn(async () => ({
+        blocks,
+        pages: [{
+          pageNumber: 1,
+          width: 600,
+          height: 800,
+          blockCount: 4,
+          formulaBlockCount: 0,
+          columnCount: 1,
+          source: 'text' as const
+        }],
+        ocrPageCount: 0,
+        bundledOcrPageCount: 0,
+        unreadablePageCount: 0,
+        formulaBlockCount: 0,
+        multiColumnPageCount: 0
+      })),
+      renderPage,
+      exportTranslatedPdf: jest.fn(),
+      exportTranslatedPdfPreservingInteractions: jest.fn(),
+      destroy: jest.fn(async () => undefined)
+    };
+    const open = jest.fn(async () => session);
+    jest.doMock('../../services/PdfDocumentService', () => ({
+      PDF_DOCUMENT_MAX_SOURCE_BYTES: 64 * 1024 * 1024,
+      pdfDocumentService: { open }
+    }));
+
+    require('../document');
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    await flushPromises();
+
+    const file = new File(['table pdf bytes'], 'table.pdf', { type: 'application/pdf' });
+    Object.defineProperty(file, 'arrayBuffer', {
+      value: async () => new Uint8Array([1, 2, 3]).buffer,
+      configurable: true
+    });
+    const fileInput = document.getElementById('documentFile') as HTMLInputElement;
+    Object.defineProperty(fileInput, 'files', { value: [file], configurable: true });
+    fileInput.dispatchEvent(new Event('change'));
+    await waitForCondition(() => renderPage.mock.calls.length >= 1);
+
+    const sendMessage = (global as any).chrome.runtime.sendMessage as jest.Mock;
+    expect(sendMessage.mock.calls.map(call => call[0].action)).not.toContain('translate');
+    expect(document.querySelectorAll('.pdf-translation-overlay')).toHaveLength(0);
+    expect(document.getElementById('documentMessage')?.textContent).toBe(
+      'table.pdf loaded, 1 page, 4 positioned blocks, 1 simple table with 4 cells'
+    );
+
+    document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+    await waitForCondition(() => document.querySelectorAll('.pdf-translation-overlay').length === 4);
+
+    const overlay = document.querySelector('.pdf-translation-overlay--table-cell') as HTMLElement;
+    expect(overlay).not.toBeNull();
+    expect(overlay.dataset['table']).toBe('1');
+    expect(overlay.dataset['row']).toBe('1');
+    expect(overlay.dataset['column']).toBe('1');
+    expect(parseFloat(overlay.style.left)).toBeCloseTo(10, 5);
+    expect(parseFloat(overlay.style.top)).toBeCloseTo(12.5, 5);
+    expect(parseFloat(overlay.style.width)).toBeCloseTo(30, 5);
+    expect(parseFloat(overlay.style.height)).toBeCloseTo(5.25, 5);
+    expect(document.querySelector('.block-index')?.textContent).toContain(
+      'Table 1 · Row 1/2 · Cell 1/2'
+    );
+    expect(sendMessage.mock.calls.filter(call => call[0].action === 'translate')).toHaveLength(4);
+
+    const firstTranslation = document.querySelector('.document-translation') as HTMLElement;
+    firstTranslation.textContent = 'translation '.repeat(200);
+    firstTranslation.dispatchEvent(new Event('input'));
+    expect(document.querySelectorAll('.pdf-translation-overlay--overflow')).toHaveLength(1);
+    expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(true);
+    expect(document.getElementById('documentMessage')?.textContent)
+      .toBe('1 table cell needs a shorter translation before PDF export.');
+    document.getElementById('exportPdfFile')!.dispatchEvent(new Event('click'));
+    await flushPromises();
+    expect(session.exportTranslatedPdf).not.toHaveBeenCalled();
+    expect(session.exportTranslatedPdfPreservingInteractions).not.toHaveBeenCalled();
+
+    firstTranslation.textContent = 'Short';
+    firstTranslation.dispatchEvent(new Event('input'));
+    expect(document.querySelectorAll('.pdf-translation-overlay--overflow')).toHaveLength(0);
+    expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(false);
+
+    sendMessage.mockClear();
+    const sourceText = document.getElementById('sourceText') as HTMLTextAreaElement;
+    sourceText.value = sourceText.value.replace('Metric', 'Replacement metric');
+    document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+    await waitForCondition(() => sendMessage.mock.calls.filter(call => call[0].action === 'translate').length === 4);
+    const replacementResult = Array.from(document.querySelectorAll('.document-result-block'))
+      .find(block => block.textContent?.includes('Replacement metric'));
+    expect(replacementResult?.classList.contains('document-result-block--layout')).toBe(false);
+    expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(true);
+
+    sendMessage.mockClear();
+    sourceText.value = `${sourceText.value}\n\nAdded prose without table geometry`;
+    document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+    await waitForCondition(() => sendMessage.mock.calls.filter(call => call[0].action === 'translate').length === 5);
+    const addedResult = Array.from(document.querySelectorAll('.document-result-block'))
+      .find(block => block.textContent?.includes('Added prose without table geometry'));
+    expect(addedResult?.classList.contains('document-result-block--layout')).toBe(false);
+    expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it('maps PDF block-count edits only onto known export geometry', async () => {
     const firstLayout = {
       pageNumber: 1,
@@ -1251,6 +1398,19 @@ describe('document translator page', () => {
       expect(resultBlocks[0].querySelector('.block-index')?.textContent).toContain('x 40');
       expect(resultBlocks[1].querySelector('.block-index')?.textContent).toContain('Block 22');
       expect(resultBlocks[1].querySelector('.block-index')?.textContent).toContain('y 110');
+      expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(false);
+
+      const firstTranslation = document.querySelector('.document-translation') as HTMLElement;
+      firstTranslation.textContent = 'ordinary translation '.repeat(2_000);
+      firstTranslation.dispatchEvent(new Event('input'));
+      expect(document.querySelectorAll('.pdf-translation-overlay--overflow')).toHaveLength(1);
+      expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(true);
+      expect(document.getElementById('documentMessage')?.textContent)
+        .toBe('1 translated PDF block needs shorter text before PDF export.');
+
+      firstTranslation.textContent = 'Short translated text';
+      firstTranslation.dispatchEvent(new Event('input'));
+      expect(document.querySelectorAll('.pdf-translation-overlay--overflow')).toHaveLength(0);
       expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(false);
 
       document.getElementById('exportPdfFile')!.dispatchEvent(new Event('click'));

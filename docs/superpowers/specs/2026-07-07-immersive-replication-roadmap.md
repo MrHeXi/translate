@@ -145,6 +145,7 @@ Current batch:
 - Done: parse standards-compliant PDFs with bundled Mozilla PDF.js, including compressed content streams, page dimensions, font maps, and positioned text lines.
 - Done: prevent same-height fragments from confidently separated PDF columns from being merged into one line.
 - Done: detect conservative two-column regions, order left-column text before right-column text, and keep translated overlays inside the inferred column boundary.
+- Done: detect bounded high-confidence regular text-layer tables before ordinary line joining, reject fragmented prose/prose-column contamination/pure numeric matrices/rotated or invalid items, preserve row-major order, support stable left/center/right column anchors, retain validated cell geometry in explicit local history, and apply strict non-truncating fitting to all positioned translations across responsive preview plus flattened and interaction-preserving PDF export.
 - Done: identify likely standalone formulas locally and preserve them without provider requests or translated-preview/export overlays.
 - Done: render original and translated PDF pages locally with bilingual, translation-only, and original-only page views.
 - Done: attempt local OCR for image-only PDF pages when browser `TextDetector` is available and retain OCR bounding boxes.
@@ -155,8 +156,8 @@ Current batch:
 - Done: supplement sparse text layers on raster-backed pages, merge OCR/text blocks in deterministic reading order, deduplicate overlapping equivalent blocks, and reject unusable browser OCR results before falling back to bundled Tesseract.
 - Done: preserve loaded PDF block identity, page geometry, column metadata, and formula metadata through source edits; map inserted text only to adjacent prose geometry and disable PDF export when no safe geometry exists.
 - Done: exclude standalone formula blocks from neighboring AI context as well as direct translation requests.
-- Verified: generated real PDF.js fixtures cover text extraction, columns/formulas, a real raster-backed mixed page, interactive form/link/annotation preservation, signature rejection, and both flattened and interaction-preserving exports.
-- Remaining: editable block-level PDF reflow beyond safe geometry mapping, structural MathML/LaTeX reconstruction, form/annotation content editing, and advanced multi-column/table layout fitting beyond conservative two-column detection.
+- Verified: generated real PDF.js fixtures cover text extraction, columns/formulas, conservative table recognition and misclassification rejection, shared cell clipping/overflow rejection, a real raster-backed mixed page, interactive form/link/annotation preservation, signature rejection, and both flattened and interaction-preserving exports.
+- Remaining: editable block-level PDF reflow beyond safe geometry mapping, structural MathML/LaTeX reconstruction, form/annotation content editing, OCR tables, merged or multiline cells, and advanced table reconstruction.
 
 ### Batch E: Video Subtitle Translation
 

@@ -1,4 +1,10 @@
-import { DocumentBlock, DocumentTextExtractor } from '../services/DocumentTextExtractor';
+import {
+  DocumentBlock,
+  DocumentBlockLayout,
+  DocumentTableCellLayout,
+  DocumentTextExtractor
+} from '../services/DocumentTextExtractor';
+import { fitPdfText } from '../services/PdfTextFitting';
 import { createAcademicDocumentHandoff } from '../services/AcademicDocumentHandoff';
 import { createBabelDocWorkflow } from '../services/BabelDocWorkflow';
 import {
@@ -88,6 +94,32 @@ interface BatchTranslationSettings {
   runId: string;
 }
 
+const getUsableTableCell = (
+  layout: DocumentBlockLayout,
+  pageWidth: number,
+  pageHeight: number
+): DocumentTableCellLayout | null => {
+  const cell = layout.tableCell;
+  if (
+    !cell
+    || !Number.isFinite(pageWidth)
+    || pageWidth <= 0
+    || !Number.isFinite(pageHeight)
+    || pageHeight <= 0
+    || !Number.isFinite(cell.x)
+    || cell.x < 0
+    || !Number.isFinite(cell.y)
+    || cell.y < 0
+    || !Number.isFinite(cell.width)
+    || cell.width <= 0
+    || !Number.isFinite(cell.height)
+    || cell.height <= 0
+    || cell.x + cell.width > pageWidth + 0.01
+    || cell.y + cell.height > pageHeight + 0.01
+  ) return null;
+  return cell;
+};
+
 class DocumentTranslatorController {
   private sourceText: HTMLTextAreaElement | null = null;
   private fileInput: HTMLInputElement | null = null;
@@ -141,6 +173,8 @@ class DocumentTranslatorController {
   private pdfAnalysis: PdfDocumentAnalysis | null = null;
   private pdfOcrPreparedLanguage: BundledOcrLanguageCode | null = null;
   private loadedPdfUsesCompatibilityFallback = false;
+  private pdfOverflowCount = 0;
+  private pdfTableOverflowCount = 0;
   private readonly pdfPageViews = new Map<number, PdfPageView>();
   private historyEntries: DocumentHistoryEntry[] = [];
   private isBusy = false;
@@ -507,11 +541,17 @@ class DocumentTranslatorController {
 
       const preservedFormulaCount = results.filter(result => result.preservedOriginal).length;
       const translatedBlockCount = results.length - preservedFormulaCount;
-      this.showMessage(
-        preservedFormulaCount > 0
-          ? `Translated ${translatedBlockCount} blocks and preserved ${preservedFormulaCount} formulas`
-          : `Translated ${translatedBlockCount} blocks`
-      );
+      const completionMessage = preservedFormulaCount > 0
+        ? `Translated ${translatedBlockCount} blocks and preserved ${preservedFormulaCount} formulas`
+        : `Translated ${translatedBlockCount} blocks`;
+      if (this.pdfOverflowCount > 0) {
+        this.showMessage(
+          `${completionMessage}. ${this.getPdfOverflowMessage()}`,
+          'error'
+        );
+      } else {
+        this.showMessage(completionMessage);
+      }
     } catch (error) {
       this.showMessage(error instanceof Error ? error.message : 'Document translation failed.', 'error');
     } finally {
@@ -983,6 +1023,14 @@ class DocumentTranslatorController {
           result.translatedText = this.readEditableTranslation(translation);
           this.renderPdfTranslationOverlays();
           this.updateExportButtons();
+          if (result.block.layout && this.pdfSession) {
+            this.showMessage(
+              this.pdfOverflowCount > 0
+                ? this.getPdfOverflowMessage()
+                : 'Translated PDF text fits within its export bounds.',
+              this.pdfOverflowCount > 0 ? 'error' : 'info'
+            );
+          }
         });
       }
 
@@ -1099,6 +1147,10 @@ class DocumentTranslatorController {
     }
     if (!this.pdfSession || pdfResults.length === 0) {
       this.showMessage('Translate a PDF before exporting.', 'error');
+      return;
+    }
+    if (this.pdfOverflowCount > 0) {
+      this.showMessage(this.getPdfOverflowMessage(), 'error');
       return;
     }
 
@@ -1353,6 +1405,8 @@ class DocumentTranslatorController {
   }
 
   private renderPdfTranslationOverlays(): void {
+    this.pdfOverflowCount = 0;
+    this.pdfTableOverflowCount = 0;
     for (const view of this.pdfPageViews.values()) {
       view.translationLayer.replaceChildren();
       const pageResults = this.currentResults.filter(result => (
@@ -1365,8 +1419,11 @@ class DocumentTranslatorController {
         const layout = result.block.layout!;
         const pageWidth = layout.pageWidth || view.summary.width;
         const pageHeight = layout.pageHeight || view.summary.height;
-        const left = Math.max(0, Math.min(99, (layout.x / pageWidth) * 100));
-        const top = Math.max(0, Math.min(99, (layout.y / pageHeight) * 100));
+        const tableCell = getUsableTableCell(layout, pageWidth, pageHeight);
+        const sourceX = tableCell?.x ?? layout.x;
+        const sourceY = tableCell?.y ?? layout.y;
+        const left = Math.max(0, Math.min(99, (sourceX / pageWidth) * 100));
+        const top = Math.max(0, Math.min(99, (sourceY / pageHeight) * 100));
         const sourceWidth = Math.max(4, (layout.width / pageWidth) * 100);
         const regionRight = Math.min(
           pageWidth,
@@ -1387,19 +1444,144 @@ class DocumentTranslatorController {
         overlay.dataset['source'] = layout.source;
         overlay.textContent = result.translatedText.trim();
         overlay.style.left = `${left}%`;
-        if (top > 86) {
+        if (tableCell) {
+          overlay.classList.add('pdf-translation-overlay--table-cell');
+          overlay.dataset['table'] = String(tableCell.tableId);
+          overlay.dataset['row'] = String(tableCell.rowIndex);
+          overlay.dataset['column'] = String(tableCell.columnIndex);
+          overlay.style.top = `${top}%`;
+          overlay.style.width = `${Math.min(100 - left, (tableCell.width / pageWidth) * 100)}%`;
+          overlay.style.height = `${Math.min(100 - top, (tableCell.height / pageHeight) * 100)}%`;
+        } else if (top > 86) {
           overlay.style.top = `${Math.min(99, top + minimumHeight)}%`;
           overlay.style.transform = 'translateY(-100%)';
         } else {
           overlay.style.top = `${top}%`;
         }
-        overlay.style.width = `${width}%`;
-        overlay.style.minHeight = `${minimumHeight}%`;
+        if (!tableCell) {
+          overlay.style.width = `${width}%`;
+          overlay.style.minHeight = `${minimumHeight}%`;
+        }
         view.translationLayer.appendChild(overlay);
+        if (tableCell) {
+          this.fitPdfTableCellOverlay(overlay, result.translatedText.trim(), layout, view);
+        } else {
+          this.fitPdfTextOverlay(overlay, result.translatedText.trim(), layout, view);
+        }
       }
     }
 
     this.applyPdfDisplayMode();
+  }
+
+  private fitPdfTableCellOverlay(
+    overlay: HTMLElement,
+    translatedText: string,
+    layout: DocumentBlockLayout,
+    view: PdfPageView
+  ): void {
+    const cell = layout.tableCell!;
+    const padding = Math.min(3, cell.width * 0.12, cell.height * 0.12);
+    const context = typeof CanvasRenderingContext2D !== 'undefined'
+      ? view.translatedCanvas.getContext('2d')
+      : null;
+    const preferredFontSize = Math.max(8, Math.min(18, layout.height * 0.82));
+    const fitted = fitPdfText({
+      text: translatedText,
+      maxWidth: Math.max(0.01, cell.width - padding * 2),
+      maxHeight: Math.max(0.01, cell.height - padding * 2),
+      preferredFontSize,
+      minimumFontSize: Math.min(preferredFontSize, 5.5),
+      lineHeightRatio: 1.12,
+      measureText: (text, fontSize) => {
+        if (context) {
+          context.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+          return context.measureText(text).width;
+        }
+        return Array.from(text).reduce((total, character) => (
+          total + fontSize * (/\s/u.test(character) ? 0.32 : 0.58)
+        ), 0);
+      }
+    });
+    const pageWidth = layout.pageWidth || view.summary.width;
+    overlay.style.fontSize = `calc(100cqw * ${fitted.fontSize} / ${pageWidth})`;
+    overlay.style.lineHeight = `calc(100cqw * ${fitted.lineHeight} / ${pageWidth})`;
+    if (!fitted.truncated) {
+      overlay.textContent = fitted.lines.join('\n');
+      return;
+    }
+
+    this.markPdfOverflow(
+      overlay,
+      `Page ${layout.pageNumber}, table ${cell.tableId}, row ${cell.rowIndex}, column ${cell.columnIndex}: translation does not fit`,
+      true
+    );
+  }
+
+  private fitPdfTextOverlay(
+    overlay: HTMLElement,
+    translatedText: string,
+    layout: DocumentBlockLayout,
+    view: PdfPageView
+  ): void {
+    const pageWidth = layout.pageWidth || view.summary.width;
+    const pageHeight = layout.pageHeight || view.summary.height;
+    const regionX = layout.regionX ?? 0;
+    const regionWidth = layout.regionWidth ?? pageWidth;
+    const regionRight = Math.min(pageWidth, regionX + regionWidth);
+    const isColumnLayout = (layout.columnCount || 1) > 1;
+    const availableWidth = Math.max(
+      isColumnLayout ? 8 : 30,
+      regionRight - layout.x - 4
+    );
+    const desiredWidth = isColumnLayout
+      ? availableWidth
+      : Math.max(layout.width + 8, Math.min(pageWidth * 0.56, availableWidth));
+    const width = Math.min(availableWidth, Math.max(layout.width + 8, desiredWidth));
+    const preferredFontSize = Math.max(8, Math.min(18, layout.height * 0.82));
+    const context = typeof CanvasRenderingContext2D !== 'undefined'
+      ? view.translatedCanvas.getContext('2d')
+      : null;
+    const fitted = fitPdfText({
+      text: translatedText,
+      maxWidth: Math.max(0.01, width - 8),
+      maxHeight: Math.max(0.01, pageHeight - 8),
+      preferredFontSize,
+      minimumFontSize: Math.min(preferredFontSize, 6.5),
+      lineHeightRatio: 1.22,
+      measureText: (text, fontSize) => {
+        if (context) {
+          context.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+          return context.measureText(text).width;
+        }
+        return Array.from(text).reduce((total, character) => (
+          total + fontSize * (/\s/u.test(character) ? 0.32 : 0.58)
+        ), 0);
+      }
+    });
+    overlay.style.fontSize = `calc(100cqw * ${fitted.fontSize} / ${pageWidth})`;
+    overlay.style.lineHeight = `calc(100cqw * ${fitted.lineHeight} / ${pageWidth})`;
+    if (!fitted.truncated) return;
+    this.markPdfOverflow(
+      overlay,
+      `Page ${layout.pageNumber}, block ${layout.readingOrder === undefined ? '?' : layout.readingOrder + 1}: translation does not fit`,
+      false
+    );
+  }
+
+  private markPdfOverflow(overlay: HTMLElement, title: string, tableCell: boolean): void {
+    this.pdfOverflowCount += 1;
+    if (tableCell) this.pdfTableOverflowCount += 1;
+    overlay.classList.add('pdf-translation-overlay--overflow');
+    overlay.dataset['overflow'] = 'true';
+    overlay.title = title;
+  }
+
+  private getPdfOverflowMessage(): string {
+    if (this.pdfOverflowCount === this.pdfTableOverflowCount) {
+      return `${this.pdfTableOverflowCount} table cell${this.pdfTableOverflowCount === 1 ? ' needs' : 's need'} a shorter translation before PDF export.`;
+    }
+    return `${this.pdfOverflowCount} translated PDF block${this.pdfOverflowCount === 1 ? ' needs' : 's need'} shorter text before PDF export.`;
   }
 
   private getOcrLanguage(): BundledOcrLanguageCode {
@@ -1605,6 +1787,15 @@ class DocumentTranslatorController {
         `${analysis.multiColumnPageCount} multi-column page${analysis.multiColumnPageCount === 1 ? '' : 's'}`
       );
     }
+    const tableCells = analysis.blocks.filter(block => block.layout?.tableCell);
+    if (tableCells.length > 0) {
+      const tableCount = new Set(tableCells.map(block => (
+        `${block.layout!.pageNumber}:${block.layout!.tableCell!.tableId}`
+      ))).size;
+      parts.push(
+        `${tableCount} simple table${tableCount === 1 ? '' : 's'} with ${tableCells.length} cell${tableCells.length === 1 ? '' : 's'}`
+      );
+    }
     const bundledOcrPageCount = analysis.bundledOcrPageCount || 0;
     const browserOcrPageCount = Math.max(0, analysis.ocrPageCount - bundledOcrPageCount);
     if (browserOcrPageCount > 0) {
@@ -1741,9 +1932,16 @@ class DocumentTranslatorController {
       if (loadedCount > 0) {
         const mappedCount = Math.min(loadedCount, editedCount);
         for (let index = 0; index < mappedCount; index++) {
+          const loadedIndex = loadedStart + index;
+          const editedText = editedBlocks[editedStart + index]!.originalText;
+          const loadedLayout = loadedBlocks[loadedIndex]?.layout;
+          if (loadedLayout?.contentKind === 'formula' || loadedLayout?.tableCell) {
+            unpositionedInsertions.push({ beforeLoadedIndex: loadedIndex, text: editedText });
+            continue;
+          }
           mappedTexts.set(
-            loadedStart + index,
-            editedBlocks[editedStart + index]!.originalText
+            loadedIndex,
+            editedText
           );
         }
 
@@ -1821,9 +2019,15 @@ class DocumentTranslatorController {
     const previousBlock = loadedBlocks[previousLoadedIndex];
     const nextBlock = loadedBlocks[nextLoadedIndex];
     const previousIsProse = Boolean(
-      previousBlock && previousBlock.layout?.contentKind !== 'formula'
+      previousBlock
+      && previousBlock.layout?.contentKind !== 'formula'
+      && !previousBlock.layout?.tableCell
     );
-    const nextIsProse = Boolean(nextBlock && nextBlock.layout?.contentKind !== 'formula');
+    const nextIsProse = Boolean(
+      nextBlock
+      && nextBlock.layout?.contentKind !== 'formula'
+      && !nextBlock.layout?.tableCell
+    );
 
     if (previousIsProse) {
       const previousText = mappedTexts.get(previousLoadedIndex);
@@ -1852,6 +2056,11 @@ class DocumentTranslatorController {
       `Page ${block.layout.pageNumber}`,
       `Block ${block.id}`,
       ...(block.layout.contentKind === 'formula' ? ['Formula'] : []),
+      ...(block.layout.tableCell ? [
+        `Table ${block.layout.tableCell.tableId}`,
+        `Row ${block.layout.tableCell.rowIndex}/${block.layout.tableCell.rowCount}`,
+        `Cell ${block.layout.tableCell.columnIndex}/${block.layout.tableCell.columnCount}`
+      ] : []),
       ...((block.layout.columnCount || 1) > 1 ? [`Column ${block.layout.columnIndex}`] : []),
       `x ${block.layout.x}`,
       `y ${block.layout.y}`
@@ -2294,7 +2503,8 @@ class DocumentTranslatorController {
     this.exportPdfButton.disabled = isBusy
       || !this.pdfSession
       || !hasTranslatedPdf
-      || hasUnpositionedPdfText;
+      || hasUnpositionedPdfText
+      || this.pdfOverflowCount > 0;
   }
 
   private updateTextExportButton(isBusy: boolean = false): void {

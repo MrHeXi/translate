@@ -157,6 +157,57 @@ const isNonNegativeInteger = (value: unknown): value is number => (
   Number.isInteger(value) && (value as number) >= 0
 );
 
+const isPositiveInteger = (value: unknown): value is number => (
+  Number.isInteger(value) && (value as number) > 0
+);
+
+const isValidTableCellLayout = (
+  value: unknown,
+  layout: Record<string, unknown>
+): boolean => {
+  if (!isRecord(value)) return false;
+  if (
+    !isPositiveInteger(value.tableId)
+    || value.tableId > 32
+    || !isPositiveInteger(value.rowIndex)
+    || !isPositiveInteger(value.rowCount)
+    || value.rowCount > 200
+    || value.rowIndex > value.rowCount
+    || !isPositiveInteger(value.columnIndex)
+    || !isPositiveInteger(value.columnCount)
+    || value.columnCount < 2
+    || value.columnCount > 8
+    || value.columnIndex > value.columnCount
+    || !isFiniteNumber(value.x)
+    || value.x < 0
+    || !isFiniteNumber(value.y)
+    || value.y < 0
+    || !isFiniteNumber(value.width)
+    || value.width <= 0
+    || !isFiniteNumber(value.height)
+    || value.height <= 0
+    || layout.source !== 'pdf-text'
+    || !isFiniteNumber(layout.pageWidth)
+    || layout.pageWidth <= 0
+    || !isFiniteNumber(layout.pageHeight)
+    || layout.pageHeight <= 0
+    || value.x + value.width > layout.pageWidth + 0.01
+    || value.y + value.height > layout.pageHeight + 0.01
+    || !isPositiveInteger(layout.pageNumber)
+    || !isFiniteNumber(layout.x)
+    || !isFiniteNumber(layout.y)
+    || !isFiniteNumber(layout.width)
+    || layout.width <= 0
+    || !isFiniteNumber(layout.height)
+    || layout.height <= 0
+    || layout.x < value.x - 0.01
+    || layout.y < value.y - 0.01
+    || layout.x + layout.width > value.x + value.width + 0.01
+    || layout.y + layout.height > value.y + value.height + 0.01
+  ) return false;
+  return true;
+};
+
 const isValidLayout = (value: unknown): boolean => {
   if (!isRecord(value)) return false;
   if (
@@ -176,8 +227,37 @@ const isValidLayout = (value: unknown): boolean => {
     || !isOptionalFiniteNumber(value.columnCount)
     || !isOptionalFiniteNumber(value.regionX)
     || !isOptionalFiniteNumber(value.regionWidth)
+    || (value.tableCell !== undefined && !isValidTableCellLayout(value.tableCell, value))
   ) return false;
   return value.contentKind === undefined || value.contentKind === 'prose' || value.contentKind === 'formula';
+};
+
+const hasConsistentTableLayouts = (blocks: DocumentBlock[]): boolean => {
+  const tables = new Map<string, {
+    rowCount: number;
+    columnCount: number;
+    coordinates: Set<string>;
+  }>();
+  for (const block of blocks) {
+    const layout = block.layout;
+    const cell = layout?.tableCell;
+    if (!layout || !cell) continue;
+    const key = `${layout.pageNumber}:${cell.tableId}`;
+    const table = tables.get(key) || {
+      rowCount: cell.rowCount,
+      columnCount: cell.columnCount,
+      coordinates: new Set<string>()
+    };
+    const coordinate = `${cell.rowIndex}:${cell.columnIndex}`;
+    if (
+      table.rowCount !== cell.rowCount
+      || table.columnCount !== cell.columnCount
+      || table.coordinates.has(coordinate)
+    ) return false;
+    table.coordinates.add(coordinate);
+    tables.set(key, table);
+  }
+  return true;
 };
 
 const isValidSubtitle = (value: unknown): boolean => (
@@ -326,14 +406,29 @@ const normalizeEntry = (value: unknown): DocumentHistoryEntry | null => {
   const results = value.results.map(normalizeResult);
   if (documentBlocks.some(block => block === null) || results.some(result => result === null)) return null;
   const normalizedBlocks = documentBlocks as DocumentBlock[];
+  const normalizedResults = results as DocumentHistoryResult[];
   const blockKeys = new Set(normalizedBlocks.map(block => `${block.id}\u0000${block.originalText}`));
-  const resultKeys = (results as DocumentHistoryResult[])
+  const resultKeys = normalizedResults
     .map(result => `${result.block.id}\u0000${result.block.originalText}`);
+  const sourceBlocks = new Map(normalizedBlocks.map(block => [
+    `${block.id}\u0000${block.originalText}`,
+    block
+  ]));
+  const tableResultsMatchSource = normalizedResults.every(result => {
+    const key = `${result.block.id}\u0000${result.block.originalText}`;
+    const sourceLayout = sourceBlocks.get(key)?.layout;
+    const resultLayout = result.block.layout;
+    if (!sourceLayout?.tableCell && !resultLayout?.tableCell) return true;
+    return JSON.stringify(sourceLayout) === JSON.stringify(resultLayout);
+  });
   if (
     blockKeys.size !== normalizedBlocks.length
     || new Set(resultKeys).size !== resultKeys.length
     || resultKeys.some(key => !blockKeys.has(key))
     || (value.complete && resultKeys.length !== normalizedBlocks.length)
+    || !hasConsistentTableLayouts(normalizedBlocks)
+    || !hasConsistentTableLayouts(normalizedResults.map(result => result.block))
+    || !tableResultsMatchSource
   ) return null;
 
   const entry: DocumentHistoryEntry = {
@@ -349,7 +444,7 @@ const normalizeEntry = (value: unknown): DocumentHistoryEntry | null => {
     displayMode: value.displayMode as DocumentHistoryDisplayMode,
     complete: value.complete,
     documentBlocks: normalizedBlocks,
-    results: results as DocumentHistoryResult[]
+    results: normalizedResults
   };
 
   if (!isJsonData(entry) || serializedByteLength(entry) > DOCUMENT_HISTORY_ENTRY_MAX_BYTES) return null;

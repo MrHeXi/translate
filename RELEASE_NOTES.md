@@ -31,6 +31,7 @@ Initial productized release candidate for local Chrome/Firefox testing and brows
 - Mixed PDF pages with sparse text layers are supplemented by local OCR when PDF.js identifies raster content; text-layer and OCR blocks are merged and duplicate detections are removed.
 - Editing a loaded PDF preserves block IDs, page geometry, column metadata, and formula metadata when safe; newly inserted text without safe source geometry remains translatable but disables PDF export rather than being silently omitted.
 - Conservative two-column PDF detection with left-column-then-right-column reading order and translated overlays constrained to inferred column regions.
+- Conservative regular text-layer PDF table detection before ordinary line joining, with row-major cell order, right-aligned numeric-column support, bounded table/cell metadata, responsive cell previews, and shared strict fitting for flattened and interaction-preserving exports. Fragmented prose, prose-column contamination, pure numeric matrices, rotated text, and invalid geometry are excluded conservatively; any positioned PDF translation that cannot fit is marked and rejected instead of silently dropping text.
 - Local standalone-formula detection that preserves likely mathematical expressions, excludes them from direct translation and neighboring AI context, and does not paint over them in translated previews or PDF exports.
 - Explicit interaction-preserving PDF export that overlays translated pages on the original document while semantically verifying AcroForm fields, widgets, links, and annotations. Signed PDFs and preservation mismatches are rejected without silently downloading a flattened substitute; rotated and cropped pages use bounded coordinate transforms.
 - Video subtitle translation for pages that expose caption/subtitle text tracks or common DOM-rendered caption containers.
@@ -103,13 +104,15 @@ Initial productized release candidate for local Chrome/Firefox testing and brows
 
 Verified on 2026-08-19:
 
+Reverified on 2026-10-24: all 83 suites and 1,025 tests, TypeScript, ESLint, current-source build fingerprints, and both 246-file ZIP archives passed; ZIP CRC and every archived file match the production directories.
+
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --no-cache`: passed, 81 test suites and 980 tests.
+- `jest --runInBand --silent`: passed, 83 test suites and 1,025 tests.
 - `npm run package`: passed for Chrome and Firefox Desktop.
 - `web-ext lint --source-dir dist-firefox`: passed with 0 errors, 0 notices, and 31 warnings retained for AMO review.
-- Chrome build metadata: source `6CC0A385059136DA13C0743FCD09AAC88B2FB4D12F6E2627BBCF085DE5F94705`, manifest `68BA4D2F9519F1D7D42DD388392934FF9B4966791048A82E2920138F9B72828E`, payload `588881F2802A036B2E2EA8D3BDB0337315DDE0554210D43B8D26DBE6DFA1A65C`.
-- Firefox build metadata: source `18435943802BF6774E3E245D1E526B58D2069021D6D295377C3EB6F983A81AA8`, manifest `9F879A96EC3A84499C5EE00A17B104ED4BFC19AFF796CC8F5FE989F06EF8859D`, payload `F629E7397FE2D4AC14FC0603213B2350B62BC70BF3E17E12B05D0D1213A9FFBD`.
+- Chrome build metadata: source `3B144FAB955B9B33B43BA6E0451D8B1E7DA6EA9E418B4F4BA86BBC68DC318068`, manifest `68BA4D2F9519F1D7D42DD388392934FF9B4966791048A82E2920138F9B72828E`, payload `0429A86F7B70F364E6498561B1FF071349CA3C22B106B9F45BA3A01998626203`.
+- Firefox build metadata: source `096E4AC4829A920D10FFD8A5F232530283F1EF8E8CB3660E230C974CDE9A12C3`, manifest `9F879A96EC3A84499C5EE00A17B104ED4BFC19AFF796CC8F5FE989F06EF8859D`, payload `1A5DE9AAA3EA532C2BF258FD1970B24480C9D17C09972A98723808267601685F`.
 - Both production directories contain exactly 246 files; forbidden tests, TypeScript declarations/sources, and source maps are absent, and every non-manifest/non-metadata file is byte-identical across targets.
 - Both ZIPs were generated twice from sorted forward-slash paths with fixed timestamps, compared byte-for-byte, CRC-checked, and reloaded to match every production file.
 
@@ -125,11 +128,11 @@ Expected build warnings:
 
 - Chrome unpacked folder: `dist`
 - Chrome test package: `chrome-translation-extension.zip`
-- Chrome ZIP size: `17,881,943` bytes
-- Chrome SHA-256: `0CC4D2F9C61956F0725BB9F9941EEF07D05893F9084FA34359CC8258B0D8B291`
+- Chrome ZIP size: `17,887,798` bytes
+- Chrome SHA-256: `B6A38A693F77AA00CCB3DF05FFE7B258EB6E2C06201DB5F85D2B917C358BAC56`
 - Firefox unpacked folder: `dist-firefox`
 - Firefox test package: `firefox-translation-extension.zip`
-- Firefox ZIP size: `17,882,114` bytes
-- Firefox SHA-256: `199EB44427D152A27041078622E4DF69647235BEAB98A57553454E3CBA65C085`
+- Firefox ZIP size: `17,887,970` bytes
+- Firefox SHA-256: `195F5B12CE3CE7B6F02FDE9234B82635FBE73E9D78DD566F92A4C8A982459769`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

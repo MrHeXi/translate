@@ -94,6 +94,7 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Keep document history in `chrome.storage.local` only with bounded entry and total sizes. Binary PDF, DOCX, EPUB, MOBI, and AZW3 source bytes are never stored, so source-format export is unavailable after reopening those files from history.
 - Parse and render PDF files up to 64 MiB and 1,000 pages locally with Mozilla PDF.js, including compressed text streams, font mappings, page sizes, and positioned text lines. Rendering is bounded to 32 Mi pixels per page and 1,024 Mi pixels across the document.
 - Detect confidently separated two-column PDF text, keep left-column-then-right-column reading order, and constrain translated overlays to the detected column region.
+- Detect high-confidence regular text-layer PDF tables with two to eight columns, keep complete cells in row-major order, and fit translated text inside each bounded cell. Fragmented prose, prose-column contamination, pure numeric matrices, rotated text, and invalid geometry are rejected conservatively; any positioned translation that cannot fit is marked and blocks both PDF export modes instead of silently dropping text.
 - Identify likely standalone mathematical expressions, preserve them in their original form, and exclude them from translation-provider requests and translated overlays.
 - Show original and translated PDF pages side by side, or switch to translation-only or original-only display.
 - Supplement sparse text layers on raster-backed PDF pages with browser `TextDetector` first and bundled Tesseract fallback, merge/deduplicate OCR and text-layer blocks, and retain detected bounding boxes for positioned translations.
@@ -101,7 +102,7 @@ It is not marketed as guaranteed OCR for every scanned PDF, an editable layout-p
 - Choose bundled OCR recognition for English, Simplified Chinese, Traditional Chinese, Japanese, or Korean and see per-page recognition progress.
 - Export translated PDF pages locally as a flattened visual PDF so browser fonts and the rendered source page remain visible.
 - Optionally preserve safe original AcroForm fields, widgets, HTTP(S) links, and annotations while adding translated page overlays. The complete saved PDF object graph is checked for signed content, embedded or associated files, scripts, automatic actions, unsafe links, dangerous annotations, and over-limit structures; a preservation failure never falls back silently to flattened output.
-- OCR quality still depends on scan resolution, contrast, orientation, language choice, and page complexity. Formula and column detection are conservative heuristics; editable text reflow, complex table fitting, form/annotation editing, and layout-perfect Office/eBook conversion remain later work.
+- OCR quality still depends on scan resolution, contrast, orientation, language choice, and page complexity. Formula, column, and simple-table detection are conservative heuristics. OCR tables, merged or multiline cells, editable text reflow, complex table reconstruction, form/annotation editing, and layout-perfect Office/eBook conversion remain later work.
 
 ### Video Subtitle Translation
 

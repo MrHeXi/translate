@@ -22,6 +22,11 @@ import {
 } from './BundledOcrService';
 import { preprocessDocumentScan } from './DocumentScanPreprocessor';
 import { routeOcrLanguageCandidates } from './OcrLanguageRouter';
+import {
+  analyzePdfTableLayout,
+  PdfTableCellLayout as PdfDetectedTableCellLayout
+} from './PdfTableLayout';
+import { fitPdfText } from './PdfTextFitting';
 
 interface PdfViewportLike {
   width: number;
@@ -144,6 +149,29 @@ export interface PdfRenderedPage {
   scale: number;
 }
 
+interface PdfTableCellDrawPlan {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  padding: number;
+  maxWidth: number;
+  fontSize: number;
+  lineHeight: number;
+  lines: readonly string[];
+}
+
+interface PdfTextDrawPlan {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  maxWidth: number;
+  fontSize: number;
+  lineHeight: number;
+  lines: readonly string[];
+}
+
 interface PdfTextFragment {
   text: string;
   x: number;
@@ -151,6 +179,7 @@ interface PdfTextFragment {
   width: number;
   height: number;
   hasEOL: boolean;
+  tableEligible?: boolean;
 }
 
 interface PdfTextLine extends PdfTextFragment {
@@ -169,6 +198,25 @@ interface PdfAnalyzedLine extends PdfTextLine {
 interface PdfLineAnalysis {
   lines: PdfAnalyzedLine[];
   columnCount: number;
+}
+
+interface PdfTableFlowGroup<T> {
+  tableId: number;
+  x: number;
+  y: number;
+  right: number;
+  items: T[];
+}
+
+interface PdfPageFlowItem<T> {
+  x: number;
+  y: number;
+  columnIndex: number;
+  columnCount: number;
+  regionX: number;
+  regionWidth: number;
+  line?: PdfAnalyzedLine;
+  table?: PdfTableFlowGroup<T>;
 }
 
 const DEFAULT_PREVIEW_SCALE = 1.35;
@@ -437,6 +485,7 @@ export class PdfDocumentSession {
   async exportTranslatedPdf(results: PdfTranslationResult[]): Promise<Uint8Array> {
     const analysis = await this.analyze();
     if (analysis.pages.length === 0) throw new Error('The PDF has no renderable pages.');
+    this.assertTranslationsFit(results, analysis.pages);
 
     const output = await PDFDocument.create();
     output.setProducer('LexiBridge Translate');
@@ -472,6 +521,7 @@ export class PdfDocumentSession {
   ): Promise<Uint8Array> {
     const analysis = await this.analyze();
     if (analysis.pages.length === 0) throw new Error('The PDF has no renderable pages.');
+    this.assertTranslationsFit(results, analysis.pages);
     if (!this.sourceBytes) {
       throw new Error('The original PDF bytes are unavailable for interaction-preserving export.');
     }
@@ -684,25 +734,226 @@ export class PdfDocumentSession {
       .filter((item): item is PdfTextItemLike => 'str' in item && Boolean(item.str.trim()))
       .map(item => this.createTextFragment(item, viewport))
       .filter((fragment): fragment is PdfTextFragment => Boolean(fragment));
+    const detectedCells = analyzePdfTableLayout(fragments, viewport.width);
+    const tableCells = this.filterUsableDetectedTableCells(detectedCells, viewport);
+    const tableFragmentIndexes = new Set(tableCells.map(cell => cell.lineIndex));
     const lineAnalysis = this.analyzePageLines(
-      this.groupFragmentsIntoLines(fragments, viewport.width),
+      this.groupFragmentsIntoLines(
+        fragments.filter((_fragment, index) => !tableFragmentIndexes.has(index)),
+        viewport.width
+      ),
       viewport.width
     );
+    if (tableCells.length === 0) {
+      return lineAnalysis.lines.map((line, index) => ({
+        id: index + 1,
+        originalText: line.text,
+        layout: this.createLayout(
+          pageNumber,
+          line.x,
+          line.y,
+          line.width,
+          line.height,
+          viewport,
+          'pdf-text',
+          line
+        )
+      }));
+    }
 
-    return lineAnalysis.lines.map((line, index) => ({
-      id: index + 1,
-      originalText: line.text,
-      layout: this.createLayout(
-        pageNumber,
-        line.x,
-        line.y,
-        line.width,
-        line.height,
-        viewport,
-        'pdf-text',
+    const tableGroups = this.groupDetectedTableCells(tableCells);
+    const flow = this.orderPageFlow(lineAnalysis, tableGroups, viewport.width);
+    const blocks: DocumentBlock[] = [];
+    for (const item of flow) {
+      if (item.line) {
+        const line = { ...item.line, readingOrder: blocks.length };
+        blocks.push({
+          id: blocks.length + 1,
+          originalText: line.text,
+          layout: this.createLayout(
+            pageNumber,
+            line.x,
+            line.y,
+            line.width,
+            line.height,
+            viewport,
+            'pdf-text',
+            line
+          )
+        });
+        continue;
+      }
+
+      for (const cell of item.table?.items || []) {
+        const line: PdfAnalyzedLine = {
+          ...cell.line,
+          contentKind: this.isLikelyFormulaText(cell.line.text) ? 'formula' : 'prose',
+          readingOrder: blocks.length,
+          columnIndex: item.columnIndex,
+          columnCount: item.columnCount,
+          regionX: item.regionX,
+          regionWidth: item.regionWidth
+        };
+        blocks.push({
+          id: blocks.length + 1,
+          originalText: line.text,
+          layout: {
+            ...this.createLayout(
+              pageNumber,
+              line.x,
+              line.y,
+              line.width,
+              line.height,
+              viewport,
+              'pdf-text',
+              line
+            ),
+            tableCell: {
+              tableId: cell.tableId,
+              rowIndex: cell.rowIndex,
+              rowCount: cell.rowCount,
+              columnIndex: cell.columnIndex,
+              columnCount: cell.columnCount,
+              x: Math.round(cell.cellX * 100) / 100,
+              y: Math.round(cell.cellY * 100) / 100,
+              width: Math.round(cell.cellWidth * 100) / 100,
+              height: Math.round(cell.cellHeight * 100) / 100
+            }
+          }
+        });
+      }
+    }
+    return blocks;
+  }
+
+  private filterUsableDetectedTableCells(
+    cells: Array<PdfDetectedTableCellLayout<PdfTextFragment>>,
+    viewport: PdfViewportLike
+  ): Array<PdfDetectedTableCellLayout<PdfTextFragment>> {
+    const grouped = new Map<number, Array<PdfDetectedTableCellLayout<PdfTextFragment>>>();
+    for (const cell of cells) {
+      const entries = grouped.get(cell.tableId) || [];
+      entries.push(cell);
+      grouped.set(cell.tableId, entries);
+    }
+
+    return [...grouped.values()].flatMap(entries => {
+      const usable = entries.every(cell => {
+        const right = cell.cellX + cell.cellWidth;
+        const bottom = cell.cellY + cell.cellHeight;
+        const lineRight = cell.line.x + Math.max(8, cell.line.width);
+        const lineBottom = cell.line.y + Math.max(8, cell.line.height);
+        return [cell.cellX, cell.cellY, cell.cellWidth, cell.cellHeight].every(Number.isFinite)
+          && cell.cellX >= 0
+          && cell.cellY >= 0
+          && cell.cellWidth > 0
+          && cell.cellHeight > 0
+          && right <= viewport.width + 0.01
+          && bottom <= viewport.height + 0.01
+          && cell.cellX <= cell.line.x + 0.01
+          && cell.cellY <= cell.line.y + 0.01
+          && right + 0.01 >= lineRight
+          && bottom + 0.01 >= lineBottom;
+      });
+      return usable ? entries : [];
+    });
+  }
+
+  private groupDetectedTableCells(
+    cells: Array<PdfDetectedTableCellLayout<PdfTextFragment>>
+  ): Array<PdfTableFlowGroup<PdfDetectedTableCellLayout<PdfTextFragment>>> {
+    const grouped = new Map<number, Array<PdfDetectedTableCellLayout<PdfTextFragment>>>();
+    for (const cell of cells) {
+      const entries = grouped.get(cell.tableId) || [];
+      entries.push(cell);
+      grouped.set(cell.tableId, entries);
+    }
+
+    return [...grouped.entries()]
+      .sort(([first], [second]) => first - second)
+      .map(([tableId, entries]) => {
+        const items = [...entries].sort((first, second) => (
+          first.rowIndex - second.rowIndex || first.columnIndex - second.columnIndex
+        ));
+        return {
+          tableId,
+          x: Math.min(...items.map(cell => cell.cellX)),
+          y: Math.min(...items.map(cell => cell.cellY)),
+          right: Math.max(...items.map(cell => cell.cellX + cell.cellWidth)),
+          items
+        };
+      });
+  }
+
+  private orderPageFlow<T>(
+    lineAnalysis: PdfLineAnalysis,
+    tableGroups: Array<PdfTableFlowGroup<T>>,
+    pageWidth: number
+  ): Array<PdfPageFlowItem<T>> {
+    const classified: Array<PdfPageFlowItem<T>> = [
+      ...lineAnalysis.lines.map(line => ({
+        x: line.x,
+        y: line.y,
+        columnIndex: line.columnIndex,
+        columnCount: line.columnCount,
+        regionX: line.regionX,
+        regionWidth: line.regionWidth,
         line
-      )
-    }));
+      })),
+      ...tableGroups.map(table => ({
+        x: table.x,
+        y: table.y,
+        ...this.resolveTablePageRegion(table, lineAnalysis, pageWidth),
+        table
+      }))
+    ].sort((first, second) => first.y - second.y || first.x - second.x);
+    const ordered: Array<PdfPageFlowItem<T>> = [];
+    let segment: Array<PdfPageFlowItem<T>> = [];
+    const flushSegment = (): void => {
+      if (segment.length === 0) return;
+      const left = segment.filter(item => item.columnIndex === 1);
+      const right = segment.filter(item => item.columnIndex === 2);
+      const other = segment.filter(item => item.columnIndex !== 1 && item.columnIndex !== 2);
+      ordered.push(...(left.length > 0 && right.length > 0 ? [...left, ...right, ...other] : segment));
+      segment = [];
+    };
+
+    for (const item of classified) {
+      if (item.columnIndex === 0) {
+        flushSegment();
+        ordered.push(item);
+      } else {
+        segment.push(item);
+      }
+    }
+    flushSegment();
+    return ordered;
+  }
+
+  private resolveTablePageRegion<T>(
+    table: PdfTableFlowGroup<T>,
+    lineAnalysis: PdfLineAnalysis,
+    pageWidth: number
+  ): Pick<PdfPageFlowItem<T>, 'columnIndex' | 'columnCount' | 'regionX' | 'regionWidth'> {
+    if (lineAnalysis.columnCount !== 2) {
+      return { columnIndex: 1, columnCount: 1, regionX: 0, regionWidth: pageWidth };
+    }
+
+    for (const columnIndex of [1, 2]) {
+      const line = lineAnalysis.lines.find(candidate => candidate.columnIndex === columnIndex);
+      if (!line) continue;
+      const right = line.regionX + line.regionWidth;
+      if (table.x >= line.regionX - 1 && table.right <= right + 1) {
+        return {
+          columnIndex,
+          columnCount: 2,
+          regionX: line.regionX,
+          regionWidth: line.regionWidth
+        };
+      }
+    }
+
+    return { columnIndex: 0, columnCount: 1, regionX: 0, regionWidth: pageWidth };
   }
 
   private async shouldRunOcr(
@@ -784,7 +1035,10 @@ export class PdfDocumentSession {
       }
     }
 
-    const combinedLines: PdfTextLine[] = retained.map(block => {
+    const tableBlocks = retained.filter(block => block.layout?.tableCell);
+    const combinedLines: PdfTextLine[] = retained
+      .filter(block => !block.layout?.tableCell)
+      .map(block => {
       const layout = block.layout!;
       return {
         text: block.originalText,
@@ -797,24 +1051,76 @@ export class PdfDocumentSession {
       };
     });
     const lineAnalysis = this.analyzePageLines(combinedLines, viewport.width);
+    const tableGroups = this.groupExistingTableBlocks(tableBlocks);
+    const flow = this.orderPageFlow(lineAnalysis, tableGroups, viewport.width);
+    const ordered: DocumentBlock[] = [];
+    for (const item of flow) {
+      if (item.line) {
+        const sourceBlock = item.line.sourceBlock!;
+        const layout = sourceBlock.layout!;
+        ordered.push({
+          ...sourceBlock,
+          id: ordered.length + 1,
+          layout: {
+            ...layout,
+            contentKind: item.line.contentKind,
+            readingOrder: ordered.length,
+            columnIndex: item.line.columnIndex,
+            columnCount: item.line.columnCount,
+            regionX: Math.max(0, Math.round(item.line.regionX * 100) / 100),
+            regionWidth: Math.max(8, Math.round(item.line.regionWidth * 100) / 100)
+          }
+        });
+        continue;
+      }
 
-    return lineAnalysis.lines.map((line, index) => {
-      const sourceBlock = line.sourceBlock!;
-      const layout = sourceBlock.layout!;
-      return {
-        ...sourceBlock,
-        id: index + 1,
-        layout: {
-          ...layout,
-          contentKind: line.contentKind,
-          readingOrder: line.readingOrder,
-          columnIndex: line.columnIndex,
-          columnCount: line.columnCount,
-          regionX: Math.max(0, Math.round(line.regionX * 100) / 100),
-          regionWidth: Math.max(8, Math.round(line.regionWidth * 100) / 100)
-        }
-      };
-    });
+      for (const block of item.table?.items || []) {
+        ordered.push({
+          ...block,
+          id: ordered.length + 1,
+          layout: {
+            ...block.layout!,
+            readingOrder: ordered.length,
+            columnIndex: item.columnIndex,
+            columnCount: item.columnCount,
+            regionX: Math.max(0, Math.round(item.regionX * 100) / 100),
+            regionWidth: Math.max(8, Math.round(item.regionWidth * 100) / 100)
+          }
+        });
+      }
+    }
+    return ordered;
+  }
+
+  private groupExistingTableBlocks(blocks: DocumentBlock[]): Array<PdfTableFlowGroup<DocumentBlock>> {
+    const grouped = new Map<number, DocumentBlock[]>();
+    for (const block of blocks) {
+      const tableId = block.layout!.tableCell!.tableId;
+      const entries = grouped.get(tableId) || [];
+      entries.push(block);
+      grouped.set(tableId, entries);
+    }
+
+    return [...grouped.entries()]
+      .sort(([first], [second]) => first - second)
+      .map(([tableId, entries]) => {
+        const items = [...entries].sort((first, second) => {
+          const firstCell = first.layout!.tableCell!;
+          const secondCell = second.layout!.tableCell!;
+          return firstCell.rowIndex - secondCell.rowIndex
+            || firstCell.columnIndex - secondCell.columnIndex;
+        });
+        return {
+          tableId,
+          x: Math.min(...items.map(block => block.layout!.tableCell!.x)),
+          y: Math.min(...items.map(block => block.layout!.tableCell!.y)),
+          right: Math.max(...items.map(block => {
+            const cell = block.layout!.tableCell!;
+            return cell.x + cell.width;
+          })),
+          items
+        };
+      });
   }
 
   private areDuplicateBlocks(preferred: DocumentBlock, candidate: DocumentBlock): boolean {
@@ -901,23 +1207,33 @@ export class PdfDocumentSession {
 
   private createTextFragment(item: PdfTextItemLike, viewport: PdfViewportLike): PdfTextFragment | null {
     const transformed = this.engine.transform(viewport.transform, item.transform);
-    if (transformed.length < 6) return null;
+    if (
+      transformed.length < 6
+      || transformed.slice(0, 6).some(value => !Number.isFinite(value))
+      || !Number.isFinite(item.width)
+      || item.width < 0
+      || !Number.isFinite(item.height)
+      || item.height < 0
+    ) return null;
 
     const fontHeight = Math.max(
       4,
-      Math.hypot(transformed[2] || 0, transformed[3] || 0),
-      item.height || 0
+      Math.hypot(transformed[2]!, transformed[3]!),
+      item.height
     );
-    const x = transformed[4] || 0;
-    const baseline = transformed[5] || 0;
+    const x = transformed[4]!;
+    const baseline = transformed[5]!;
+    const advanceX = transformed[0]!;
+    const advanceY = transformed[1]!;
 
     return {
       text: item.str.replace(/\s+/g, ' ').trim(),
       x,
       y: baseline - fontHeight,
-      width: Math.max(2, item.width || 0),
+      width: Math.max(2, item.width),
       height: fontHeight,
-      hasEOL: Boolean(item.hasEOL)
+      hasEOL: Boolean(item.hasEOL),
+      tableEligible: Math.abs(advanceY) <= Math.max(0.01, Math.abs(advanceX) * 0.1)
     };
   }
 
@@ -1753,87 +2069,230 @@ export class PdfDocumentSession {
       const translatedText = result.translatedText.trim();
       if (!layout || !translatedText || layout.contentKind === 'formula') continue;
 
-      const x = layout.x * rendered.scale;
-      const y = layout.y * rendered.scale;
-      const regionX = layout.regionX ?? 0;
-      const regionWidth = layout.regionWidth ?? rendered.width;
-      const regionRight = Math.min(rendered.width, regionX + regionWidth);
-      const isColumnLayout = (layout.columnCount || 1) > 1;
-      const availableWidth = Math.max(
-        isColumnLayout ? 8 : 30,
-        regionRight - layout.x - 4
-      );
-      const desiredWidth = isColumnLayout
-        ? availableWidth
-        : Math.max(layout.width + 8, Math.min(rendered.width * 0.56, availableWidth));
-      const width = Math.min(
-        availableWidth,
-        Math.max(layout.width + 8, desiredWidth)
-      ) * rendered.scale;
-      let fontSize = Math.max(8, Math.min(18, layout.height * 0.82)) * rendered.scale;
-      const minimumFontSize = 6.5 * rendered.scale;
-      let lines = this.wrapCanvasText(context, translatedText, width - 8 * rendered.scale, fontSize);
-      let lineHeight = fontSize * 1.22;
-      const preferredHeight = Math.max(layout.height * 1.6, 24) * rendered.scale;
-
-      while (fontSize > minimumFontSize && lines.length * lineHeight > preferredHeight) {
-        fontSize -= 0.75 * rendered.scale;
-        lineHeight = fontSize * 1.22;
-        lines = this.wrapCanvasText(context, translatedText, width - 8 * rendered.scale, fontSize);
+      if (layout.tableCell) {
+        this.drawTranslatedTableCell(context, translatedText, layout, rendered);
+        continue;
       }
 
-      const pageHeight = rendered.height * rendered.scale;
-      const requiredHeight = Math.max(preferredHeight, lines.length * lineHeight + 8 * rendered.scale);
-      const height = Math.min(pageHeight, requiredHeight);
-      const drawY = Math.max(0, Math.min(y, pageHeight - height));
+      const plan = this.createTextDrawPlan(context, translatedText, layout, rendered);
       context.save();
       context.fillStyle = 'rgba(255, 255, 255, 0.97)';
       context.fillRect(
-        x - 2 * rendered.scale,
-        drawY - 2 * rendered.scale,
-        width + 4 * rendered.scale,
-        height + 4 * rendered.scale
+        plan.x - 2 * rendered.scale,
+        plan.y - 2 * rendered.scale,
+        plan.width + 4 * rendered.scale,
+        plan.height + 4 * rendered.scale
       );
       context.fillStyle = '#172033';
-      context.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+      context.font = `${plan.fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
       context.textBaseline = 'top';
 
-      lines.forEach((line, index) => {
-        const lineY = drawY + index * lineHeight;
-        if (lineY + lineHeight <= drawY + height) {
-          context.fillText(line, x + 2 * rendered.scale, lineY, width - 8 * rendered.scale);
-        }
+      plan.lines.forEach((line, index) => {
+        context.fillText(
+          line,
+          plan.x + 2 * rendered.scale,
+          plan.y + index * plan.lineHeight,
+          plan.maxWidth
+        );
       });
       context.restore();
     }
   }
 
-  private wrapCanvasText(
+  private createTextDrawPlan(
     context: CanvasRenderingContext2D,
-    text: string,
-    maxWidth: number,
-    fontSize: number
-  ): string[] {
-    context.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-    const useSpaces = /\s/.test(text.trim());
-    const tokens = useSpaces ? text.trim().split(/\s+/) : Array.from(text.trim());
-    const separator = useSpaces ? ' ' : '';
-    const lines: string[] = [];
-    let current = '';
-
-    for (const token of tokens) {
-      const candidate = current ? `${current}${separator}${token}` : token;
-      if (current && context.measureText(candidate).width > maxWidth) {
-        lines.push(current);
-        current = token;
-      } else {
-        current = candidate;
+    translatedText: string,
+    layout: DocumentBlockLayout,
+    rendered: PdfRenderedPage
+  ): PdfTextDrawPlan {
+    const scale = rendered.scale;
+    const x = layout.x * scale;
+    const sourceY = layout.y * scale;
+    const regionX = layout.regionX ?? 0;
+    const regionWidth = layout.regionWidth ?? rendered.width;
+    const regionRight = Math.min(rendered.width, regionX + regionWidth);
+    const isColumnLayout = (layout.columnCount || 1) > 1;
+    const availableWidth = Math.max(
+      isColumnLayout ? 8 : 30,
+      regionRight - layout.x - 4
+    );
+    const desiredWidth = isColumnLayout
+      ? availableWidth
+      : Math.max(layout.width + 8, Math.min(rendered.width * 0.56, availableWidth));
+    const width = Math.min(
+      availableWidth,
+      Math.max(layout.width + 8, desiredWidth)
+    ) * scale;
+    const preferredFontSize = Math.max(8, Math.min(18, layout.height * 0.82)) * scale;
+    const minimumFontSize = Math.min(preferredFontSize, 6.5 * scale);
+    const pageHeight = rendered.height * scale;
+    const horizontalPadding = 8 * scale;
+    const verticalPadding = 8 * scale;
+    const maxWidth = width - horizontalPadding;
+    const maxHeight = pageHeight - verticalPadding;
+    if (maxWidth <= 0 || maxHeight <= 0) {
+      throw new Error(`Page ${layout.pageNumber}: translated PDF text has no usable export region.`);
+    }
+    const fitted = fitPdfText({
+      text: translatedText,
+      maxWidth,
+      maxHeight,
+      preferredFontSize,
+      minimumFontSize,
+      lineHeightRatio: 1.22,
+      measureText: (text, fontSize) => {
+        context.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+        return context.measureText(text).width;
       }
+    });
+    if (fitted.truncated) {
+      throw new Error(`Page ${layout.pageNumber}: translated PDF text does not fit inside its page region.`);
+    }
+    const preferredHeight = Math.max(layout.height * 1.6, 24) * scale;
+    const requiredHeight = Math.max(
+      preferredHeight,
+      fitted.lines.length * fitted.lineHeight + verticalPadding
+    );
+    const height = Math.min(pageHeight, requiredHeight);
+    return {
+      x,
+      y: Math.max(0, Math.min(sourceY, pageHeight - height)),
+      width,
+      height,
+      maxWidth,
+      fontSize: fitted.fontSize,
+      lineHeight: fitted.lineHeight,
+      lines: fitted.lines
+    };
+  }
+
+  private drawTranslatedTableCell(
+    context: CanvasRenderingContext2D,
+    translatedText: string,
+    layout: DocumentBlockLayout,
+    rendered: PdfRenderedPage
+  ): void {
+    const plan = this.createTableCellDrawPlan(context, translatedText, layout, rendered);
+    context.save();
+    context.beginPath();
+    context.rect(plan.x, plan.y, plan.width, plan.height);
+    context.clip();
+    context.fillStyle = 'rgba(255, 255, 255, 0.97)';
+    context.fillRect(plan.x, plan.y, plan.width, plan.height);
+    context.fillStyle = '#172033';
+    context.font = `${plan.fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+    context.textBaseline = 'top';
+    plan.lines.forEach((line, index) => {
+      context.fillText(
+        line,
+        plan.x + plan.padding,
+        plan.y + plan.padding + index * plan.lineHeight,
+        plan.maxWidth
+      );
+    });
+    context.restore();
+  }
+
+  private createTableCellDrawPlan(
+    context: CanvasRenderingContext2D,
+    translatedText: string,
+    layout: DocumentBlockLayout,
+    rendered: PdfRenderedPage
+  ): PdfTableCellDrawPlan {
+    const cell = layout.tableCell!;
+    if (
+      !Number.isFinite(cell.x)
+      || cell.x < 0
+      || !Number.isFinite(cell.y)
+      || cell.y < 0
+      || !Number.isFinite(cell.width)
+      || cell.width <= 0
+      || !Number.isFinite(cell.height)
+      || cell.height <= 0
+      || cell.x + cell.width > rendered.width + 0.01
+      || cell.y + cell.height > rendered.height + 0.01
+    ) {
+      throw new Error('Cannot export a translated table cell with invalid PDF geometry.');
     }
 
-    if (current) lines.push(current);
-    return lines.length > 0 ? lines : [text];
+    const scale = rendered.scale;
+    const x = cell.x * scale;
+    const y = cell.y * scale;
+    const width = cell.width * scale;
+    const height = cell.height * scale;
+    const padding = Math.min(3 * scale, width * 0.12, height * 0.12);
+    const maxWidth = width - padding * 2;
+    const maxHeight = height - padding * 2;
+    if (maxWidth <= 0 || maxHeight <= 0) {
+      throw new Error('Cannot export a translated table cell whose PDF bounds are too small.');
+    }
+
+    const preferredFontSize = Math.max(8, Math.min(18, layout.height * 0.82)) * scale;
+    const minimumFontSize = Math.min(preferredFontSize, 5.5 * scale);
+    const fitted = fitPdfText({
+      text: translatedText,
+      maxWidth,
+      maxHeight,
+      preferredFontSize,
+      minimumFontSize,
+      lineHeightRatio: 1.12,
+      measureText: (text, fontSize) => {
+        context.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+        return context.measureText(text).width;
+      }
+    });
+    if (fitted.truncated) {
+      throw new Error(
+        `Page ${layout.pageNumber}, table ${cell.tableId}, row ${cell.rowIndex}, column ${cell.columnIndex}: translated text does not fit inside the PDF table cell.`
+      );
+    }
+    return {
+      x,
+      y,
+      width,
+      height,
+      padding,
+      maxWidth,
+      fontSize: fitted.fontSize,
+      lineHeight: fitted.lineHeight,
+      lines: fitted.lines
+    };
   }
+
+  private assertTranslationsFit(
+    results: PdfTranslationResult[],
+    pages: PdfPageSummary[]
+  ): void {
+    const positionedResults = results.filter(result => (
+      result.block.layout
+      && result.block.layout.contentKind !== 'formula'
+      && result.translatedText.trim()
+    ));
+    if (positionedResults.length === 0) return;
+
+    const canvas = this.createCanvas();
+    const context = canvas.getContext('2d', { alpha: true });
+    if (!context) throw new Error('Canvas text measurement is not available in this browser.');
+    for (const result of positionedResults) {
+      const layout = result.block.layout!;
+      const page = pages.find(candidate => candidate.pageNumber === layout.pageNumber);
+      if (!page) {
+        throw new Error(`Cannot export translated table cell from missing PDF page ${layout.pageNumber}.`);
+      }
+      const rendered = {
+        pageNumber: page.pageNumber,
+        width: page.width,
+        height: page.height,
+        scale: 1
+      };
+      if (layout.tableCell) {
+        this.createTableCellDrawPlan(context, result.translatedText.trim(), layout, rendered);
+      } else {
+        this.createTextDrawPlan(context, result.translatedText.trim(), layout, rendered);
+      }
+    }
+  }
+
 }
 
 function pagesHaveDirectAnnotations(document: PDFDocument): boolean[] {
