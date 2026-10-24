@@ -1143,6 +1143,104 @@ describe('document translator page', () => {
     }
   });
 
+  it('applies and resets PDF text areas locally, guards export, and retains arranged geometry in history', async () => {
+    const block = { id: 1, originalText: 'A source PDF paragraph', layout: {
+      source: 'pdf-text' as const, pageNumber: 1, pageWidth: 600, pageHeight: 800,
+      x: 60, y: 100, width: 180, height: 12, contentKind: 'prose' as const
+    } };
+    const analysis = { blocks: [block], pages: [{ pageNumber: 1, width: 600, height: 800, hasTextLayer: true }],
+      textPageCount: 1, ocrPageCount: 0, bundledOcrPageCount: 0, unreadablePageCount: 0,
+      formulaBlockCount: 0, multiColumnPageCount: 0 };
+    const exportTranslatedPdf = jest.fn(async () => new Uint8Array([37, 80, 68, 70]));
+    const exportTranslatedPdfPreservingInteractions = jest.fn(async () => new Uint8Array([37, 80, 68, 70]));
+    const session = { analyze: jest.fn(async () => analysis), destroy: jest.fn(async () => undefined),
+      renderPage: jest.fn(async () => ({ pageNumber: 1, width: 600, height: 800, scale: 1.35 })),
+      exportTranslatedPdf, exportTranslatedPdfPreservingInteractions };
+    jest.doMock('../../services/PdfDocumentService', () => ({ pdfDocumentService: { open: jest.fn(async () => session) } }));
+    const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: jest.fn(() => 'blob:reflow') });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: jest.fn() });
+    try {
+      await import('../document');
+      document.dispatchEvent(new Event('DOMContentLoaded'));
+      await flushPromises();
+      const file = new File([new Uint8Array([1, 2, 3])], 'arranged.pdf', { type: 'application/pdf' });
+      Object.defineProperty(file, 'arrayBuffer', { value: async () => toArrayBuffer(new Uint8Array([1, 2, 3])) });
+      const input = document.getElementById('documentFile') as HTMLInputElement;
+      Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+      input.dispatchEvent(new Event('change'));
+      await waitForCondition(() => (document.getElementById('sourceText') as HTMLTextAreaElement).value === block.originalText
+        && !(document.getElementById('translateDocument') as HTMLButtonElement).disabled);
+      await flushPromises();
+      const sendMessage = (global as any).chrome.runtime.sendMessage as jest.Mock;
+      expect(sendMessage.mock.calls.filter(call => call[0].action === 'translate')).toHaveLength(0);
+      document.getElementById('translateDocument')!.dispatchEvent(new Event('click'));
+      await waitForCondition(() => document.querySelector('.pdf-layout-editor button') !== null
+        && !(document.getElementById('translateDocument') as HTMLButtonElement).disabled);
+      const editor = document.querySelector('.pdf-layout-editor') as HTMLDetailsElement;
+      const setField = (key: string, value: string): void => {
+        const field = editor.querySelector(`[data-box-field="${key}"]`) as HTMLInputElement;
+        field.value = value;
+        field.dispatchEvent(new Event('input'));
+      };
+      editor.open = true;
+      setField('x', '20'); setField('y', '30'); setField('width', '40'); setField('height', '12'); setField('fontSize', '12');
+      expect(document.querySelector('.pdf-translation-overlay--text-box')).toBeNull();
+      const apply = editor.querySelector('[data-box-action="apply"]') as HTMLButtonElement;
+      apply.click();
+      const expectedBox = { x: 120, y: 240, width: 240, height: 96, fontSize: 12 };
+      const overlay = document.querySelector('.pdf-translation-overlay--text-box') as HTMLElement;
+      expect([overlay.style.left, overlay.style.top, overlay.style.width, overlay.style.height]).toEqual(['20%', '30%', '40%', '12%']);
+      expect(document.querySelectorAll('.pdf-source-mask')).toHaveLength(1);
+      expect(block.layout).toMatchObject({ x: 60, y: 100, width: 180, height: 12 });
+      setField('width', '99');
+      apply.click();
+      expect(document.getElementById('documentMessage')?.textContent).toContain('inside this page');
+      expect((document.querySelector('.pdf-translation-overlay--text-box') as HTMLElement).style.width).toBe('40%');
+      setField('width', '40');
+      document.getElementById('exportPdfFile')!.click();
+      await flushPromises();
+      expect(exportTranslatedPdf).toHaveBeenCalledWith([expect.objectContaining({ pdfTextBox: expectedBox })]);
+      (document.getElementById('preservePdfInteractions') as HTMLInputElement).checked = true;
+      document.getElementById('exportPdfFile')!.click();
+      await flushPromises();
+      expect(exportTranslatedPdfPreservingInteractions).toHaveBeenCalledWith([expect.objectContaining({ pdfTextBox: expectedBox })]);
+      document.getElementById('saveDocumentHistory')!.click();
+      await waitForCondition(() => Boolean((localStorageData.documentHistory as any)?.entries?.length));
+      const saved = (localStorageData.documentHistory as any).entries[0];
+      expect(saved.results[0].pdfTextBox).toEqual(expectedBox);
+      expect(saved.documentBlocks[0].layout).toEqual(block.layout);
+      await waitForCondition(() => !(document.getElementById('saveDocumentHistory') as HTMLButtonElement).disabled);
+      const translation = document.querySelector('.document-translation') as HTMLElement;
+      translation.textContent = 'A very long edited translation '.repeat(100);
+      translation.dispatchEvent(new Event('input'));
+      setField('width', '5'); setField('height', '2');
+      apply.click();
+      expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(true);
+      expect(document.querySelector('.pdf-translation-overlay--text-box')?.getAttribute('data-overflow')).toBe('true');
+      translation.textContent = 'Short translation';
+      translation.dispatchEvent(new Event('input'));
+      setField('width', '40'); setField('height', '12'); apply.click();
+      expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(false);
+      (editor.querySelector('[data-box-action="reset"]') as HTMLButtonElement).click();
+      expect(document.querySelector('.pdf-translation-overlay--text-box')).toBeNull();
+      expect(document.querySelector('.pdf-source-mask')).toBeNull();
+      const open = document.querySelector('[data-history-action="open"]') as HTMLButtonElement;
+      open.click();
+      await waitForCondition(() => document.getElementById('documentMessage')?.textContent?.startsWith('Opened') || false);
+      expect((document.getElementById('exportPdfFile') as HTMLButtonElement).disabled).toBe(true);
+      document.getElementById('saveDocumentHistory')!.click();
+      await waitForCondition(() => (localStorageData.documentHistory as any).entries.length === 2);
+      expect((localStorageData.documentHistory as any).entries[0].results[0].pdfTextBox).toEqual(expectedBox);
+      expect(sendMessage.mock.calls.filter(call => call[0].action === 'translate')).toHaveLength(1);
+      await waitForCondition(() => !(document.getElementById('saveDocumentHistory') as HTMLButtonElement).disabled);
+      document.getElementById('clearDocument')!.click();
+      expect(document.querySelector('.pdf-layout-editor')).toBeNull();
+    } finally {
+      clickSpy.mockRestore();
+    }
+  });
+
   it('keeps simple-table translations inside detected cells after the explicit translate click', async () => {
     const renderPage = jest.fn(async (_pageNumber: number, canvas: HTMLCanvasElement) => {
       canvas.width = 810;

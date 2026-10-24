@@ -496,6 +496,74 @@ select {
   box-shadow: inset 0 0 0 1px #c62828;
 }
 
+.pdf-source-mask {
+  position: absolute;
+  background: #fff;
+  pointer-events: none;
+}
+
+.pdf-translation-overlay--text-box {
+  min-width: 0;
+  overflow: hidden;
+  outline: 1px solid rgba(36, 107, 254, 0.45);
+  border: 0;
+  white-space: pre-wrap;
+  contain: layout paint;
+}
+
+.pdf-layout-editor {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #e5ebf4;
+  font-size: 12px;
+}
+
+.pdf-layout-editor summary {
+  color: #246bfe;
+  cursor: pointer;
+}
+
+.pdf-layout-editor p {
+  color: #617089;
+  line-height: 1.5;
+}
+
+.pdf-layout-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 8px;
+}
+
+.pdf-layout-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pdf-layout-fields input {
+  width: 100%;
+  min-height: 32px;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid #cfd8e6;
+  border-radius: 6px;
+  color: #172033;
+  font: inherit;
+}
+
+.pdf-layout-fields input:focus {
+  outline: 2px solid rgba(36, 107, 254, 0.18);
+  border-color: #246bfe;
+}
+
+.pdf-layout-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 .pdf-translation-overlay--overflow::after {
   position: absolute;
   top: 0;

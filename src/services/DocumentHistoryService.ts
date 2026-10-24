@@ -1,4 +1,5 @@
 import type { DocumentBlock } from './DocumentTextExtractor';
+import { isValidPdfTextBox, PdfTextBox } from './PdfTextBox';
 
 export const DOCUMENT_HISTORY_SCHEMA_VERSION = 1 as const;
 export const DOCUMENT_HISTORY_STORAGE_KEY = 'documentHistory';
@@ -29,6 +30,7 @@ export type DocumentHistorySourceKind =
 export interface DocumentHistoryResult {
   block: DocumentBlock;
   translatedText: string;
+  pdfTextBox?: PdfTextBox;
   preservedOriginal?: boolean;
 }
 
@@ -359,10 +361,12 @@ const normalizeResult = (value: unknown): DocumentHistoryResult | null => {
 
   const block = normalizeBlock(value.block);
   if (!block) return null;
+  if (value.pdfTextBox !== undefined && !isValidPdfTextBox(value.pdfTextBox, block.layout)) return null;
 
   return {
     block,
     translatedText: value.translatedText,
+    ...(value.pdfTextBox === undefined ? {} : { pdfTextBox: { ...value.pdfTextBox } }),
     ...(value.preservedOriginal === undefined
       ? {}
       : { preservedOriginal: value.preservedOriginal })
@@ -418,7 +422,7 @@ const normalizeEntry = (value: unknown): DocumentHistoryEntry | null => {
     const key = `${result.block.id}\u0000${result.block.originalText}`;
     const sourceLayout = sourceBlocks.get(key)?.layout;
     const resultLayout = result.block.layout;
-    if (!sourceLayout?.tableCell && !resultLayout?.tableCell) return true;
+    if (!sourceLayout?.tableCell && !resultLayout?.tableCell && !result.pdfTextBox) return true;
     return JSON.stringify(sourceLayout) === JSON.stringify(resultLayout);
   });
   if (
@@ -429,6 +433,7 @@ const normalizeEntry = (value: unknown): DocumentHistoryEntry | null => {
     || !hasConsistentTableLayouts(normalizedBlocks)
     || !hasConsistentTableLayouts(normalizedResults.map(result => result.block))
     || !tableResultsMatchSource
+    || (value.sourceKind !== 'pdf' && normalizedResults.some(result => result.pdfTextBox !== undefined))
   ) return null;
 
   const entry: DocumentHistoryEntry = {

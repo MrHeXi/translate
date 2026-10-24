@@ -876,6 +876,59 @@ describe('PdfDocumentService', () => {
     }
   });
 
+  it.each(['flattened', 'preserved'])('reflows complete text in %s PDF export and rejects invalid/overflowing areas before rendering', async mode => {
+    const source = await PDFDocument.create();
+    source.addPage([600, 800]);
+    const render = jest.fn(() => ({ promise: Promise.resolve() }));
+    const { engine } = createEngine([{ render, items: [
+      { str: 'Source paragraph', transform: [1, 0, 0, 12, 60, 700], width: 180, height: 12, hasEOL: true }
+    ] }]);
+    const context = {
+      clearRect: jest.fn(), save: jest.fn(), restore: jest.fn(),
+      fillRect: jest.fn(), fillText: jest.fn(), beginPath: jest.fn(), rect: jest.fn(), clip: jest.fn(),
+      font: '', fillStyle: '', textBaseline: 'top',
+      measureText: jest.fn((text: string): { width: number } => ({ width: text.length * parseFloat(context.font) * 0.5 }))
+    };
+    const contextSpy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(context as unknown as CanvasRenderingContext2D);
+    const dataUrlSpy = jest.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII='
+    );
+    try {
+      const session = await new PdfDocumentService(engine, () => null).open(new Uint8Array(await source.save()));
+      const block = (await session.analyze()).blocks[0]!;
+      const original = JSON.parse(JSON.stringify(block));
+      const pdfTextBox = { x: 120, y: 240, width: 240, height: 96, fontSize: 12 };
+      const text = 'A longer translated paragraph that is manually arranged in a new area.';
+      const results = [{ block, translatedText: text, pdfTextBox }];
+      const exportPdf = mode === 'flattened'
+        ? session.exportTranslatedPdf.bind(session)
+        : session.exportTranslatedPdfPreservingInteractions.bind(session);
+      const bytes = await exportPdf(results);
+      expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);
+      expect(block).toEqual(original);
+      const scale = (context.rect as jest.Mock).mock.calls[0]![0] / pdfTextBox.x;
+      expect(context.rect).toHaveBeenCalledWith(120 * scale, 240 * scale, 240 * scale, 96 * scale);
+      const sourceMask = context.fillRect.mock.calls[0]!;
+      expect(sourceMask[0]).toBeLessThan(block.layout!.x * scale);
+      expect(sourceMask[1] + sourceMask[3]).toBeGreaterThan((block.layout!.y + block.layout!.height) * scale);
+      expect(sourceMask[0] + sourceMask[2]).toBeLessThanOrEqual(600 * scale);
+      expect(sourceMask[1] + sourceMask[3]).toBeLessThanOrEqual(800 * scale);
+      expect(context.fillText.mock.calls.map(call => call[0]).join(' ')).toBe(text);
+      expect(context.fillText.mock.calls[0]![1]).toBeCloseTo(124 * scale, 8);
+      expect(context.fillText.mock.calls[0]![2]).toBeCloseTo(244 * scale, 8);
+      const renders = render.mock.calls.length;
+      await expect(exportPdf([{ ...results[0]!, pdfTextBox: { ...pdfTextBox, x: 500 } }])).rejects.toThrow(/invalid PDF text area/i);
+      await expect(exportPdf([{ ...results[0]!, translatedText: 'Too much text '.repeat(1000),
+        pdfTextBox: { ...pdfTextBox, width: 40, height: 16 } }])).rejects.toThrow(/more space/i);
+      expect(render).toHaveBeenCalledTimes(renders);
+      await session.destroy();
+    } finally {
+      contextSpy.mockRestore();
+      dataUrlSpy.mockRestore();
+    }
+  });
+
   it('clips fitting table translations in both PDF export modes and rejects overflow before rendering', async () => {
     const source = await PDFDocument.create();
     source.addPage([600, 800]);

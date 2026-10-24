@@ -1,6 +1,6 @@
 # LexiBridge Translate Privacy Policy
 
-Last updated: 2026-08-11
+Last updated: 2026-10-24
 
 LexiBridge Translate is a browser extension for user-triggered page translation, side-panel text translation, document text translation, selected, uploaded, pasted, or currently visible image text translation, video subtitle text translation, explicit local-media or current-tab audio transcription, live caption text translation and local transcript export, selection translation, vocabulary collection, and vocabulary review.
 
@@ -13,6 +13,7 @@ LexiBridge uses browser extension storage for product functionality. The impleme
 - Learning stats: daily goal, streaks, review accuracy, time spent learning, and dictionary progress.
 - Cached data: built-in dictionary progress and temporary translation cache used to reduce repeated requests during a session.
 - Document translation history: source metadata, extracted source text, translated blocks, provider/language identity, display mode, and completion state saved only after the user clicks Save history.
+- Manual PDF text areas: same-page position, size, and maximum text size stay local and are included only when document history is explicitly saved. Opening layout controls, typing values, applying, and resetting send no provider request and retain the original source coordinates separately.
 - Live caption history: timestamped original and translated cues, speaker/source labels, page title, and sanitized page origin saved only after the user clicks Save.
 - Translation and speech-provider credentials: API keys, client/application IDs, temporary session tokens, and provider-specific endpoint, model, or region settings entered by the user.
 - AI tool libraries: user-installed expert definitions and prompt templates, including their version, source attribution, instructions, and declared template variables.

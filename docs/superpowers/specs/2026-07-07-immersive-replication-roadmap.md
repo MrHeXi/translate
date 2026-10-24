@@ -157,7 +157,8 @@ Current batch:
 - Done: preserve loaded PDF block identity, page geometry, column metadata, and formula metadata through source edits; map inserted text only to adjacent prose geometry and disable PDF export when no safe geometry exists.
 - Done: exclude standalone formula blocks from neighboring AI context as well as direct translation requests.
 - Verified: generated real PDF.js fixtures cover text extraction, columns/formulas, conservative table recognition and misclassification rejection, shared cell clipping/overflow rejection, a real raster-backed mixed page, interactive form/link/annotation preservation, signature rejection, and both flattened and interaction-preserving exports.
-- Remaining: editable block-level PDF reflow beyond safe geometry mapping, structural MathML/LaTeX reconstruction, form/annotation content editing, OCR tables, merged or multiline cells, and advanced table reconstruction.
+- Done: add manual same-page prose translation reflow with explicit position/size/maximum-font controls, source geometry kept separate, shared bounded fitting and clipping in preview and both PDF export modes, reset, local-history round trips, and export rejection before rendering for invalid or overflowing areas. Editing controls never contact a provider.
+- Remaining: automatic document-wide PDF reflow, structural MathML/LaTeX reconstruction, form/annotation content editing, OCR tables, merged or multiline cells, and advanced table reconstruction.
 
 ### Batch E: Video Subtitle Translation
 

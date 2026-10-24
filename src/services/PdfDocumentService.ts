@@ -27,6 +27,7 @@ import {
   PdfTableCellLayout as PdfDetectedTableCellLayout
 } from './PdfTableLayout';
 import { fitPdfText } from './PdfTextFitting';
+import { fitPdfTextBox, getPdfSourceMask, isValidPdfTextBox, PDF_TEXT_BOX_PADDING, PdfTextBox } from './PdfTextBox';
 
 interface PdfViewportLike {
   width: number;
@@ -135,6 +136,7 @@ export interface PdfDocumentAnalysis {
 export interface PdfTranslationResult {
   block: DocumentBlock;
   translatedText: string;
+  pdfTextBox?: PdfTextBox;
 }
 
 interface PdfInteractionSnapshot {
@@ -2066,6 +2068,21 @@ export class PdfDocumentSession {
   ): void {
     for (const result of results) {
       const layout = result.block.layout;
+      if (!result.pdfTextBox || !layout || !result.translatedText.trim()) continue;
+      if (!isValidPdfTextBox(result.pdfTextBox, {
+        ...layout, pageWidth: rendered.width, pageHeight: rendered.height
+      })) throw new Error('Cannot export an invalid PDF text area.');
+      const mask = getPdfSourceMask({ ...layout, pageWidth: rendered.width, pageHeight: rendered.height });
+      context.save();
+      context.fillStyle = '#fff';
+      context.fillRect(
+        mask.x * rendered.scale, mask.y * rendered.scale,
+        mask.width * rendered.scale, mask.height * rendered.scale
+      );
+      context.restore();
+    }
+    for (const result of results) {
+      const layout = result.block.layout;
       const translatedText = result.translatedText.trim();
       if (!layout || !translatedText || layout.contentKind === 'formula') continue;
 
@@ -2074,15 +2091,23 @@ export class PdfDocumentSession {
         continue;
       }
 
-      const plan = this.createTextDrawPlan(context, translatedText, layout, rendered);
+      const plan = this.createTextDrawPlan(context, translatedText, layout, rendered, result.pdfTextBox);
       context.save();
       context.fillStyle = 'rgba(255, 255, 255, 0.97)';
-      context.fillRect(
-        plan.x - 2 * rendered.scale,
-        plan.y - 2 * rendered.scale,
-        plan.width + 4 * rendered.scale,
-        plan.height + 4 * rendered.scale
-      );
+      if (result.pdfTextBox) {
+        context.fillStyle = '#fff';
+        context.beginPath();
+        context.rect(plan.x, plan.y, plan.width, plan.height);
+        context.clip();
+        context.fillRect(plan.x, plan.y, plan.width, plan.height);
+      } else {
+        context.fillRect(
+          plan.x - 2 * rendered.scale,
+          plan.y - 2 * rendered.scale,
+          plan.width + 4 * rendered.scale,
+          plan.height + 4 * rendered.scale
+        );
+      }
       context.fillStyle = '#172033';
       context.font = `${plan.fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
       context.textBaseline = 'top';
@@ -2090,8 +2115,8 @@ export class PdfDocumentSession {
       plan.lines.forEach((line, index) => {
         context.fillText(
           line,
-          plan.x + 2 * rendered.scale,
-          plan.y + index * plan.lineHeight,
+          plan.x + (result.pdfTextBox ? PDF_TEXT_BOX_PADDING : 2) * rendered.scale,
+          plan.y + (result.pdfTextBox ? PDF_TEXT_BOX_PADDING * rendered.scale : 0) + index * plan.lineHeight,
           plan.maxWidth
         );
       });
@@ -2103,9 +2128,32 @@ export class PdfDocumentSession {
     context: CanvasRenderingContext2D,
     translatedText: string,
     layout: DocumentBlockLayout,
-    rendered: PdfRenderedPage
+    rendered: PdfRenderedPage,
+    textBox?: PdfTextBox
   ): PdfTextDrawPlan {
     const scale = rendered.scale;
+    if (textBox) {
+      if (!isValidPdfTextBox(textBox, { ...layout, pageWidth: rendered.width, pageHeight: rendered.height })) {
+        throw new Error('Cannot export an invalid PDF text area.');
+      }
+      const fitted = fitPdfTextBox(translatedText, textBox, (text, fontSize) => {
+        context.font = `${fontSize * scale}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+        return context.measureText(text).width / scale;
+      });
+      if (fitted.truncated) {
+        throw new Error(`Page ${layout.pageNumber}: give the translated text area more space or shorten its text.`);
+      }
+      return {
+        x: textBox.x * scale,
+        y: textBox.y * scale,
+        width: textBox.width * scale,
+        height: textBox.height * scale,
+        maxWidth: (textBox.width - PDF_TEXT_BOX_PADDING * 2) * scale,
+        fontSize: fitted.fontSize * scale,
+        lineHeight: fitted.lineHeight * scale,
+        lines: fitted.lines
+      };
+    }
     const x = layout.x * scale;
     const sourceY = layout.y * scale;
     const regionX = layout.regionX ?? 0;
@@ -2263,6 +2311,11 @@ export class PdfDocumentSession {
     results: PdfTranslationResult[],
     pages: PdfPageSummary[]
   ): void {
+    for (const result of results) {
+      if (result.pdfTextBox !== undefined && !isValidPdfTextBox(result.pdfTextBox, result.block.layout)) {
+        throw new Error('Cannot export an invalid PDF text area.');
+      }
+    }
     const positionedResults = results.filter(result => (
       result.block.layout
       && result.block.layout.contentKind !== 'formula'
@@ -2288,7 +2341,7 @@ export class PdfDocumentSession {
       if (layout.tableCell) {
         this.createTableCellDrawPlan(context, result.translatedText.trim(), layout, rendered);
       } else {
-        this.createTextDrawPlan(context, result.translatedText.trim(), layout, rendered);
+        this.createTextDrawPlan(context, result.translatedText.trim(), layout, rendered, result.pdfTextBox);
       }
     }
   }

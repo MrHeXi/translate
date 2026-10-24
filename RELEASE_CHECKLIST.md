@@ -76,6 +76,8 @@ Use this checklist before creating a public package or submitting to Chrome Web 
 
 ## Manual Smoke Test
 
+- [ ] Translate a PDF prose block, open Arrange translated text, change position/size/maximum text size, and confirm only Apply text area changes the preview with no provider request. Check both PDF exports, reject out-of-page edits, block export when text cannot fit, reset to the original layout, and confirm local history retains the text area without storing PDF bytes. Formula and table-cell blocks must not expose prose-reflow controls.
+
 - [ ] Load unpacked extension from `dist`.
 - [ ] Confirm extension name and icon are correct in Chrome.
 - [ ] Confirm page translation does not start automatically.

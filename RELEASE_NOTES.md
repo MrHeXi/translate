@@ -6,6 +6,8 @@ Initial productized release candidate for local Chrome/Firefox testing and brows
 
 ### Included
 
+- Manual same-page PDF prose reflow through per-block position, size, and maximum-font controls. Edits are applied explicitly without a provider request, preserve source geometry, share full-text fitting and clipping across preview and both PDF export modes, can be reset, and survive explicit local-history saving. Invalid areas and text that cannot fit block export before page rendering; formulas and detected table cells retain their existing layout.
+
 - User-triggered page translation from the popup or floating page button.
 - Immediate Start/Stop behavior that restores the page when translation mode is turned off.
 - Configurable CSS selector exclusions for page areas that should stay original during manual page translation.
@@ -102,17 +104,16 @@ Initial productized release candidate for local Chrome/Firefox testing and brows
 
 ### Verification
 
-Verified on 2026-08-19:
-
-Reverified on 2026-10-24: all 83 suites and 1,025 tests, TypeScript, ESLint, current-source build fingerprints, and both 246-file ZIP archives passed; ZIP CRC and every archived file match the production directories.
+Verified on 2026-10-24:
 
 - `tsc --noEmit`: passed.
 - `eslint src --ext .ts,.js`: passed.
-- `jest --runInBand --silent`: passed, 83 test suites and 1,025 tests.
+- `jest --runInBand --silent`: passed, 84 test suites and 1,046 tests.
 - `npm run package`: passed for Chrome and Firefox Desktop.
+- Browser smoke check with a generated real PDF and local mock translations: moving/resizing text, bounded source-glyph removal, out-of-page rejection, overflow recovery by enlarging the area, reset, both PDF exports, and saved-history JSON geometry passed. Browser-exported PDFs reopen as one 600-by-800 page, and history keeps the original coordinates separately.
 - `web-ext lint --source-dir dist-firefox`: passed with 0 errors, 0 notices, and 31 warnings retained for AMO review.
-- Chrome build metadata: source `3B144FAB955B9B33B43BA6E0451D8B1E7DA6EA9E418B4F4BA86BBC68DC318068`, manifest `68BA4D2F9519F1D7D42DD388392934FF9B4966791048A82E2920138F9B72828E`, payload `0429A86F7B70F364E6498561B1FF071349CA3C22B106B9F45BA3A01998626203`.
-- Firefox build metadata: source `096E4AC4829A920D10FFD8A5F232530283F1EF8E8CB3660E230C974CDE9A12C3`, manifest `9F879A96EC3A84499C5EE00A17B104ED4BFC19AFF796CC8F5FE989F06EF8859D`, payload `1A5DE9AAA3EA532C2BF258FD1970B24480C9D17C09972A98723808267601685F`.
+- Chrome build metadata: source `C3CA33561231103E9264D60B38FC88685F4BF6B06B9EF6E4EC3726ABCB40FD67`, manifest `68BA4D2F9519F1D7D42DD388392934FF9B4966791048A82E2920138F9B72828E`, payload `C39A676391AD024D0AAEFEE58958ADB4281553DE443F4BCFE494447BB4AAD182`.
+- Firefox build metadata: source `0ACDC140203B18F01CD47C61253C005E6A74D042FCEE936EA08B52038204D67D`, manifest `9F879A96EC3A84499C5EE00A17B104ED4BFC19AFF796CC8F5FE989F06EF8859D`, payload `03D54DE427095D92822F5A6988006A1C21D760F86D20D08647440739793F97E0`.
 - Both production directories contain exactly 246 files; forbidden tests, TypeScript declarations/sources, and source maps are absent, and every non-manifest/non-metadata file is byte-identical across targets.
 - Both ZIPs were generated twice from sorted forward-slash paths with fixed timestamps, compared byte-for-byte, CRC-checked, and reloaded to match every production file.
 
@@ -128,11 +129,11 @@ Expected build warnings:
 
 - Chrome unpacked folder: `dist`
 - Chrome test package: `chrome-translation-extension.zip`
-- Chrome ZIP size: `17,887,798` bytes
-- Chrome SHA-256: `B6A38A693F77AA00CCB3DF05FFE7B258EB6E2C06201DB5F85D2B917C358BAC56`
+- Chrome ZIP size: `17,889,980` bytes
+- Chrome SHA-256: `BF727E9F55A9934CCFE77A82F4B841A204605630CBEFD395B23EF68BA093FADE`
 - Firefox unpacked folder: `dist-firefox`
 - Firefox test package: `firefox-translation-extension.zip`
-- Firefox ZIP size: `17,887,970` bytes
-- Firefox SHA-256: `195F5B12CE3CE7B6F02FDE9234B82635FBE73E9D78DD566F92A4C8A982459769`
+- Firefox ZIP size: `17,890,150` bytes
+- Firefox SHA-256: `2C9C637A01009655460061BB0F620B4D544B5D4E4635F53F61B3E273D3B44806`
 
 Keep generated package artifacts out of git unless a release process explicitly requires attaching them.

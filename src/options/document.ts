@@ -5,6 +5,15 @@ import {
   DocumentTextExtractor
 } from '../services/DocumentTextExtractor';
 import { fitPdfText } from '../services/PdfTextFitting';
+import {
+  canArrangePdfText,
+  createDefaultPdfTextBox,
+  fitPdfTextBox,
+  getPdfSourceMask,
+  isValidPdfTextBox,
+  PDF_TEXT_BOX_PADDING,
+  PdfTextBox
+} from '../services/PdfTextBox';
 import { createAcademicDocumentHandoff } from '../services/AcademicDocumentHandoff';
 import { createBabelDocWorkflow } from '../services/BabelDocWorkflow';
 import {
@@ -53,6 +62,7 @@ type DisplayMode = 'bilingual' | 'translation-only' | 'original-only';
 interface TranslationResult {
   block: DocumentBlock;
   translatedText: string;
+  pdfTextBox?: PdfTextBox;
   preservedOriginal?: boolean;
 }
 
@@ -1035,6 +1045,9 @@ class DocumentTranslatorController {
       }
 
       block.append(index, original, translation);
+      if (this.pdfSession && !result.preservedOriginal && canArrangePdfText(result.block.layout)) {
+        block.appendChild(this.createPdfTextBoxEditor(result));
+      }
       this.resultsContainer.appendChild(block);
     }
 
@@ -1046,6 +1059,94 @@ class DocumentTranslatorController {
       ? element.innerText
       : element.textContent || '';
     return text.replace(/\r\n?/g, '\n');
+  }
+
+  private createPdfTextBoxEditor(result: TranslationResult): HTMLDetailsElement {
+    const layout = result.block.layout!;
+    const editor = document.createElement('details');
+    editor.className = 'pdf-layout-editor';
+    editor.dataset['block'] = String(result.block.id);
+    const summary = document.createElement('summary');
+    summary.textContent = 'Arrange translated text';
+    const help = document.createElement('p');
+    help.textContent = 'Position and size use percentages of this page. Choose an area clear of other content, then apply to preview.';
+    const fields = document.createElement('div');
+    fields.className = 'pdf-layout-fields';
+    const inputs = new Map<keyof PdfTextBox, HTMLInputElement>();
+    for (const [key, labelText] of [
+      ['x', 'Left (%)'], ['y', 'Top (%)'], ['width', 'Width (%)'],
+      ['height', 'Height (%)'], ['fontSize', 'Max text size (pt)']
+    ] as const) {
+      const label = document.createElement('label');
+      label.append(labelText);
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.step = '0.01';
+      input.min = key === 'fontSize' ? '6.5' : '0';
+      input.max = key === 'fontSize' ? '36' : '100';
+      input.required = true;
+      input.dataset['boxField'] = key;
+      input.disabled = this.isBusy;
+      input.setAttribute('aria-label', `${labelText} for PDF block ${result.block.id}`);
+      label.appendChild(input);
+      fields.appendChild(label);
+      inputs.set(key, input);
+    }
+    const writeFields = (): void => {
+      const box = result.pdfTextBox || createDefaultPdfTextBox(layout);
+      for (const [key, input] of inputs) {
+        const extent = key === 'x' || key === 'width' ? layout.pageWidth! : layout.pageHeight!;
+        input.value = String(Number((key === 'fontSize' ? box[key] : box[key] / extent * 100).toFixed(4)));
+      }
+    };
+    writeFields();
+    const actions = document.createElement('div');
+    actions.className = 'pdf-layout-actions';
+    const apply = document.createElement('button');
+    apply.type = 'button';
+    apply.className = 'secondary-btn';
+    apply.dataset['boxAction'] = 'apply';
+    apply.textContent = 'Apply text area';
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.className = 'secondary-btn';
+    reset.dataset['boxAction'] = 'reset';
+    reset.textContent = 'Use original layout';
+    apply.disabled = reset.disabled = this.isBusy;
+    const updatePreview = (): void => {
+      this.renderPdfTranslationOverlays();
+      this.updateExportButtons();
+      this.showMessage(
+        this.pdfOverflowCount > 0 ? this.getPdfOverflowMessage() : 'PDF text area updated. All translated text fits.',
+        this.pdfOverflowCount > 0 ? 'error' : 'info'
+      );
+    };
+    apply.addEventListener('click', () => {
+      if (this.isBusy || !this.currentResults.includes(result)) return;
+      const read = (key: keyof PdfTextBox): number => inputs.get(key)!.valueAsNumber;
+      const box = {
+        x: read('x') / 100 * layout.pageWidth!,
+        y: read('y') / 100 * layout.pageHeight!,
+        width: read('width') / 100 * layout.pageWidth!,
+        height: read('height') / 100 * layout.pageHeight!,
+        fontSize: read('fontSize')
+      };
+      if (!isValidPdfTextBox(box, layout)) {
+        this.showMessage('Keep the text area inside this page, at least 16 pt wide and high, with a text size from 6.5 to 36 pt.', 'error');
+        return;
+      }
+      result.pdfTextBox = box;
+      updatePreview();
+    });
+    reset.addEventListener('click', () => {
+      if (this.isBusy || !this.currentResults.includes(result)) return;
+      delete result.pdfTextBox;
+      writeFields();
+      updatePreview();
+    });
+    actions.append(apply, reset);
+    editor.append(summary, help, fields, actions);
+    return editor;
   }
 
   private exportTranslatedSubtitles(): void {
@@ -1417,11 +1518,26 @@ class DocumentTranslatorController {
 
       for (const result of pageResults) {
         const layout = result.block.layout!;
+        const pageLayout = { ...layout, pageWidth: view.summary.width, pageHeight: view.summary.height };
+        if (!result.pdfTextBox || !isValidPdfTextBox(result.pdfTextBox, pageLayout)) continue;
+        const bounds = getPdfSourceMask(pageLayout);
+        const mask = document.createElement('div');
+        mask.className = 'pdf-source-mask';
+        mask.style.left = `${bounds.x / view.summary.width * 100}%`;
+        mask.style.top = `${bounds.y / view.summary.height * 100}%`;
+        mask.style.width = `${bounds.width / view.summary.width * 100}%`;
+        mask.style.height = `${bounds.height / view.summary.height * 100}%`;
+        view.translationLayer.appendChild(mask);
+      }
+
+      for (const result of pageResults) {
+        const layout = result.block.layout!;
         const pageWidth = layout.pageWidth || view.summary.width;
         const pageHeight = layout.pageHeight || view.summary.height;
         const tableCell = getUsableTableCell(layout, pageWidth, pageHeight);
-        const sourceX = tableCell?.x ?? layout.x;
-        const sourceY = tableCell?.y ?? layout.y;
+        const textBox = result.pdfTextBox;
+        const sourceX = textBox?.x ?? tableCell?.x ?? layout.x;
+        const sourceY = textBox?.y ?? tableCell?.y ?? layout.y;
         const left = Math.max(0, Math.min(99, (sourceX / pageWidth) * 100));
         const top = Math.max(0, Math.min(99, (sourceY / pageHeight) * 100));
         const sourceWidth = Math.max(4, (layout.width / pageWidth) * 100);
@@ -1444,7 +1560,13 @@ class DocumentTranslatorController {
         overlay.dataset['source'] = layout.source;
         overlay.textContent = result.translatedText.trim();
         overlay.style.left = `${left}%`;
-        if (tableCell) {
+        if (textBox) {
+          overlay.classList.add('pdf-translation-overlay--text-box');
+          overlay.style.top = `${top}%`;
+          overlay.style.width = `${textBox.width / pageWidth * 100}%`;
+          overlay.style.height = `${textBox.height / pageHeight * 100}%`;
+          overlay.style.padding = `calc(100cqw * ${PDF_TEXT_BOX_PADDING} / ${pageWidth})`;
+        } else if (tableCell) {
           overlay.classList.add('pdf-translation-overlay--table-cell');
           overlay.dataset['table'] = String(tableCell.tableId);
           overlay.dataset['row'] = String(tableCell.rowIndex);
@@ -1458,12 +1580,14 @@ class DocumentTranslatorController {
         } else {
           overlay.style.top = `${top}%`;
         }
-        if (!tableCell) {
+        if (!tableCell && !textBox) {
           overlay.style.width = `${width}%`;
           overlay.style.minHeight = `${minimumHeight}%`;
         }
         view.translationLayer.appendChild(overlay);
-        if (tableCell) {
+        if (textBox) {
+          this.fitPdfTextBoxOverlay(overlay, result.translatedText.trim(), textBox, layout, view);
+        } else if (tableCell) {
           this.fitPdfTableCellOverlay(overlay, result.translatedText.trim(), layout, view);
         } else {
           this.fitPdfTextOverlay(overlay, result.translatedText.trim(), layout, view);
@@ -1472,6 +1596,38 @@ class DocumentTranslatorController {
     }
 
     this.applyPdfDisplayMode();
+  }
+
+  private fitPdfTextBoxOverlay(
+    overlay: HTMLElement,
+    text: string,
+    box: PdfTextBox,
+    layout: DocumentBlockLayout,
+    view: PdfPageView
+  ): void {
+    if (!isValidPdfTextBox(box, { ...layout, pageWidth: view.summary.width, pageHeight: view.summary.height })) {
+      this.markPdfOverflow(overlay, `Page ${layout.pageNumber}: invalid text area`, false);
+      return;
+    }
+    const context = typeof CanvasRenderingContext2D !== 'undefined'
+      ? view.translatedCanvas.getContext('2d')
+      : null;
+    const fitted = fitPdfTextBox(text, box, (line, fontSize) => {
+      if (context) {
+        context.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+        return context.measureText(line).width;
+      }
+      return Array.from(line).reduce((total, character) => (
+        total + fontSize * (/\s/u.test(character) ? 0.32 : 0.58)
+      ), 0);
+    });
+    overlay.style.fontSize = `calc(100cqw * ${fitted.fontSize} / ${view.summary.width})`;
+    overlay.style.lineHeight = `calc(100cqw * ${fitted.lineHeight} / ${view.summary.width})`;
+    if (fitted.truncated) {
+      this.markPdfOverflow(overlay, `Page ${layout.pageNumber}: give this text area more space or shorten the translation`, false);
+    } else {
+      overlay.textContent = fitted.lines.join('\n');
+    }
   }
 
   private fitPdfTableCellOverlay(
@@ -2238,6 +2394,7 @@ class DocumentTranslatorController {
       this.currentResults = entry.results.map(result => ({
         block: result.block,
         translatedText: result.translatedText,
+        ...(result.pdfTextBox ? { pdfTextBox: { ...result.pdfTextBox } } : {}),
         ...(result.preservedOriginal === undefined
           ? {}
           : { preservedOriginal: result.preservedOriginal })
@@ -2424,6 +2581,8 @@ class DocumentTranslatorController {
     if (this.clearHistoryButton) {
       this.clearHistoryButton.disabled = isBusy || this.historyEntries.length === 0;
     }
+    this.resultsContainer?.querySelectorAll<HTMLInputElement | HTMLButtonElement>('.pdf-layout-editor input, .pdf-layout-editor button')
+      .forEach(control => { control.disabled = isBusy; });
     this.historyList?.querySelectorAll<HTMLButtonElement>('button[data-history-action]')
       .forEach(button => {
         button.disabled = isBusy;

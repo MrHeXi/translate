@@ -53,6 +53,34 @@ describe('DocumentHistoryService', () => {
     Object.assign(chrome.storage.sync, { get: syncGet, set: syncSet });
   });
 
+  it('round-trips an arranged PDF result without changing source geometry and rejects invalid saved areas', async () => {
+    const service = new DocumentHistoryService();
+    const block = {
+      id: 1, originalText: 'Original PDF paragraph',
+      layout: { source: 'pdf-text' as const, pageNumber: 1, pageWidth: 600, pageHeight: 800,
+        x: 60, y: 100, width: 180, height: 12, contentKind: 'prose' as const }
+    };
+    const box = { x: 120, y: 240, width: 240, height: 96, fontSize: 12 };
+    const input = makeInput('arranged.pdf', {
+      sourceKind: 'pdf', rawFileText: undefined, sourceText: block.originalText,
+      documentBlocks: [block], results: [{ block, translatedText: 'Edited translation', pdfTextBox: box }]
+    });
+    const saved = await service.save(input);
+    const reopened = await service.get(saved.id);
+    expect(reopened?.results[0]?.pdfTextBox).toEqual(box);
+    expect(reopened?.documentBlocks[0]).toEqual(block);
+    expect(reopened?.results[0]?.block).toEqual(block);
+    expect(JSON.stringify(reopened)).toContain('"pdfTextBox"');
+    const writeCount = localSet.mock.calls.length;
+    for (const invalid of [
+      { ...input, results: [{ ...input.results[0]!, pdfTextBox: { ...box, x: 500 } }] },
+      { ...input, results: [{ ...input.results[0]!, pdfTextBox: { ...box, fontSize: 1000 } }] },
+      { ...input, results: [{ ...input.results[0]!, block: { ...block, layout: { ...block.layout, pageNumber: 2 } } }] },
+      { ...input, sourceKind: 'txt' as const }
+    ]) await expect(service.save(invalid)).rejects.toThrow(/Invalid/i);
+    expect(localSet).toHaveBeenCalledTimes(writeCount);
+  });
+
   it('uses local storage only and supports explicit CRUD', async () => {
     const service = new DocumentHistoryService();
 
